@@ -11,6 +11,7 @@ from cancrizans.bach_crab import load_bach_crab_canon, assemble_crab_from_theme,
 from cancrizans.canon import is_time_palindrome, pairwise_symmetry_map, retrograde
 from cancrizans.io import to_midi, to_musicxml, to_wav_via_sf2, load_score
 from cancrizans.viz import piano_roll, symmetry
+from cancrizans.research import analyze_corpus, BatchAnalyzer, ResearchExporter
 
 
 def analyze_command(args: argparse.Namespace) -> int:
@@ -208,6 +209,73 @@ def synthesize_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def research_command(args: argparse.Namespace) -> int:
+    """Execute the research subcommand (batch analysis)."""
+    input_dir = Path(args.directory)
+
+    if not input_dir.exists() or not input_dir.is_dir():
+        print(f"Error: Directory not found: {input_dir}")
+        return 1
+
+    print(f"Analyzing corpus in: {input_dir}")
+    print(f"File pattern: {args.pattern}")
+    print("-" * 60)
+
+    # Analyze all files in the directory
+    analyses, comparison = analyze_corpus(input_dir, args.pattern)
+
+    if not analyses:
+        print("No files found matching the pattern.")
+        return 1
+
+    print(f"✓ Analyzed {len(analyses)} canon(s)")
+    print()
+
+    # Display summary statistics
+    print("Comparative Statistics:")
+    print("-" * 60)
+    print(f"Total canons: {comparison['total_canons']}")
+    print(f"Valid palindromes: {comparison['palindrome_count']} ({comparison['palindrome_count']/comparison['total_canons']*100:.1f}%)")
+    print(f"Average duration: {comparison['average_duration']:.1f} quarters")
+    print(f"Consonance ratio: {comparison['consonance_stats']['mean']:.1%} (min: {comparison['consonance_stats']['min']:.1%}, max: {comparison['consonance_stats']['max']:.1%})")
+    print(f"Average interval size: {comparison['interval_stats']['avg_size']:.2f} semitones")
+    print()
+
+    # Export results
+    output_dir = Path(args.output) if args.output else Path("research_output")
+    output_dir.mkdir(exist_ok=True)
+
+    if args.csv:
+        csv_path = output_dir / "analysis.csv"
+        ResearchExporter.to_csv(analyses, csv_path)
+        print(f"✓ CSV exported to: {csv_path}")
+
+    if args.json:
+        json_path = output_dir / "analysis.json"
+        ResearchExporter.to_json(analyses, json_path)
+        print(f"✓ JSON exported to: {json_path}")
+
+    if args.latex:
+        latex_path = output_dir / "analysis.tex"
+        ResearchExporter.to_latex_table(analyses, latex_path)
+        print(f"✓ LaTeX table exported to: {latex_path}")
+
+    if args.markdown:
+        md_path = output_dir / "analysis.md"
+        ResearchExporter.to_markdown_table(analyses, md_path)
+        print(f"✓ Markdown table exported to: {md_path}")
+
+    # Export all formats if --all is specified
+    if args.all:
+        ResearchExporter.to_csv(analyses, output_dir / "analysis.csv")
+        ResearchExporter.to_json(analyses, output_dir / "analysis.json")
+        ResearchExporter.to_latex_table(analyses, output_dir / "analysis.tex")
+        ResearchExporter.to_markdown_table(analyses, output_dir / "analysis.md")
+        print(f"✓ All formats exported to: {output_dir}")
+
+    return 0
+
+
 def main() -> int:
     """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(
@@ -284,6 +352,50 @@ def main() -> int:
         help="Output directory (default: out)"
     )
 
+    # Research command
+    research_parser = subparsers.add_parser(
+        "research",
+        help="Batch analyze multiple canons for research"
+    )
+    research_parser.add_argument(
+        "directory",
+        help="Directory containing MIDI/MusicXML files"
+    )
+    research_parser.add_argument(
+        "--pattern",
+        default="*.mid",
+        help="File pattern to match (default: *.mid)"
+    )
+    research_parser.add_argument(
+        "--output",
+        help="Output directory (default: research_output)"
+    )
+    research_parser.add_argument(
+        "--csv",
+        action="store_true",
+        help="Export to CSV format"
+    )
+    research_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Export to JSON format"
+    )
+    research_parser.add_argument(
+        "--latex",
+        action="store_true",
+        help="Export to LaTeX table format"
+    )
+    research_parser.add_argument(
+        "--markdown",
+        action="store_true",
+        help="Export to Markdown table format"
+    )
+    research_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Export to all formats"
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -297,6 +409,8 @@ def main() -> int:
             return render_command(args)
         elif args.command == "synthesize":
             return synthesize_command(args)
+        elif args.command == "research":
+            return research_command(args)
         else:
             print(f"Unknown command: {args.command}")
             return 1
