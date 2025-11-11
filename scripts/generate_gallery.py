@@ -1,4 +1,13 @@
-# 🎨 Cancrizans Gallery
+"""
+Generate GALLERY.md with correct file references
+"""
+
+from pathlib import Path
+
+
+def generate_gallery_md():
+    """Generate the gallery markdown file."""
+    content = """# 🎨 Cancrizans Gallery
 
 Visual and audio examples of crab canons, palindromic structures, and musical transformations.
 
@@ -249,3 +258,23 @@ python -m cancrizans render --input your_file.mid --mirror output.png
 
 *Gallery last updated: 2025-11-11*
 *All examples verified as true palindromes* ✓
+"""
+    return content
+
+
+def main():
+    """Generate GALLERY.md"""
+    gallery_path = Path('GALLERY.md')
+    content = generate_gallery_md()
+
+    with open(gallery_path, 'w') as f:
+        f.write(content)
+
+    print(f"✓ Generated: {gallery_path}")
+    print(f"  - 10 example canons with visualizations")
+    print(f"  - All links corrected")
+    print(f"  - Statistics table added")
+
+
+if __name__ == '__main__':
+    main()

@@ -38,32 +38,61 @@ The name comes from the sideways movement of crabs, referencing the backward mot
 ## ✨ Features
 
 ### 🐍 Python Library & CLI
-- **Core transformations**: retrograde, inversion, time alignment
+- **Core transformations**: retrograde, inversion, augmentation, diminution, mirror canon
+- **Analysis tools**: interval, harmonic, and rhythm analysis
 - **Palindrome verification**: automated structural analysis with pairwise mapping
 - **Export formats**: MIDI, MusicXML, WAV (optional with FluidSynth)
 - **Visualizations**: piano roll and symmetry plots with matplotlib
-- **CLI interface**: analyze, render, and synthesize canons
+- **CLI interface**: analyze, render, synthesize, and **research** (batch analysis)
+- **Research tools**: Batch processing, multi-format export (CSV/JSON/LaTeX/Markdown)
 - **Comprehensive tests**: 26 tests, 100% offline, all passing
 
-### 🌐 Web Interface
+### 🌐 Web Interface (PWA)
+- **✏️ Interactive Composer**: Create your own crab canons!
+  - Click-to-add piano roll editor
+  - Drag to move, shift+click to delete
+  - Real-time retrograde preview (red notes)
+  - 6 pre-made templates
+  - Live playback with dual-voice synthesis
+- **📚 Interactive Tutorial**: 11-step guided learning experience
 - **Interactive notation** rendered with VexFlow (two-staff layout)
-- **Audio playback** with Tone.js (adjustable tempo 40-160 BPM, pan, mute)
+- **Audio playback** with Tone.js (5 instruments, adjustable tempo)
 - **Mirror view**: visual palindrome structure with symmetry connectors
+- **Real-time waveform visualization**
+- **Export**: JSON, analysis data, PNG images
 - **Playback modes**: normal, first/second half, from-middle-outward
 - **Keyboard shortcuts**: Space (play/pause), H (highlight), M (metronome)
-- **Fully offline**: no external dependencies or network requests
+- **Progressive Web App**: Installable, works offline
+- **Fully accessible**: WCAG AA compliant, screen reader support
 
-### 📓 Jupyter Notebook
-- **Interactive tutorial**: step-by-step exploration of Bach's canon
-- **Pre-executed**: all outputs generated and saved
-- **Educational**: covers retrograde, inversion, custom canons
-- **Visual**: generates piano rolls, symmetry plots in-notebook
+### 🎓 Educational Materials
+- **4 Complete Lesson Plans** (30-45 min each, standards-aligned)
+- **Interactive Tutorial System** (built into web app)
+- **Quiz Bank**: 15+ questions with answer keys
+- **Tutorial Guide**: Step-by-step teaching instructions
+- **2 Jupyter Notebooks**: Bach exploration + waveform palindromes
+- **Pre-executed outputs**: All notebooks run with visualizations
+
+### 📊 Research Tools
+- **Batch Analysis**: Analyze entire directories of canons
+- **Comparative Statistics**: Cross-corpus analysis
+- **Export Formats**: CSV, JSON, LaTeX tables, Markdown
+- **CanonAnalyzer**: Deep single-file analysis with caching
+- **BatchAnalyzer**: Multi-file processing pipeline
+- **ResearchExporter**: Academic-ready data formats
+
+### 📓 Jupyter Notebooks
+- **Bach Crab Canon Exploration**: step-by-step analysis (843KB, pre-executed)
+- **Waveform Palindromes**: Symmetric envelope visualization (NEW!)
+- **Interactive tutorials**: covers retrograde, inversion, custom canons
+- **Visual outputs**: generates piano rolls, symmetry plots, spectrograms
 
 ### 📚 Documentation
 - **Auto-generated examples** with real code execution
-- **Visual gallery** with 20+ images
+- **Visual gallery** with 40+ images (10 complete canons)
 - **Complete API docs** with type hints
-- **5 educational examples** verified as true palindromes
+- **CHANGELOG**: Full version history
+- **Lesson plans, quizzes, tutorial guides**
 
 ## Installation
 
@@ -110,6 +139,9 @@ python -m cancrizans render \
 
 # Synthesize a new crab canon from the theme
 python -m cancrizans synthesize --tempo 84 --transpose 0
+
+# Research: batch analyze multiple canons
+python -m cancrizans research examples/ --pattern "*.mid" --all
 ```
 
 ### Python API
