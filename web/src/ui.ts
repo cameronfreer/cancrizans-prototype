@@ -9,7 +9,6 @@ import { NotationRenderer } from './notation';
 export class UIController {
   private player: Player;
   private mirrorView: MirrorView;
-  private notationRenderer: NotationRenderer;
 
   // UI elements
   private playBtn: HTMLButtonElement;
@@ -27,11 +26,11 @@ export class UIController {
   constructor(
     player: Player,
     mirrorView: MirrorView,
-    notationRenderer: NotationRenderer
+    _notationRenderer: NotationRenderer
   ) {
     this.player = player;
     this.mirrorView = mirrorView;
-    this.notationRenderer = notationRenderer;
+    // notationRenderer is kept for future use but currently unused
 
     // Get UI elements
     this.playBtn = this.getElement('play-btn');
@@ -104,7 +103,7 @@ export class UIController {
       this.mirrorView.updateTime(time);
     });
 
-    this.player.onNote((voiceIndex, note) => {
+    this.player.onNote((voiceIndex, _note) => {
       // Find note index
       const noteIndex = 0; // Simplified - would need proper tracking
       this.mirrorView.highlightNote(voiceIndex, noteIndex);

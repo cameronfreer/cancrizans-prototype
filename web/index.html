@@ -78,6 +78,54 @@
       </div>
     </section>
 
+    <!-- Interactive Canon Composer -->
+    <section class="view composer-section">
+      <h2>✏️ Interactive Canon Builder</h2>
+      <p class="composer-help">
+        Click to add notes • Drag to move • Shift+Click to delete •
+        <span class="retrograde-indicator">Red notes show auto-generated retrograde</span>
+      </p>
+
+      <div class="composer-controls">
+        <div class="control-group">
+          <div class="control-item">
+            <label for="template-select">Template:</label>
+            <select id="template-select" aria-label="Select template">
+              <option value="">-- Select Template --</option>
+            </select>
+          </div>
+          <button id="clear-composer-btn">🗑️ Clear All</button>
+          <button id="play-composer-btn">▶ Play My Canon</button>
+        </div>
+
+        <div class="control-group">
+          <div class="control-item">
+            <label for="note-duration-select">Note Duration:</label>
+            <select id="note-duration-select" aria-label="Note duration">
+              <option value="0.25">16th (0.25)</option>
+              <option value="0.5">8th (0.5)</option>
+              <option value="1" selected>Quarter (1)</option>
+              <option value="2">Half (2)</option>
+              <option value="4">Whole (4)</option>
+            </select>
+          </div>
+          <div class="control-item">
+            <input type="checkbox" id="snap-to-grid" checked aria-label="Snap to grid">
+            <label for="snap-to-grid">Snap to Grid</label>
+          </div>
+        </div>
+
+        <div class="composer-stats">
+          <span id="composer-note-count">Notes: 0</span>
+          <span id="composer-duration">Duration: 0.0 quarters</span>
+        </div>
+      </div>
+
+      <div class="composer-canvas-container">
+        <canvas id="composer-canvas" role="img" aria-label="Piano roll composer"></canvas>
+      </div>
+    </section>
+
     <!-- Musical Notation View -->
     <section class="view">
       <h2>Musical Notation</h2>

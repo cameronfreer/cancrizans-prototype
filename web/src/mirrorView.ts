@@ -2,7 +2,7 @@
  * Mirror view - visualizes the palindromic structure of the canon
  */
 
-import { Score, Note } from './scoreLoader';
+import { Score } from './scoreLoader';
 
 export class MirrorView {
   private canvas: HTMLCanvasElement;

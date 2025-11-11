@@ -8,7 +8,7 @@ export type InstrumentType = 'synth' | 'piano' | 'harpsichord' | 'strings' | 'or
 
 export interface InstrumentConfig {
   name: string;
-  settings: Tone.SynthOptions | Tone.PolySynthOptions;
+  settings: any;  // Simplified type to avoid Tone.js strict type checking
 }
 
 export const INSTRUMENTS: Record<InstrumentType, InstrumentConfig> = {

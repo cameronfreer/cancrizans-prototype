@@ -2,7 +2,7 @@
  * Musical notation rendering using VexFlow
  */
 
-import { Factory, Stave, StaveNote, Voice, Formatter, Renderer } from 'vexflow';
+import { Stave, StaveNote, Voice, Formatter, Renderer } from 'vexflow';
 import { Score, Note } from './scoreLoader';
 
 export class NotationRenderer {
@@ -24,7 +24,7 @@ export class NotationRenderer {
     const height = 600;
 
     // Create VexFlow renderer
-    this.renderer = new Renderer(this.container, Renderer.Backends.SVG);
+    this.renderer = new Renderer(this.container as HTMLDivElement, Renderer.Backends.SVG);
     this.renderer.resize(width, height);
     this.context = this.renderer.getContext();
 
@@ -160,7 +160,7 @@ export class NotationRenderer {
         // Add accidentals if needed
         if (noteName.includes('b') || noteName.includes('#')) {
           const accidental = noteName.includes('b') ? 'b' : '#';
-          staveNote.addModifier(0, new (VexFlow as any).Accidental(accidental));
+          staveNote.addModifier(new (VexFlow as any).Accidental(accidental), 0);
         }
 
         vfNotes.push(staveNote);
@@ -196,7 +196,7 @@ export class NotationRenderer {
     return '32';
   }
 
-  highlightNote(voiceIndex: number, noteIndex: number): void {
+  highlightNote(_voiceIndex: number, _noteIndex: number): void {
     // TODO: Implement note highlighting
     // This would require tracking rendered notes and applying CSS classes
   }
@@ -211,6 +211,6 @@ declare global {
 
 const VexFlow = window.VexFlow || {
   Accidental: class {
-    constructor(type: string) {}
+    constructor(_type: string) {}
   },
 };

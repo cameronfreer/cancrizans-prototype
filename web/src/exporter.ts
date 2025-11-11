@@ -3,7 +3,6 @@
  */
 
 import { Score } from './scoreLoader';
-import * as Tone from 'tone';
 
 export class Exporter {
   private score: Score;

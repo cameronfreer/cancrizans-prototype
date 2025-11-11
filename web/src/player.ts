@@ -55,7 +55,7 @@ export class Player {
     Tone.getTransport().bpm.value = this.tempo;
 
     // Update current time
-    Tone.getTransport().scheduleRepeat((time) => {
+    Tone.getTransport().scheduleRepeat(() => {
       this.currentTime = Tone.getTransport().seconds * (this.tempo / 60);
       this.onTimeUpdate?.(this.currentTime);
     }, 0.1);
@@ -63,7 +63,8 @@ export class Player {
 
   private createParts(): void {
     this.parts = this.score.voices.map((voice, voiceIndex) => {
-      const part = new Tone.Part((time, note: Note) => {
+      const part = new Tone.Part((time, value) => {
+        const note = value as Note;
         if (!this.muteStates[voiceIndex]) {
           const freq = Tone.Frequency(note.pitch, 'midi').toFrequency();
           this.synths[voiceIndex].triggerAttackRelease(
@@ -87,13 +88,12 @@ export class Player {
 
     await Tone.start();
 
-    // Calculate start and end times based on mode
+    // Calculate start time based on mode
     let startTime = 0;
-    let endTime = this.score.totalDuration * (60 / this.tempo);
 
     switch (this.mode) {
       case 'first-half':
-        endTime = (this.score.totalDuration / 2) * (60 / this.tempo);
+        // Play first half only
         break;
       case 'second-half':
         startTime = (this.score.totalDuration / 2) * (60 / this.tempo);
