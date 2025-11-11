@@ -39,6 +39,19 @@
 
       <div class="control-group">
         <div class="control-item">
+          <label for="instrument-select">Instrument:</label>
+          <select id="instrument-select" aria-label="Select instrument">
+            <option value="synth">Synthesizer</option>
+            <option value="piano">Piano</option>
+            <option value="harpsichord" selected>Harpsichord</option>
+            <option value="strings">Strings</option>
+            <option value="organ">Organ</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <div class="control-item">
           <label for="tempo-slider">Tempo:</label>
           <input type="range" id="tempo-slider" min="40" max="160" value="84" step="1" aria-label="Tempo">
           <span id="tempo-display">84</span> BPM
@@ -77,13 +90,31 @@
       <canvas id="mirror-canvas" role="img" aria-label="Palindromic symmetry visualization"></canvas>
     </section>
 
+    <!-- Waveform Visualization -->
+    <section class="view">
+      <h2>Waveform</h2>
+      <canvas id="waveform-canvas" role="img" aria-label="Audio waveform visualization"></canvas>
+    </section>
+
+    <!-- Export Section -->
+    <section class="view">
+      <h2>Export & Share</h2>
+      <div class="control-group">
+        <button id="export-json-btn">📥 Export JSON</button>
+        <button id="export-analysis-btn">📊 Export Analysis</button>
+        <button id="export-mirror-png-btn">🖼️ Save Mirror View</button>
+        <button id="share-btn" class="mobile-only">📤 Share</button>
+      </div>
+    </section>
+
     <!-- Keyboard Shortcuts -->
     <div class="keyboard-hints">
       <h3>Keyboard Shortcuts</h3>
       <p>
         <kbd>Space</kbd> Play/Pause |
         <kbd>H</kbd> Toggle highlight |
-        <kbd>M</kbd> Toggle metronome
+        <kbd>M</kbd> Toggle metronome |
+        <kbd>I</kbd> Change instrument
       </p>
     </div>
 

@@ -1,11 +1,12 @@
 """
 Core transformations for canonical music analysis: retrograde, inversion,
-time alignment, and palindrome verification.
+augmentation, diminution, time alignment, and palindrome verification.
 """
 
-from typing import TypeVar, Union, List, Tuple
+from typing import TypeVar, Union, List, Tuple, Dict
 import music21 as m21
 from music21 import stream, note, chord
+import numpy as np
 
 StreamType = TypeVar('StreamType', bound=stream.Stream)
 
@@ -117,6 +118,91 @@ def invert(
             else:
                 result.append(item)
         return result
+
+
+def augmentation(stream_obj: stream.Stream, factor: float = 2.0) -> stream.Stream:
+    """
+    Return augmentation of a stream (durations multiplied by factor).
+
+    In augmentation canon, one voice plays notes with longer durations.
+
+    Args:
+        stream_obj: A music21 Stream to augment
+        factor: Multiplication factor for durations (default 2.0 = double)
+
+    Returns:
+        A new Stream with augmented durations
+    """
+    result = stream_obj.__class__()
+
+    for el in stream_obj.flatten().notesAndRests:
+        new_el = el.__class__()
+
+        # Copy pitch
+        if isinstance(el, note.Note):
+            new_el.pitch = el.pitch
+        elif isinstance(el, chord.Chord):
+            new_el.pitches = el.pitches
+
+        # Multiply duration
+        new_el.quarterLength = el.quarterLength * factor
+
+        # Multiply offset
+        result.insert(el.offset * factor, new_el)
+
+    return result
+
+
+def diminution(stream_obj: stream.Stream, factor: float = 2.0) -> stream.Stream:
+    """
+    Return diminution of a stream (durations divided by factor).
+
+    In diminution canon, one voice plays notes with shorter durations.
+
+    Args:
+        stream_obj: A music21 Stream to diminish
+        factor: Division factor for durations (default 2.0 = half)
+
+    Returns:
+        A new Stream with diminished durations
+    """
+    result = stream_obj.__class__()
+
+    for el in stream_obj.flatten().notesAndRests:
+        new_el = el.__class__()
+
+        # Copy pitch
+        if isinstance(el, note.Note):
+            new_el.pitch = el.pitch
+        elif isinstance(el, chord.Chord):
+            new_el.pitches = el.pitches
+
+        # Divide duration
+        new_el.quarterLength = el.quarterLength / factor
+
+        # Divide offset
+        result.insert(el.offset / factor, new_el)
+
+    return result
+
+
+def mirror_canon(stream_obj: stream.Stream, axis_pitch: Union[str, m21.pitch.Pitch] = 'C4') -> stream.Stream:
+    """
+    Create a mirror canon: retrograde + inversion combined.
+
+    This is both backwards in time AND upside-down in pitch.
+
+    Args:
+        stream_obj: A music21 Stream
+        axis_pitch: The pitch axis for inversion
+
+    Returns:
+        A new Stream that is the mirror (retrograde-inversion)
+    """
+    # First invert, then retrograde
+    inverted = invert(stream_obj, axis_pitch)
+    mirrored = retrograde(inverted)
+    return mirrored
 
 
 def time_align(
@@ -269,3 +355,184 @@ def pairwise_symmetry_map(voice: stream.Stream) -> List[Tuple[int, int]]:
             pairs.append((i, j))
 
     return pairs
+
+
+# New analysis functions
+
+def interval_analysis(score_or_stream: Union[stream.Score, stream.Stream]) -> Dict[str, any]:
+    """
+    Analyze melodic intervals in a score or stream.
+
+    Returns statistics about the intervals used, including:
+    - Histogram of interval sizes
+    - Most common intervals
+    - Average interval size
+    - Interval distribution
+
+    Args:
+        score_or_stream: A Score or Stream to analyze
+
+    Returns:
+        Dictionary with interval statistics
+    """
+    if isinstance(score_or_stream, stream.Score):
+        parts = list(score_or_stream.parts)
+    else:
+        parts = [score_or_stream]
+
+    all_intervals = []
+    interval_histogram = {}
+
+    for part in parts:
+        notes_list = [n for n in part.flatten().notesAndRests if not n.isRest and hasattr(n, 'pitch')]
+
+        for i in range(len(notes_list) - 1):
+            if isinstance(notes_list[i], note.Note) and isinstance(notes_list[i+1], note.Note):
+                interval_semitones = notes_list[i+1].pitch.midi - notes_list[i].pitch.midi
+                all_intervals.append(interval_semitones)
+
+                # Build histogram
+                interval_histogram[interval_semitones] = interval_histogram.get(interval_semitones, 0) + 1
+
+    if not all_intervals:
+        return {
+            'total_intervals': 0,
+            'histogram': {},
+            'most_common': [],
+            'average': 0,
+            'distribution': {}
+        }
+
+    # Calculate statistics
+    most_common = sorted(interval_histogram.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    return {
+        'total_intervals': len(all_intervals),
+        'histogram': interval_histogram,
+        'most_common': most_common,
+        'average': sum(abs(i) for i in all_intervals) / len(all_intervals),
+        'largest_leap': max(abs(i) for i in all_intervals),
+        'distribution': {
+            'ascending': sum(1 for i in all_intervals if i > 0),
+            'descending': sum(1 for i in all_intervals if i < 0),
+            'repeated': sum(1 for i in all_intervals if i == 0)
+        }
+    }
+
+
+def harmonic_analysis(score: stream.Score) -> Dict[str, any]:
+    """
+    Perform basic harmonic analysis on a score.
+
+    Analyzes vertical sonorities (chords) when multiple voices sound together.
+
+    Args:
+        score: A Score with multiple parts
+
+    Returns:
+        Dictionary with harmonic statistics
+    """
+    parts = list(score.parts)
+
+    if len(parts) < 2:
+        return {
+            'total_sonorities': 0,
+            'consonances': 0,
+            'dissonances': 0,
+            'interval_classes': {}
+        }
+
+    # Get all unique time points
+    time_points = set()
+    for part in parts:
+        for el in part.flatten().notesAndRests:
+            if not el.isRest:
+                time_points.add(float(el.offset))
+
+    sonorities = []
+    consonances = 0
+    dissonances = 0
+    interval_classes = {}
+
+    # Consonant intervals (perfect and major/minor 3rds and 6ths, perfect 5ths, octaves)
+    consonant_intervals = {0, 3, 4, 5, 7, 8, 9, 12, 15, 16}
+
+    for time_point in sorted(time_points):
+        # Find all notes sounding at this time
+        sounding_notes = []
+        for part in parts:
+            for el in part.flatten().notesAndRests:
+                if (not el.isRest and
+                    float(el.offset) <= time_point < float(el.offset + el.quarterLength)):
+                    if isinstance(el, note.Note):
+                        sounding_notes.append(el.pitch.midi)
+
+        if len(sounding_notes) >= 2:
+            # Calculate intervals between all pairs
+            for i in range(len(sounding_notes)):
+                for j in range(i+1, len(sounding_notes)):
+                    interval = abs(sounding_notes[j] - sounding_notes[i]) % 12
+                    interval_classes[interval] = interval_classes.get(interval, 0) + 1
+
+                    if interval in consonant_intervals:
+                        consonances += 1
+                    else:
+                        dissonances += 1
+
+            sonorities.append(sounding_notes)
+
+    return {
+        'total_sonorities': len(sonorities),
+        'consonances': consonances,
+        'dissonances': dissonances,
+        'consonance_ratio': consonances / (consonances + dissonances) if (consonances + dissonances) > 0 else 0,
+        'interval_classes': interval_classes,
+        'unique_pitches_per_sonority': [len(set(s)) for s in sonorities]
+    }
+
+
+def rhythm_analysis(score_or_stream: Union[stream.Score, stream.Stream]) -> Dict[str, any]:
+    """
+    Analyze rhythmic patterns in a score or stream.
+
+    Returns statistics about durations and rhythmic patterns.
+
+    Args:
+        score_or_stream: A Score or Stream to analyze
+
+    Returns:
+        Dictionary with rhythm statistics
+    """
+    if isinstance(score_or_stream, stream.Score):
+        parts = list(score_or_stream.parts)
+    else:
+        parts = [score_or_stream]
+
+    all_durations = []
+    duration_histogram = {}
+
+    for part in parts:
+        for el in part.flatten().notesAndRests:
+            duration = float(el.quarterLength)
+            all_durations.append(duration)
+            duration_histogram[duration] = duration_histogram.get(duration, 0) + 1
+
+    if not all_durations:
+        return {
+            'total_events': 0,
+            'histogram': {},
+            'most_common': [],
+            'average_duration': 0
+        }
+
+    most_common = sorted(duration_histogram.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    return {
+        'total_events': len(all_durations),
+        'histogram': duration_histogram,
+        'most_common': most_common,
+        'average_duration': sum(all_durations) / len(all_durations),
+        'shortest': min(all_durations),
+        'longest': max(all_durations),
+        'unique_durations': len(duration_histogram)
+    }
