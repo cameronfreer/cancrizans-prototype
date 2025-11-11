@@ -11,7 +11,14 @@ import { UIController } from './ui';
 import { CanonComposer, TEMPLATES, ComposerNote } from './composer';
 import { WaveformVisualizer } from './waveform';
 import { Exporter } from './exporter';
+import { AccessibilityManager } from './accessibility';
+import { LoadingManager, ErrorHandler } from './loading';
 import * as Tone from 'tone';
+
+// Global managers
+const a11y = new AccessibilityManager();
+const loading = new LoadingManager();
+const errorHandler = new ErrorHandler();
 
 // Initialize composer controls
 function initComposer(composer: CanonComposer) {
@@ -135,22 +142,24 @@ function playComposerNotes(notes: ComposerNote[], retroNotes: ComposerNote[]) {
 
 // Initialize the application
 async function init() {
-  console.log('Initializing Cancrizans...');
+  loading.show('Initializing Cancrizans...');
 
-  // Load the score
-  const score = loadBachCrabCanon();
-  console.log('Score loaded:', score);
+  try {
+    console.log('Initializing Cancrizans...');
 
-  // Get containers
-  const notationContainer = document.getElementById('notation-container');
-  const mirrorCanvas = document.getElementById('mirror-canvas') as HTMLCanvasElement;
-  const composerCanvas = document.getElementById('composer-canvas') as HTMLCanvasElement;
-  const waveformCanvas = document.getElementById('waveform-canvas') as HTMLCanvasElement;
+    // Load the score
+    const score = loadBachCrabCanon();
+    console.log('Score loaded:', score);
 
-  if (!notationContainer || !mirrorCanvas || !composerCanvas || !waveformCanvas) {
-    console.error('Required containers not found');
-    return;
-  }
+    // Get containers
+    const notationContainer = document.getElementById('notation-container');
+    const mirrorCanvas = document.getElementById('mirror-canvas') as HTMLCanvasElement;
+    const composerCanvas = document.getElementById('composer-canvas') as HTMLCanvasElement;
+    const waveformCanvas = document.getElementById('waveform-canvas') as HTMLCanvasElement;
+
+    if (!notationContainer || !mirrorCanvas || !composerCanvas || !waveformCanvas) {
+      throw new Error('Required DOM containers not found');
+    }
 
   // Create instances
   const player = new Player(score);
@@ -165,13 +174,22 @@ async function init() {
   notationRenderer.render();
   mirrorView.render();
 
-  // Initialize composer UI
-  initComposer(composer);
+    // Initialize composer UI
+    initComposer(composer);
 
-  console.log('Cancrizans initialized successfully');
+    console.log('Cancrizans initialized successfully');
+    a11y.announce('Application loaded successfully');
 
-  // Add info to the page
-  displayInfo(score);
+    // Add info to the page
+    displayInfo(score);
+
+    loading.hide();
+  } catch (error) {
+    loading.hide();
+    const message = error instanceof Error ? error.message : 'Unknown error occurred';
+    errorHandler.showError('Failed to initialize application', message);
+    console.error('Initialization error:', error);
+  }
 }
 
 function displayInfo(score: any) {
@@ -184,6 +202,19 @@ function displayInfo(score: any) {
        Duration: ${score.totalDuration} quarter notes |
        Time: ${score.timeSignature.beats}/${score.timeSignature.beatType}</p>
   `;
+}
+
+// Register service worker for PWA functionality
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then((registration) => {
+        console.log('SW registered:', registration.scope);
+      })
+      .catch((error) => {
+        console.log('SW registration failed:', error);
+      });
+  });
 }
 
 // Start the application when DOM is ready
