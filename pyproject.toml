@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cancrizans"
+version = "0.1.0"
+description = "Explore and render J.S. Bach's Crab Canon as a strict palindrome"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "Cancrizans Project"},
+]
+dependencies = [
+    "music21>=9.1.0",
+    "mido>=1.3.0",
+    "matplotlib>=3.8.0",
+    "numpy>=1.26.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "mypy>=1.7.0",
+]
+audio = [
+    "midi2audio>=0.1.1",
+]
+
+[project.scripts]
+cancrizans = "cancrizans.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["cancrizans*"]
+exclude = ["web*", "data*", "out*"]
+
+[tool.pytest.ini_options]
+testpaths = ["cancrizans/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

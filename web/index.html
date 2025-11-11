@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cancrizans - Bach's Crab Canon Explorer</title>
+  <meta name="description" content="Interactive exploration of J.S. Bach's Crab Canon from The Musical Offering (BWV 1079)">
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1>🦀 Cancrizans</h1>
+      <p>Interactive Exploration of Bach's Crab Canon</p>
+    </div>
+  </header>
+
+  <main class="container">
+    <div id="info"></div>
+
+    <!-- Playback Controls -->
+    <section class="controls">
+      <h2>Playback Controls</h2>
+
+      <div class="control-group">
+        <button id="play-btn" aria-label="Play">▶ Play</button>
+        <button id="pause-btn" aria-label="Pause" disabled>⏸ Pause</button>
+        <button id="stop-btn" aria-label="Stop">⏹ Stop</button>
+        <div class="control-item">
+          <label for="mode-select">Mode:</label>
+          <select id="mode-select" aria-label="Playback mode">
+            <option value="normal">Normal</option>
+            <option value="first-half">First Half</option>
+            <option value="second-half">Second Half</option>
+            <option value="from-middle">From Middle</option>
+          </select>
+        </div>
+        <div class="time-display" id="time-display" aria-live="polite">00:00.00</div>
+      </div>
+
+      <div class="control-group">
+        <div class="control-item">
+          <label for="tempo-slider">Tempo:</label>
+          <input type="range" id="tempo-slider" min="40" max="160" value="84" step="1" aria-label="Tempo">
+          <span id="tempo-display">84</span> BPM
+        </div>
+      </div>
+
+      <div class="control-group">
+        <div class="control-item">
+          <input type="checkbox" id="mute-voice1" aria-label="Mute voice 1">
+          <label for="mute-voice1">Mute Voice 1</label>
+        </div>
+        <div class="control-item">
+          <input type="checkbox" id="mute-voice2" aria-label="Mute voice 2">
+          <label for="mute-voice2">Mute Voice 2</label>
+        </div>
+        <div class="control-item">
+          <input type="checkbox" id="metronome-toggle" aria-label="Enable metronome">
+          <label for="metronome-toggle">Metronome</label>
+        </div>
+        <div class="control-item">
+          <input type="checkbox" id="highlight-toggle" checked aria-label="Highlight symmetric pairs">
+          <label for="highlight-toggle">Highlight Symmetry</label>
+        </div>
+      </div>
+    </section>
+
+    <!-- Musical Notation View -->
+    <section class="view">
+      <h2>Musical Notation</h2>
+      <div id="notation-container" role="img" aria-label="Musical score"></div>
+    </section>
+
+    <!-- Mirror View (Palindrome Visualization) -->
+    <section class="view">
+      <h2>Mirror View - Palindromic Structure</h2>
+      <canvas id="mirror-canvas" role="img" aria-label="Palindromic symmetry visualization"></canvas>
+    </section>
+
+    <!-- Keyboard Shortcuts -->
+    <div class="keyboard-hints">
+      <h3>Keyboard Shortcuts</h3>
+      <p>
+        <kbd>Space</kbd> Play/Pause |
+        <kbd>H</kbd> Toggle highlight |
+        <kbd>M</kbd> Toggle metronome
+      </p>
+    </div>
+
+    <!-- About Section -->
+    <section class="view">
+      <h2>About the Crab Canon</h2>
+      <p>
+        The <strong>Crab Canon</strong> (Latin: <em>Canon Cancrizans</em>) is a musical composition
+        technique where a melody is played forward and backward simultaneously. Bach's example from
+        <em>The Musical Offering</em> (BWV 1079) is one of the most famous crab canons in Western music.
+      </p>
+      <p>
+        In this canon, the second voice is an exact <strong>retrograde</strong> (time-reversal) of the
+        first voice. When both are played together starting at the same time, they create a perfect
+        musical palindrome - the composition sounds the same whether played forward or backward in time.
+      </p>
+      <p>
+        The name "crab canon" comes from the sideways movement of crabs, alluding to the backward
+        motion of the retrograde voice. In the original manuscript, Bach notated the piece as a puzzle:
+        a single staff that could be read from either end, with one performer reading normally and
+        another reading the page upside down.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <p>
+      Bach's Crab Canon from <em>The Musical Offering</em> (BWV 1079) - Public Domain<br>
+      Software: MIT License | Built with VexFlow and Tone.js
+    </p>
+  </footer>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
