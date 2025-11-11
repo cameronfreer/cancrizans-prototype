@@ -13,12 +13,14 @@ import { WaveformVisualizer } from './waveform';
 import { Exporter } from './exporter';
 import { AccessibilityManager } from './accessibility';
 import { LoadingManager, ErrorHandler } from './loading';
+import { TutorialManager } from './tutorial';
 import * as Tone from 'tone';
 
 // Global managers
 const a11y = new AccessibilityManager();
 const loading = new LoadingManager();
 const errorHandler = new ErrorHandler();
+const tutorial = new TutorialManager();
 
 // Initialize composer controls
 function initComposer(composer: CanonComposer) {
@@ -140,6 +142,18 @@ function playComposerNotes(notes: ComposerNote[], retroNotes: ComposerNote[]) {
   console.log('Playing composed canon...');
 }
 
+// Initialize tutorial system
+function initTutorial() {
+  const tutorialBtn = document.getElementById('tutorial-start-btn');
+  if (tutorialBtn) {
+    tutorialBtn.addEventListener('click', () => {
+      tutorial.start(() => {
+        a11y.announce('Tutorial completed!');
+      });
+    });
+  }
+}
+
 // Initialize the application
 async function init() {
   loading.show('Initializing Cancrizans...');
@@ -176,6 +190,9 @@ async function init() {
 
     // Initialize composer UI
     initComposer(composer);
+
+    // Initialize tutorial
+    initTutorial();
 
     console.log('Cancrizans initialized successfully');
     a11y.announce('Application loaded successfully');
