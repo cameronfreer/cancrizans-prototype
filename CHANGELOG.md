@@ -5,6 +5,50 @@ All notable changes to the Cancrizans project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2025-11-12
+
+### 🖥️ Phase 14: CLI Module Testing & Validation
+
+#### Added
+- **Comprehensive CLI Tests** (`tests/test_cli_commands.py`)
+  - 37 extensive tests covering all CLI commands
+  - **analyze command**: 5 tests (file handling, voice count, palindrome status, duration)
+  - **render command**: 7 tests (MIDI, MusicXML, piano roll, symmetry, multi-format, WAV validation)
+  - **synthesize command**: 4 tests (default, transpose, tempo, palindrome verification)
+  - **generate command**: 6 tests (scale, arpeggio, random, fibonacci, validation, error handling)
+  - **validate command**: 3 tests (basic validation, verbose mode, error handling)
+  - **research command**: 4 tests (batch processing, CSV/JSON export, empty directory)
+  - **main() entry point**: 4 tests (help, no args, subcommands)
+  - **Integration workflows**: 3 tests (generate→validate, generate→analyze, full workflow)
+  - Coverage: cli.py increased from 0% to 85%
+
+#### Test Coverage Improvements
+- **Total test count**: 176 tests (up from 139, +37 new tests)
+- **Overall coverage**: 88% (up from 66%, +22 percentage points!)
+- **Modules with major improvements**:
+  - cli.py: 0% → **85%** (+85pp) 🎯
+  - bach_crab.py: 73% → **98%** (+25pp)
+  - validator.py: 86% → **89%** (+3pp)
+  - canon.py: 84% → **85%** (+1pp)
+
+#### All Modules Coverage Summary
+- bach_crab.py: **98%**
+- research.py: **99%**
+- viz.py: **98%**
+- generator.py: **95%**
+- validator.py: **89%**
+- cli.py: **85%** (was 0%)
+- canon.py: **85%**
+- cache.py: **80%**
+- io.py: **78%**
+
+#### Testing Infrastructure
+- Mock-based CLI testing with argparse.Namespace
+- Temporary file handling for all I/O operations
+- stdout/stderr capture for output validation
+- Integration tests covering real-world workflows
+- Error path testing (nonexistent files, invalid arguments)
+
 ## [0.10.0] - 2025-11-12
 
 ### 🧪 Phase 13: Comprehensive Testing & Coverage Expansion
