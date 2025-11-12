@@ -5,6 +5,54 @@ All notable changes to the Cancrizans project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2025-11-12
+
+### 📤 Phase 11: Advanced Export Formats & Integration Tests
+
+#### Added
+- **LilyPond Export** (`cancrizans/io.py:to_lilypond()`)
+  - Professional music engraving format (.ly files)
+  - Custom content generator (no external dependencies)
+  - Proper octave and accidental handling
+  - Multi-staff support for canons
+  - Ready to compile: `lilypond output.ly` → PDF/PNG
+
+- **ABC Notation Export** (`cancrizans/io.py:to_abc()`)
+  - Text-based compact notation (.abc files)
+  - Folk music standard format
+  - Multi-voice support with voice markers
+  - Easy to read and edit
+  - Compatible with ABC viewers and players
+
+- **CLI Integration Tests** (`tests/test_cli_integration.py`)
+  - 10 end-to-end workflow tests
+  - Generate command tests (all 6 algorithms)
+  - Validate command tests
+  - Analyze command tests
+  - Multi-canon generation tests
+
+- **Generator Tutorial Notebook** (`notebooks/generator_tutorial.ipynb`)
+  - Comprehensive tutorial for all 11 algorithms
+  - Quality validation examples
+  - Export format demonstrations
+  - Ready to run examples
+
+- **Export Format Tests** (7 new tests in `tests/test_io.py`)
+  - LilyPond file creation and structure tests
+  - ABC notation content validation
+  - Multi-voice handling tests
+
+#### Fixed
+- Export functions now handle all duration types correctly
+- LilyPond octave notation matches standard (c' = middle C)
+- ABC notation properly handles accidentals and octaves
+
+#### Changed
+- `io.py` module documentation expanded for new exports
+- Test suite expanded to 69 tests (up from 52)
+- Code coverage improved to 46% (up from 44%)
+- io.py coverage: 60% (up from 49%)
+
 ## [0.7.0] - 2025-11-12
 
 ### 🧪 Phase 10: Testing & Quality Assurance

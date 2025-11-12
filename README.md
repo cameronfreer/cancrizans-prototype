@@ -186,7 +186,7 @@ from cancrizans import (
     is_time_palindrome,
     assemble_crab_from_theme
 )
-from cancrizans.io import to_midi, to_musicxml
+from cancrizans.io import to_midi, to_musicxml, to_lilypond, to_abc
 from cancrizans.viz import piano_roll, symmetry
 
 # Load Bach's Crab Canon
@@ -195,9 +195,11 @@ score = load_bach_crab_canon()
 # Verify it's a palindrome
 print(is_time_palindrome(score))  # True
 
-# Export
+# Export to multiple formats
 to_midi(score, "output.mid")
 to_musicxml(score, "output.musicxml")
+to_lilypond(score, "output.ly")  # Professional engraving
+to_abc(score, "output.abc")  # Text-based notation
 
 # Visualize
 piano_roll(score, "piano_roll.png")
@@ -240,7 +242,7 @@ print(f"Grade: {validator.get_quality_grade(results['overall_quality'])}")
 
 ## Testing
 
-The project includes a comprehensive test suite with 52 unit tests covering core functionality:
+The project includes a comprehensive test suite with 69 tests (100% pass rate) covering core functionality:
 
 ```bash
 # Run all tests
@@ -252,15 +254,23 @@ pytest --cov=cancrizans --cov-report=html
 # Run specific test file
 pytest tests/test_generator.py
 
+# Run CLI integration tests
+pytest tests/test_cli_integration.py
+
 # Run tests in verbose mode
 pytest -v
 ```
 
 **Test Coverage:**
-- Overall: 44%
+- Overall: 46%
 - Generator module: 95%
 - Validator module: 86%
 - Canon transformations: 81%
+- I/O module: 60%
+
+**Test Categories:**
+- Unit tests: 59 tests
+- CLI integration tests: 10 tests
 
 Coverage reports are generated in `htmlcov/` directory.
 
