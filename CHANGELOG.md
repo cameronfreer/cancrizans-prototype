@@ -5,6 +5,38 @@ All notable changes to the Cancrizans project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2025-11-12
+
+### 📚 Phase 8: Documentation & Interactive Demos
+
+#### Added
+- **Auto-Generated API Reference** (`docs/API_REFERENCE.md`)
+  - Complete Python API documentation (1,541 lines)
+  - Function signatures and usage examples
+  - All modules: canon, bach_crab, viz, research, io
+
+- **CLI Reference Guide** (`docs/CLI_REFERENCE.md`)
+  - Complete command-line documentation (367 lines)
+  - All commands with examples
+  - Workflows and pipeline integration
+
+- **Feature Comparison Matrix** (`docs/FEATURE_MATRIX.md`)
+  - Complete feature availability matrix
+  - Performance benchmarks
+  - Use case recommendations
+
+- **Interactive Jupyter Notebooks** (2 new)
+  - `transformation_techniques.ipynb`: Advanced transformations
+  - `symmetry_analysis.ipynb`: Deep-dive into palindromes
+
+- **Documentation Scripts**
+  - `generate_api_docs.py`: Auto-generate API reference
+  - `generate_cli_reference.py`: Auto-generate CLI guide
+
+#### Enhanced
+- **README**: Added links to new documentation
+- **Notebooks**: Total of 3 comprehensive tutorials
+
 ## [0.4.0] - 2025-11-12
 
 ### 🚀 Phase 7: Advanced Features & Analysis

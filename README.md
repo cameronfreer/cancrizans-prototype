@@ -13,8 +13,11 @@ Cancrizans is a comprehensive toolkit for analyzing, verifying, and rendering pa
 
 - **[📚 Examples & Usage →](EXAMPLES.md)** - Auto-generated examples with real outputs
 - **[🎨 Visual Gallery →](GALLERY.md)** - Browse all examples with images
-- **[📓 Jupyter Notebook →](notebooks/bach_crab_canon_exploration.ipynb)** - Interactive tutorial
+- **[📓 Jupyter Notebooks →](notebooks/)** - 3 interactive tutorials (Bach, transformations, symmetry)
 - **[🌐 Web Interface →](web/)** - Live palindrome visualization
+- **[📖 API Reference →](docs/API_REFERENCE.md)** - Complete API documentation (auto-generated)
+- **[⌨️ CLI Reference →](docs/CLI_REFERENCE.md)** - Command-line guide with examples
+- **[📊 Feature Matrix →](docs/FEATURE_MATRIX.md)** - Feature comparison across components
 
 ## What is a Crab Canon?
 
