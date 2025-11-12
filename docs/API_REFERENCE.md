@@ -1,7 +1,7 @@
 # API Reference
 
-**Auto-generated**: 2025-11-12 00:59:03
-**Version**: 0.4.0
+**Last Updated**: 2025-11-12
+**Version**: 0.11.0
 
 This document provides comprehensive API documentation for the Cancrizans library.
 

@@ -58,11 +58,14 @@ This document provides a comprehensive comparison of features across Cancrizans 
 | MIDI Import | ✅ | ✅ | ✅ | Read .mid files |
 | MusicXML Import | ✅ | ✅ | ❌ | Read .xml files |
 | MIDI Export | ✅ | ✅ | ✅ | Write .mid files |
-| MusicXML Export | ✅ | ⚠️ | ❌ | Via Python |
+| MusicXML Export | ✅ | ✅ | ❌ | Write .xml files |
+| LilyPond Export | ✅ | ✅ | ❌ | Write .ly files |
+| ABC Export | ✅ | ✅ | ❌ | Write .abc files |
 | WAV Export | ⚠️ | ⚠️ | ❌ | Requires FluidSynth |
 | JSON Export | ✅ | ✅ | ✅ | Analysis data |
 | CSV Export | ✅ | ✅ | ❌ | Research data |
 | LaTeX Export | ✅ | ✅ | ❌ | Tables |
+| Markdown Export | ✅ | ✅ | ❌ | Tables |
 | PNG Export | ✅ | ✅ | ✅ | Visualizations |
 | URL Sharing | ❌ | ❌ | ✅ | Compressed links |
 

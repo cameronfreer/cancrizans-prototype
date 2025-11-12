@@ -4,8 +4,10 @@
 
 Cancrizans is a comprehensive toolkit for analyzing, verifying, and rendering palindromic musical structures, with a focus on Bach's *Canon Cancrizans* from *The Musical Offering* (BWV 1079).
 
-[![Python Tests](https://img.shields.io/badge/tests-26%20passed-brightgreen)](cancrizans/tests/)
+[![Python Tests](https://img.shields.io/badge/tests-176%20passed-brightgreen)](tests/)
+[![Coverage](https://img.shields.io/badge/coverage-88%25-brightgreen)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org)
+[![Version](https://img.shields.io/badge/version-0.11.0-blue)](cancrizans/__init__.py)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Music](https://img.shields.io/badge/music-Public%20Domain-green)](data/)
 
@@ -46,10 +48,12 @@ The name comes from the sideways movement of crabs, referencing the backward mot
 - **Palindrome verification**: automated structural analysis with pairwise mapping
 - **Export formats**: MIDI, MusicXML, LilyPond (.ly), ABC notation (.abc), WAV (optional)
 - **Visualizations**: piano roll and symmetry plots with matplotlib
-- **CLI interface**: analyze, render, synthesize, and **research** (batch analysis)
+- **CLI interface**: analyze, render, synthesize, validate, generate, and **research** (batch analysis)
+- **Algorithmic generation**: 11 algorithms (scale, arpeggio, fibonacci, golden ratio, modal, etc.)
+- **Quality validation**: Automated scoring and recommendations for generated canons
 - **Research tools**: Batch processing, multi-format export (CSV/JSON/LaTeX/Markdown)
 - **Performance optimization**: Caching decorators (@memoize, @lru_cache, @disk_cache)
-- **Comprehensive tests**: 80 tests, 100% offline, all passing
+- **World-class testing**: 176 tests, 88% coverage, 100% pass rate
 
 ### 🌐 Web Interface (PWA)
 - **✏️ Interactive Composer**: Create your own crab canons!
