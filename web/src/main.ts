@@ -14,6 +14,7 @@ import { Exporter } from './exporter';
 import { AccessibilityManager } from './accessibility';
 import { LoadingManager, ErrorHandler } from './loading';
 import { TutorialManager } from './tutorial';
+import { Phase7Manager } from './phase7_integration';
 import * as Tone from 'tone';
 
 // Global managers
@@ -193,6 +194,9 @@ async function init() {
 
     // Initialize tutorial
     initTutorial();
+
+    // Initialize Phase 7 features
+    new Phase7Manager();
 
     console.log('Cancrizans initialized successfully');
     a11y.announce('Application loaded successfully');

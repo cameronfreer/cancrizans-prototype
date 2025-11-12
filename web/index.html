@@ -82,6 +82,113 @@
       </div>
     </section>
 
+    <!-- MIDI File Import -->
+    <section class="view">
+      <h2>📁 Import MIDI File</h2>
+      <div id="midi-drop-zone" class="drop-zone">
+        <p>Drag & drop a MIDI file here or <button id="select-file-btn" class="link-button">browse</button></p>
+        <input type="file" id="midi-upload" accept=".mid,.midi" hidden>
+      </div>
+      <div id="import-info" class="import-info hidden"></div>
+    </section>
+
+    <!-- Palindrome Detector -->
+    <section class="view" id="palindrome-section" hidden>
+      <h2>🔍 Palindrome Analysis</h2>
+      <div id="palindrome-results">
+        <div class="symmetry-scores">
+          <div class="score-item">
+            <label>Overall Symmetry:</label>
+            <div class="score-bar">
+              <div id="overall-score-fill" class="score-fill"></div>
+            </div>
+            <span id="overall-score-text">0%</span>
+          </div>
+          <div class="score-grid">
+            <div class="score-item">
+              <label>Pitch Symmetry:</label>
+              <span id="pitch-score">0%</span>
+            </div>
+            <div class="score-item">
+              <label>Rhythm Symmetry:</label>
+              <span id="rhythm-score">0%</span>
+            </div>
+            <div class="score-item">
+              <label>Velocity Symmetry:</label>
+              <span id="velocity-score">0%</span>
+            </div>
+            <div class="score-item">
+              <label>Interval Symmetry:</label>
+              <span id="interval-score">0%</span>
+            </div>
+          </div>
+        </div>
+        <div id="palindrome-verdict" class="verdict"></div>
+        <div id="palindrome-segments" class="segments"></div>
+        <div id="palindrome-recommendations" class="recommendations"></div>
+      </div>
+    </section>
+
+    <!-- Transformation Composer -->
+    <section class="view">
+      <h2>🔄 Transformation Chain Builder</h2>
+      <p>Create complex musical transformations by chaining operations</p>
+
+      <div class="transformation-controls">
+        <div class="control-group">
+          <button id="new-chain-btn">➕ New Chain</button>
+          <button id="preset-crab-btn">🦀 Crab Canon</button>
+          <button id="preset-table-btn">🔁 Table Canon</button>
+          <button id="preset-complex-btn">✨ Complex Example</button>
+        </div>
+
+        <div id="chain-editor" class="chain-editor hidden">
+          <h3>Chain: <span id="chain-name"></span></h3>
+          <div class="add-transformation">
+            <select id="transform-type">
+              <option value="">-- Add Transformation --</option>
+              <option value="retrograde">Retrograde (reverse)</option>
+              <option value="inversion">Inversion (flip pitch)</option>
+              <option value="augmentation">Augmentation (slower)</option>
+              <option value="diminution">Diminution (faster)</option>
+              <option value="transpose">Transpose (shift pitch)</option>
+              <option value="reflect">Reflect (time + pitch mirror)</option>
+              <option value="repeat">Repeat</option>
+              <option value="interleave">Interleave with retrograde</option>
+            </select>
+            <div id="transform-params" class="transform-params hidden"></div>
+            <button id="add-transform-btn">Add</button>
+          </div>
+          <div id="chain-steps" class="chain-steps"></div>
+          <div class="control-group">
+            <button id="apply-chain-btn">▶ Apply to Composition</button>
+            <button id="export-chain-btn">💾 Export Chain</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Animated Visualization -->
+    <section class="view">
+      <h2>🎬 Animated Piano Roll</h2>
+      <div class="visualization-controls">
+        <div class="control-group">
+          <label for="color-scheme">Color Scheme:</label>
+          <select id="color-scheme">
+            <option value="default">Default (Velocity)</option>
+            <option value="rainbow">Rainbow (by Pitch)</option>
+            <option value="heatmap">Heatmap (by Velocity)</option>
+            <option value="monochrome">Monochrome</option>
+          </select>
+          <label>
+            <input type="checkbox" id="show-note-names">
+            Show Note Names
+          </label>
+        </div>
+      </div>
+      <canvas id="animated-canvas" width="800" height="400"></canvas>
+    </section>
+
     <!-- Interactive Canon Composer -->
     <section class="view composer-section">
       <h2>✏️ Interactive Canon Builder</h2>
@@ -153,10 +260,16 @@
       <h2>Export & Share</h2>
       <div class="control-group">
         <button id="export-json-btn">📥 Export JSON</button>
+        <button id="export-midi-btn">🎵 Export MIDI</button>
         <button id="export-analysis-btn">📊 Export Analysis</button>
         <button id="export-mirror-png-btn">🖼️ Save Mirror View</button>
-        <button id="share-btn" class="mobile-only">📤 Share</button>
       </div>
+      <div class="control-group">
+        <button id="copy-share-link-btn">🔗 Copy Share Link</button>
+        <button id="save-local-btn">💾 Save Locally</button>
+        <button id="load-local-btn">📂 Load from Local Storage</button>
+      </div>
+      <div id="share-status" class="status-message hidden"></div>
     </section>
 
     <!-- Keyboard Shortcuts -->

@@ -5,6 +5,83 @@ All notable changes to the Cancrizans project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2025-11-12
+
+### 🚀 Phase 7: Advanced Features & Analysis
+
+#### Added
+- **MIDI File Import System** (`web/src/midi_import.ts`, 320+ lines)
+  - Drag-and-drop file upload interface
+  - Complete MIDI parser implementation
+  - Handles multiple tracks and tempo changes
+  - Extracts notes with pitch, velocity, time, and duration
+  - Real-time file validation and error handling
+
+- **Palindrome Detector** (`web/src/palindrome_detector.ts`, 400+ lines)
+  - Comprehensive symmetry analysis system
+  - Multiple metrics: pitch, rhythm, velocity, and interval symmetry
+  - Overall palindrome score (0-100%)
+  - Automatic palindromic segment detection
+  - Smart recommendations for improving symmetry
+  - Visual score displays with progress bars
+
+- **Transformation Composer** (`web/src/transformation_composer.ts`, 300+ lines)
+  - Chain multiple musical transformations
+  - 8 transformation types: retrograde, inversion, augmentation, diminution, transpose, reflect, repeat, interleave
+  - Parameter controls for each transformation
+  - Preset chains: Crab Canon, Table Canon, Complex Example
+  - Export/import transformation chains as JSON
+  - Visual step-by-step chain display
+
+- **Animated Piano Roll Visualization** (`web/src/animated_visualization.ts`, 450+ lines)
+  - Real-time note highlighting during playback
+  - 4 color schemes: default (velocity), rainbow (pitch), heatmap, monochrome
+  - Adjustable playhead and time display
+  - Note name overlay option
+  - Smooth animations with canvas rendering
+  - Configurable visualization parameters
+
+- **Export & Share System** (`web/src/export_share.ts`, 450+ lines)
+  - Export compositions as MIDI files
+  - Export as JSON for backup/sharing
+  - URL-based sharing with compressed composition data
+  - LocalStorage persistence
+  - List and load saved compositions
+  - Copy shareable links to clipboard
+  - Status messages for user feedback
+
+- **Phase 7 Integration Module** (`web/src/phase7_integration.ts`, 600+ lines)
+  - Unified manager for all Phase 7 features
+  - Automatic URL composition loading on startup
+  - Coordinated updates across all visualizations
+  - Status message system
+  - Complete UI event handling
+
+#### Enhanced
+- **Web UI** (`web/index.html`)
+  - New sections for MIDI import, palindrome analysis, transformation composer
+  - Animated visualization canvas
+  - Enhanced export/share controls
+  - Improved button organization
+
+- **Styles** (`web/src/styles.css`, +300 lines)
+  - Drop zone styling with drag-over effects
+  - Symmetry score visualizations
+  - Transformation chain step displays
+  - Status message styling
+  - Responsive design for new features
+
+- **Main Application** (`web/src/main.ts`)
+  - Phase7Manager initialization
+  - Integrated all new features seamlessly
+
+#### Technical Improvements
+- Complete TypeScript type safety across all new modules
+- Efficient MIDI binary parsing
+- Canvas-based high-performance visualizations
+- LRU caching for analysis results
+- Modular architecture for easy extension
+
 ## [0.3.0] - 2025-11-11
 
 ### 🎓 Phase 5: Educational Features

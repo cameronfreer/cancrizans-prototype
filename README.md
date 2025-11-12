@@ -54,12 +54,35 @@ The name comes from the sideways movement of crabs, referencing the backward mot
   - Real-time retrograde preview (red notes)
   - 6 pre-made templates
   - Live playback with dual-voice synthesis
+- **📁 MIDI Import**: Upload and analyze your own MIDI files
+  - Drag-and-drop interface
+  - Multi-track support
+  - Automatic tempo and time signature detection
+- **🔍 Palindrome Analyzer**: Comprehensive symmetry analysis
+  - Overall symmetry score (0-100%)
+  - Pitch, rhythm, velocity, and interval metrics
+  - Automatic palindromic segment detection
+  - Actionable recommendations
+- **🔄 Transformation Chain Builder**: Create complex transformations
+  - 8 transformation types (retrograde, inversion, augmentation, etc.)
+  - Chain multiple operations
+  - Preset patterns (Crab Canon, Table Canon)
+  - Export/import transformation chains
+- **🎬 Animated Piano Roll**: Real-time visualization
+  - Note highlighting during playback
+  - 4 color schemes (velocity, pitch, heatmap, monochrome)
+  - Configurable note names display
+  - Smooth canvas-based rendering
+- **💾 Export & Share**: Multiple sharing options
+  - Export as MIDI, JSON
+  - URL-based sharing with compressed data
+  - LocalStorage persistence
+  - Copy shareable links
 - **📚 Interactive Tutorial**: 11-step guided learning experience
 - **Interactive notation** rendered with VexFlow (two-staff layout)
 - **Audio playback** with Tone.js (5 instruments, adjustable tempo)
 - **Mirror view**: visual palindrome structure with symmetry connectors
 - **Real-time waveform visualization**
-- **Export**: JSON, analysis data, PNG images
 - **Playback modes**: normal, first/second half, from-middle-outward
 - **Keyboard shortcuts**: Space (play/pause), H (highlight), M (metronome)
 - **Progressive Web App**: Installable, works offline
