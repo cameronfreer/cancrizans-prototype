@@ -5,6 +5,41 @@ All notable changes to the Cancrizans project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2025-11-12
+
+### 🧪 Phase 10: Testing & Quality Assurance
+
+#### Added
+- **Comprehensive Test Suite** (`tests/`)
+  - 52 unit tests with 100% pass rate
+  - Test coverage: 44% overall, 95% on generator module
+  - Tests for canon transformations, generator, validator, and I/O
+  - Automated testing with pytest
+  - Coverage reporting with pytest-cov
+
+- **Test Configuration**
+  - `pytest.ini` - Pytest configuration with markers
+  - `.coveragerc` - Coverage reporting configuration
+  - HTML coverage reports in `htmlcov/`
+
+- **Pre-executed Jupyter Notebook**
+  - `transformation_techniques.ipynb` - Now fully executed with outputs
+  - Interactive examples of retrograde, inversion, augmentation
+  - Visualization of transformations
+
+- **Notebook Fixing Scripts**
+  - `scripts/fix_notebooks.py` - Updates notebooks to use correct API
+  - `scripts/update_notebook_cells.py` - Fixes interval analysis cells
+
+#### Fixed
+- Notebooks now use `assemble_crab_from_theme()` instead of `mirror_canon()`
+- Interval analysis cells updated to use correct API keys
+- All test assertions aligned with actual implementation
+
+#### Changed
+- Improved code quality with comprehensive test coverage
+- Better documentation of expected behavior through tests
+
 ## [0.6.0] - 2025-11-12
 
 ### 🔧 Phase 9: Advanced Tools & Examples

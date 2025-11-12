@@ -238,6 +238,32 @@ print(f"Grade: {validator.get_quality_grade(results['overall_quality'])}")
 4. Try different playback modes and tempos
 5. Use keyboard shortcuts for quick control
 
+## Testing
+
+The project includes a comprehensive test suite with 52 unit tests covering core functionality:
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage report
+pytest --cov=cancrizans --cov-report=html
+
+# Run specific test file
+pytest tests/test_generator.py
+
+# Run tests in verbose mode
+pytest -v
+```
+
+**Test Coverage:**
+- Overall: 44%
+- Generator module: 95%
+- Validator module: 86%
+- Canon transformations: 81%
+
+Coverage reports are generated in `htmlcov/` directory.
+
 ## Project Structure
 
 ```
