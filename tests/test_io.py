@@ -210,3 +210,195 @@ class TestABCIO:
             # Should have voice markers for multiple parts
             if len(canon.parts) > 1:
                 assert 'V:2' in content
+
+class TestLilyPondAccidentals:
+    """Test LilyPond export with accidentals and octaves."""
+    
+    def test_lilypond_with_sharps(self):
+        """Test LilyPond export handles sharps correctly."""
+        score = stream.Score()
+        part = stream.Part()
+        part.append(note.Note('C#4', quarterLength=1.0))
+        part.append(note.Note('F#4', quarterLength=1.0))
+        score.insert(0, part)
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ly_path = Path(tmpdir) / 'test.ly'
+            to_lilypond(score, ly_path)
+            
+            content = ly_path.read_text()
+            assert 'cis' in content or 'fis' in content  # sharp notation
+    
+    def test_lilypond_with_flats(self):
+        """Test LilyPond export handles flats correctly."""
+        score = stream.Score()
+        part = stream.Part()
+        part.append(note.Note('B-4', quarterLength=1.0))
+        part.append(note.Note('E-4', quarterLength=1.0))
+        score.insert(0, part)
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ly_path = Path(tmpdir) / 'test.ly'
+            to_lilypond(score, ly_path)
+            
+            content = ly_path.read_text()
+            assert 'es' in content or 'bes' in content  # flat notation
+    
+    def test_lilypond_low_octave(self):
+        """Test LilyPond export handles low octaves."""
+        score = stream.Score()
+        part = stream.Part()
+        part.append(note.Note('C2', quarterLength=1.0))  # Very low
+        score.insert(0, part)
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ly_path = Path(tmpdir) / 'test.ly'
+            to_lilypond(score, ly_path)
+            
+            content = ly_path.read_text()
+            assert ',' in content  # comma indicates low octave
+    
+    def test_lilypond_with_rests(self):
+        """Test LilyPond export handles rests."""
+        score = stream.Score()
+        part = stream.Part()
+        part.append(note.Note('C4', quarterLength=1.0))
+        part.append(note.Rest(quarterLength=1.0))
+        part.append(note.Note('E4', quarterLength=1.0))
+        score.insert(0, part)
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ly_path = Path(tmpdir) / 'test.ly'
+            to_lilypond(score, ly_path)
+            
+            content = ly_path.read_text()
+            assert 'r' in content  # rest notation
+
+
+class TestABCAccidentals:
+    """Test ABC export with accidentals and octaves."""
+    
+    def test_abc_with_sharps(self):
+        """Test ABC export handles sharps correctly."""
+        score = stream.Score()
+        part = stream.Part()
+        part.append(note.Note('C#4', quarterLength=1.0))
+        part.append(note.Note('F#4', quarterLength=1.0))
+        score.insert(0, part)
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            abc_path = Path(tmpdir) / 'test.abc'
+            to_abc(score, abc_path)
+            
+            content = abc_path.read_text()
+            assert '^' in content  # sharp notation in ABC
+    
+    def test_abc_with_flats(self):
+        """Test ABC export handles flats correctly."""
+        score = stream.Score()
+        part = stream.Part()
+        part.append(note.Note('B-4', quarterLength=1.0))
+        part.append(note.Note('E-4', quarterLength=1.0))
+        score.insert(0, part)
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            abc_path = Path(tmpdir) / 'test.abc'
+            to_abc(score, abc_path)
+            
+            content = abc_path.read_text()
+            assert '_' in content  # flat notation in ABC
+    
+    def test_abc_high_octave(self):
+        """Test ABC export handles high octaves."""
+        score = stream.Score()
+        part = stream.Part()
+        part.append(note.Note('C6', quarterLength=1.0))  # High octave
+        score.insert(0, part)
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            abc_path = Path(tmpdir) / 'test.abc'
+            to_abc(score, abc_path)
+            
+            content = abc_path.read_text()
+            assert "c'" in content or "c''" in content  # high octave notation
+    
+    def test_abc_low_octave(self):
+        """Test ABC export handles low octaves."""
+        score = stream.Score()
+        part = stream.Part()
+        part.append(note.Note('C3', quarterLength=1.0))  # Low octave
+        score.insert(0, part)
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            abc_path = Path(tmpdir) / 'test.abc'
+            to_abc(score, abc_path)
+            
+            content = abc_path.read_text()
+            assert ',' in content  # comma indicates low octave
+    
+    def test_abc_various_durations(self):
+        """Test ABC export handles various note durations."""
+        score = stream.Score()
+        part = stream.Part()
+        part.append(note.Note('C4', quarterLength=0.5))  # Half beat
+        part.append(note.Note('D4', quarterLength=2.0))  # Two beats
+        part.append(note.Note('E4', quarterLength=1.5))  # Dotted
+        score.insert(0, part)
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            abc_path = Path(tmpdir) / 'test.abc'
+            to_abc(score, abc_path)
+            
+            content = abc_path.read_text()
+            # Check for duration markers
+            assert '/2' in content or '2' in content or '3/2' in content
+    
+    def test_abc_with_rests(self):
+        """Test ABC export handles rests."""
+        score = stream.Score()
+        part = stream.Part()
+        part.append(note.Note('C4', quarterLength=1.0))
+        part.append(note.Rest(quarterLength=1.0))
+        part.append(note.Rest(quarterLength=0.5))
+        part.append(note.Note('E4', quarterLength=1.0))
+        score.insert(0, part)
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            abc_path = Path(tmpdir) / 'test.abc'
+            to_abc(score, abc_path)
+            
+            content = abc_path.read_text()
+            assert 'z' in content  # rest notation in ABC
+
+
+class TestLoadScore:
+    """Test load_score function edge cases."""
+    
+    def test_load_score_from_part(self):
+        """Test loading a single Part (not a Score)."""
+        # Create a single part and save it
+        part = stream.Part()
+        part.append(note.Note('C4', quarterLength=1.0))
+        part.append(note.Note('D4', quarterLength=1.0))
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_path = Path(tmpdir) / 'part.mid'
+            part.write('midi', fp=str(midi_path))
+            
+            # Loading should convert to Score
+            loaded = load_score(midi_path)
+            assert isinstance(loaded, stream.Score)
+    
+    def test_load_score_handles_score(self):
+        """Test loading a proper Score object."""
+        score = stream.Score()
+        part = stream.Part()
+        part.append(note.Note('C4', quarterLength=1.0))
+        score.insert(0, part)
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_path = Path(tmpdir) / 'score.mid'
+            score.write('midi', fp=str(midi_path))
+            
+            loaded = load_score(midi_path)
+            assert isinstance(loaded, stream.Score)

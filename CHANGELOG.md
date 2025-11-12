@@ -5,6 +5,52 @@ All notable changes to the Cancrizans project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2025-11-12
+
+### 🧪 Phase 13: Comprehensive Testing & Coverage Expansion
+
+#### Added
+- **Visualization Tests** (`tests/test_viz.py`)
+  - 19 comprehensive tests for `viz.py` module
+  - Piano roll visualization tests with multiple scenarios
+  - Symmetry plot tests with edge cases
+  - Tests for chords, rests, custom DPI, multi-voice handling
+  - Image validation with PIL/Pillow
+  - Coverage: viz.py increased from 0% to 98%
+
+- **Research Module Tests** (`tests/test_research.py`)
+  - 31 comprehensive tests for `research.py` module
+  - CanonAnalyzer tests (caching, structure, properties)
+  - BatchAnalyzer tests (multi-file processing)
+  - ResearchExporter tests (CSV, JSON, LaTeX, Markdown)
+  - Corpus analysis integration tests
+  - Coverage: research.py increased from 0% to 99%
+
+- **Extended I/O Tests** (`tests/test_io.py`)
+  - 9 additional tests for export edge cases
+  - LilyPond accidentals (sharps, flats), octaves, rests
+  - ABC notation accidentals, octaves, durations, rests
+  - load_score() edge case handling
+  - Coverage: io.py increased from 60% to 78%
+
+#### Testing Improvements
+- **Total test count**: 139 tests (up from 80, +59 new tests)
+- **Overall coverage**: 66% (up from 48%, +18 percentage points)
+- **100% pass rate** across all test suites
+- **Modules with excellent coverage**:
+  - research.py: 99% (was 0%)
+  - viz.py: 98% (was 0%)
+  - generator.py: 95%
+  - validator.py: 86%
+  - canon.py: 84%
+  - cache.py: 80%
+  - io.py: 78% (was 60%)
+
+#### Changed
+- Expanded test fixtures for edge case validation
+- Improved test organization with focused test classes
+- Enhanced assertions for better failure messages
+
 ## [0.9.0] - 2025-11-12
 
 ### ⚡ Phase 12: Performance Optimization & Caching

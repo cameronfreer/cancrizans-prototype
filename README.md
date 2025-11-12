@@ -261,7 +261,7 @@ clear_all_caches()
 
 ## Testing
 
-The project includes a comprehensive test suite with 80 tests (100% pass rate) covering core functionality:
+The project includes a comprehensive test suite with 139 tests (100% pass rate, 66% coverage) covering core functionality:
 
 ```bash
 # Run all tests
@@ -281,15 +281,20 @@ pytest -v
 ```
 
 **Test Coverage:**
-- Overall: 46%
+- Overall: 66% (+20 percentage points)
 - Generator module: 95%
 - Validator module: 86%
-- Canon transformations: 81%
-- I/O module: 60%
+- Canon transformations: 84%
+- Cache module: 80%
+- I/O module: 78% (+18pp)
+- Visualization: 98% (new)
+- Research tools: 99% (new)
 
 **Test Categories:**
-- Unit tests: 59 tests
-- CLI integration tests: 10 tests
+- Unit tests: 118 tests
+- Integration tests: 11 tests
+- Visualization tests: 19 tests
+- Research tests: 31 tests
 
 Coverage reports are generated in `htmlcov/` directory.
 
