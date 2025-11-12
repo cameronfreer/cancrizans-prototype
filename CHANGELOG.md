@@ -5,6 +5,67 @@ All notable changes to the Cancrizans project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2025-11-12
+
+### 🔧 Phase 9: Advanced Tools & Examples
+
+#### Added
+- **Algorithmic Canon Generator** (`cancrizans/generator.py`)
+  - 11 different generation algorithms
+  - Scale canons (major/minor)
+  - Arpeggio canons (major/minor/diminished/augmented)
+  - Random walk canons
+  - Fibonacci sequence canons
+  - Golden ratio canons
+  - Modal canons (all 6 modes: dorian, phrygian, lydian, mixolydian, aeolian, locrian)
+  - Fractal canons with self-similar patterns
+  - Polyrhythmic canons
+  - Custom rhythmic patterns
+
+- **Canon Quality Validator** (`cancrizans/validator.py`)
+  - Complete validation with error/warning detection
+  - Multi-dimensional quality scoring:
+    - Melodic quality (repetition, leaps, stepwise motion)
+    - Harmonic quality (consonance/dissonance)
+    - Rhythmic quality (variety and patterns)
+    - Range quality (ideal 12-24 semitones)
+    - Intervallic quality (diversity)
+  - Overall quality score (0-1) with letter grades (A+ to F)
+  - Actionable recommendations for improvement
+
+- **Performance Benchmark Suite** (`scripts/benchmark.py`)
+  - Benchmarks for transformations, analysis, generation, validation
+  - Scalability tests with varying input sizes
+  - Statistical reporting (mean, median, stdev, min, max)
+
+- **Example Canon Collection** (`scripts/generate_examples.py`)
+  - Generates 30 different algorithmic canons
+  - Validates each with quality scores
+  - Exports MIDI and visualizations
+  - Quality report with grade distribution
+  - 100% generation success rate
+  - Average quality: 0.657 (C+ to B- range)
+
+- **Extended CLI Commands**
+  - `cancrizans generate` - Generate algorithmic canons
+    - Supports all 11 algorithms
+    - Optional quality validation
+    - MIDI export
+  - `cancrizans validate` - Validate canon quality
+    - Comprehensive quality analysis
+    - Visual quality bars
+    - Detailed recommendations
+
+#### Fixed
+- Generator functions now properly return Score objects (not Part)
+- Fixed duration calculations for Fibonacci, Golden Ratio, and Polyrhythmic generators
+- Validator now uses `flatten().notes` to handle MIDI files with measures
+- All quality assessment methods now work with loaded MIDI files
+
+#### Changed
+- Validator quality metrics now properly handle various score formats
+- Generator uses clean fractions for note durations to avoid music21 format errors
+
 ## [0.5.0] - 2025-11-12
 
 ### 📚 Phase 8: Documentation & Interactive Demos

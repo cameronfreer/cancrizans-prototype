@@ -168,6 +168,13 @@ python -m cancrizans synthesize --tempo 84 --transpose 0
 
 # Research: batch analyze multiple canons
 python -m cancrizans research examples/ --pattern "*.mid" --all
+
+# Generate algorithmic canons
+python -m cancrizans generate scale --output canon.mid --validate
+python -m cancrizans generate fibonacci --length 13 --output fib.mid
+
+# Validate canon quality
+python -m cancrizans validate my_canon.mid --verbose
 ```
 
 ### Python API
@@ -206,6 +213,21 @@ theme.append(note.Note('E4', quarterLength=1.0))
 
 crab = assemble_crab_from_theme(theme)
 print(is_time_palindrome(crab))  # True
+
+# Generate algorithmic canons
+from cancrizans.generator import CanonGenerator
+
+gen = CanonGenerator(seed=42)
+canon = gen.generate_fibonacci_canon(root='G4', length=13)
+to_midi(canon, "fibonacci_canon.mid")
+
+# Validate canon quality
+from cancrizans.validator import CanonValidator
+
+validator = CanonValidator()
+results = validator.validate(canon)
+print(f"Quality: {results['overall_quality']:.3f}")
+print(f"Grade: {validator.get_quality_grade(results['overall_quality'])}")
 ```
 
 ### Web Interface

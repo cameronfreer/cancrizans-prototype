@@ -396,6 +396,68 @@ def main() -> int:
         help="Export to all formats"
     )
 
+    # Generate command
+    generate_parser = subparsers.add_parser(
+        "generate",
+        help="Generate algorithmic canons"
+    )
+    generate_parser.add_argument(
+        "algorithm",
+        choices=['scale', 'arpeggio', 'random', 'fibonacci', 'modal', 'golden'],
+        help="Generation algorithm"
+    )
+    generate_parser.add_argument(
+        "--output", "-o",
+        help="Output MIDI file path"
+    )
+    generate_parser.add_argument(
+        "--key", default="C",
+        help="Key for scale/arpeggio (default: C)"
+    )
+    generate_parser.add_argument(
+        "--root", default="C4",
+        help="Root note (default: C4)"
+    )
+    generate_parser.add_argument(
+        "--mode", default="major",
+        help="Mode: major, minor, dorian, etc."
+    )
+    generate_parser.add_argument(
+        "--length", "-l", type=int, default=8,
+        help="Number of notes (default: 8)"
+    )
+    generate_parser.add_argument(
+        "--seed", type=int,
+        help="Random seed for reproducibility"
+    )
+    generate_parser.add_argument(
+        "--validate", action="store_true",
+        help="Validate generated canon"
+    )
+    generate_parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Verbose output"
+    )
+
+    # Validate command
+    validate_parser = subparsers.add_parser(
+        "validate",
+        help="Validate canon quality"
+    )
+    validate_parser.add_argument(
+        "input",
+        help="Path to MIDI/MusicXML file to validate"
+    )
+    validate_parser.add_argument(
+        "--output", "-o",
+        help="Output JSON file for validation results"
+    )
+    validate_parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Show detailed recommendations"
+    )
+
+
     args = parser.parse_args()
 
     if not args.command:
@@ -411,6 +473,10 @@ def main() -> int:
             return synthesize_command(args)
         elif args.command == "research":
             return research_command(args)
+        elif args.command == "generate":
+            return generate_command(args)
+        elif args.command == "validate":
+            return validate_command(args)
         else:
             print(f"Unknown command: {args.command}")
             return 1
@@ -424,3 +490,155 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def generate_command(args: argparse.Namespace) -> int:
+    """Execute the generate subcommand."""
+    from cancrizans.generator import CanonGenerator
+    from cancrizans.validator import CanonValidator
+
+    generator = CanonGenerator(seed=args.seed if args.seed else None)
+    validator = CanonValidator()
+
+    print(f"Generating {args.algorithm} canon...")
+
+    # Generate based on algorithm
+    if args.algorithm == 'scale':
+        canon = generator.generate_scale_canon(
+            key=args.key,
+            mode=args.mode,
+            length=args.length
+        )
+    elif args.algorithm == 'arpeggio':
+        canon = generator.generate_arpeggio_canon(
+            root=args.root,
+            chord_type=args.mode
+        )
+    elif args.algorithm == 'random':
+        canon = generator.generate_random_walk(
+            length=args.length,
+            max_interval=3
+        )
+    elif args.algorithm == 'fibonacci':
+        canon = generator.generate_fibonacci_canon(
+            length=args.length
+        )
+    elif args.algorithm == 'modal':
+        canon = generator.generate_modal_canon(
+            mode=args.mode,
+            length=args.length
+        )
+    elif args.algorithm == 'golden':
+        canon = generator.generate_golden_ratio_canon(
+            length=args.length
+        )
+    else:
+        print(f"Unknown algorithm: {args.algorithm}")
+        return 1
+
+    print("✓ Canon generated")
+
+    # Validate if requested
+    if args.validate:
+        print("\nValidating...")
+        validation = validator.validate(canon)
+        quality = validation['overall_quality']
+        grade = validator.get_quality_grade(quality)
+
+        print(f"Quality Score: {quality:.3f} ({grade})")
+
+        if validation['errors']:
+            print("\nErrors:")
+            for error in validation['errors']:
+                print(f"  • {error}")
+
+        if validation['warnings'] and args.verbose:
+            print("\nWarnings:")
+            for warning in validation['warnings']:
+                print(f"  • {warning}")
+
+    # Save output
+    if args.output:
+        output_path = Path(args.output)
+        to_midi(canon, str(output_path))
+        print(f"✓ Saved to: {output_path}")
+
+    return 0
+
+
+def validate_command(args: argparse.Namespace) -> int:
+    """Execute the validate subcommand."""
+    from cancrizans.validator import CanonValidator
+    from cancrizans.io import load_score
+
+    input_path = Path(args.input)
+    if not input_path.exists():
+        print(f"Error: File not found: {input_path}")
+        return 1
+
+    print(f"Validating: {input_path}")
+    print("-" * 60)
+
+    # Load score
+    score = load_score(input_path)
+
+    # Validate
+    validator = CanonValidator()
+    validation = validator.validate(score)
+
+    # Display results
+    print(f"\nValid Canon: {validation['is_valid_canon']}")
+
+    if validation['errors']:
+        print("\n❌ Errors:")
+        for error in validation['errors']:
+            print(f"  • {error}")
+
+    if validation['warnings']:
+        print("\n⚠ Warnings:")
+        for warning in validation['warnings']:
+            print(f"  • {warning}")
+
+    # Quality scores
+    print(f"\n{'='*60}")
+    print("QUALITY SCORES")
+    print(f"{'='*60}")
+
+    scores = validation['quality_scores']
+    for key, value in sorted(scores.items()):
+        bar_len = int(value * 20)
+        bar = '█' * bar_len + '░' * (20 - bar_len)
+        print(f"{key.capitalize():15s} [{bar}] {value:.3f}")
+
+    overall = validation['overall_quality']
+    grade = validator.get_quality_grade(overall)
+    print(f"\n{'Overall Quality':15s} {overall:.3f} ({grade})")
+
+    # Recommendations
+    if args.verbose:
+        recommendations = validator.get_recommendations(validation)
+        print(f"\n{'='*60}")
+        print("RECOMMENDATIONS")
+        print(f"{'='*60}")
+        for rec in recommendations:
+            print(f"  • {rec}")
+
+    # Export if requested
+    if args.output:
+        import json
+        output_path = Path(args.output)
+        with open(output_path, 'w') as f:
+            # Convert to JSON-serializable format
+            export_data = {
+                'is_valid_canon': validation['is_valid_canon'],
+                'errors': validation['errors'],
+                'warnings': validation['warnings'],
+                'quality_scores': validation['quality_scores'],
+                'metrics': validation['metrics'],
+                'overall_quality': validation['overall_quality'],
+                'grade': grade
+            }
+            json.dump(export_data, f, indent=2)
+        print(f"\n✓ Exported to: {output_path}")
+
+    return 0 if validation['is_valid_canon'] else 1
