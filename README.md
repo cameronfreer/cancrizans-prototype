@@ -44,11 +44,12 @@ The name comes from the sideways movement of crabs, referencing the backward mot
 - **Core transformations**: retrograde, inversion, augmentation, diminution, mirror canon
 - **Analysis tools**: interval, harmonic, and rhythm analysis
 - **Palindrome verification**: automated structural analysis with pairwise mapping
-- **Export formats**: MIDI, MusicXML, WAV (optional with FluidSynth)
+- **Export formats**: MIDI, MusicXML, LilyPond (.ly), ABC notation (.abc), WAV (optional)
 - **Visualizations**: piano roll and symmetry plots with matplotlib
 - **CLI interface**: analyze, render, synthesize, and **research** (batch analysis)
 - **Research tools**: Batch processing, multi-format export (CSV/JSON/LaTeX/Markdown)
-- **Comprehensive tests**: 26 tests, 100% offline, all passing
+- **Performance optimization**: Caching decorators (@memoize, @lru_cache, @disk_cache)
+- **Comprehensive tests**: 80 tests, 100% offline, all passing
 
 ### 🌐 Web Interface (PWA)
 - **✏️ Interactive Composer**: Create your own crab canons!
@@ -230,6 +231,24 @@ validator = CanonValidator()
 results = validator.validate(canon)
 print(f"Quality: {results['overall_quality']:.3f}")
 print(f"Grade: {validator.get_quality_grade(results['overall_quality'])}")
+
+# Performance optimization with caching
+from cancrizans.cache import memoize, disk_cache, clear_all_caches
+
+# Cache expensive computations in memory
+@memoize
+def expensive_analysis(score_data):
+    # Your expensive analysis here
+    return results
+
+# Or use disk cache for persistent results
+@disk_cache(maxsize=100)
+def batch_process(file_path):
+    # Processing that should persist across runs
+    return results
+
+# Clear all caches when needed
+clear_all_caches()
 ```
 
 ### Web Interface
@@ -242,7 +261,7 @@ print(f"Grade: {validator.get_quality_grade(results['overall_quality'])}")
 
 ## Testing
 
-The project includes a comprehensive test suite with 69 tests (100% pass rate) covering core functionality:
+The project includes a comprehensive test suite with 80 tests (100% pass rate) covering core functionality:
 
 ```bash
 # Run all tests

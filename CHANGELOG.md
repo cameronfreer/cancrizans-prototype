@@ -5,6 +5,50 @@ All notable changes to the Cancrizans project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2025-11-12
+
+### ⚡ Phase 12: Performance Optimization & Caching
+
+#### Added
+- **Caching Infrastructure** (`cancrizans/cache.py`)
+  - `@memoize` decorator - In-memory function result caching
+  - `@lru_cache` wrapper - Bounded memory cache with LRU eviction
+  - `@disk_cache` decorator - Persistent disk-based caching
+  - `clear_all_caches()` - Clear all registered caches
+  - `get_cache_stats()` - Retrieve cache statistics
+  - Cache utilities for optimizing expensive operations
+
+- **Performance Benchmarking** (`scripts/benchmark.py`)
+  - Comprehensive performance profiling of all operations
+  - Statistical analysis (mean, median, stdev, min, max)
+  - Benchmark results documented in `docs/performance.md`
+  - Key metrics:
+    - Retrograde (40 notes): 0.719ms mean
+    - Inversion (40 notes): 2.329ms mean
+    - Palindrome verification: 0.483ms mean
+    - Full validation: 34.488ms mean
+    - Scale canon generation: 1.611ms mean
+    - Bach canon loading: 83.775ms mean
+
+- **Cache Tests** (`tests/test_cache.py`)
+  - 11 comprehensive caching tests
+  - Memoization functionality tests
+  - LRU cache behavior validation
+  - Disk cache persistence tests
+  - Performance improvement verification
+  - Cache clearing and statistics tests
+
+#### Performance Improvements
+- Caching infrastructure allows users to optimize expensive operations
+- Disk cache enables persistent results across program runs
+- LRU cache prevents unbounded memory growth
+- Benchmarks establish performance baselines for future optimization
+
+#### Changed
+- Test suite expanded to 80 tests (up from 69)
+- All tests passing with 100% success rate
+- Documentation updated with caching examples
+
 ## [0.8.0] - 2025-11-12
 
 ### 📤 Phase 11: Advanced Export Formats & Integration Tests
