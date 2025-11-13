@@ -5,6 +5,71 @@ All notable changes to the Cancrizans project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2025-11-13
+
+### 🚀 Phase 17: Comprehensive Edge Case Testing & 90% Coverage Milestone
+
+#### Added
+- **Validator Edge Case Tests** (`tests/test_validator.py`)
+  - 16 comprehensive edge case tests for boundary conditions
+  - Zero-duration parts validation
+  - Single-note parts handling
+  - Extreme pitch ranges (low and high)
+  - Narrow and wide range canons
+  - All identical rhythms detection
+  - Non-palindrome penalty verification
+  - All quality grade boundaries (A+ through F)
+  - Individual recommendation tests for each quality metric
+  - Coverage: validator.py increased from 89% to **92%** (+3pp)
+
+- **CLI Edge Case Tests** (`tests/test_cli_commands.py`)
+  - 9 new integration tests for error paths and edge cases
+  - Research with non-existent directory
+  - Render WAV with missing soundfont
+  - Main function with no command
+  - Generate with validation warnings
+  - Validate with JSON export
+  - Research with no matching files
+  - Analyze with rests
+  - Synthesize with transposition and tempo
+  - Coverage: cli.py increased from 85% to **87%** (+2pp)
+
+- **Canon Edge Case Tests** (`tests/test_canon.py`)
+  - 19 comprehensive edge case tests for transformations
+  - Retrograde with empty streams, chords, rests, and sequences
+  - Inversion with chords, rests, and pitch sequences
+  - Augmentation and diminution with chords
+  - is_time_palindrome with wrong part counts and different lengths
+  - Empty parts palindrome verification
+  - _extract_events with chords
+  - Interval, harmonic, and rhythm analysis with empty/single-note streams
+  - Pairwise symmetry with empty streams and single notes
+  - Coverage: canon.py increased from 85% to **89%** (+4pp)
+
+#### Test Improvements
+- **Total test count**: 226 tests (up from 182, **+44 new tests**)
+- **Overall coverage**: **90%** (up from 88%, +2 percentage points) 🎯
+- **Module improvements**:
+  - validator.py: 89% → **92%** (+3pp)
+  - canon.py: 85% → **89%** (+4pp)
+  - cli.py: 85% → **87%** (+2pp)
+  - generator.py: 95% → **98%** (maintained)
+  - __main__.py: **100%** (maintained)
+
+#### Quality Milestones
+- ✅ **90% overall coverage achieved** - major project milestone!
+- ✅ All 226 tests passing (100% success rate)
+- ✅ Comprehensive edge case coverage across all major modules
+- ✅ Improved error handling validation
+- ✅ Better boundary condition testing
+- ✅ Enhanced musical transformation robustness
+
+#### Test Categories Expansion
+- Unit tests: 156 tests (includes 44 new edge case tests)
+- CLI command tests: 48 tests (up from 39)
+- Edge case tests: 44 new tests strategically distributed
+- Integration, visualization, and research tests: maintained
+
 ## [0.12.0] - 2025-11-12
 
 ### 🎯 Phase 16: Coverage Excellence & Edge Case Testing

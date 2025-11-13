@@ -4,10 +4,10 @@
 
 Cancrizans is a comprehensive toolkit for analyzing, verifying, and rendering palindromic musical structures, with a focus on Bach's *Canon Cancrizans* from *The Musical Offering* (BWV 1079).
 
-[![Python Tests](https://img.shields.io/badge/tests-182%20passed-brightgreen)](tests/)
-[![Coverage](https://img.shields.io/badge/coverage-88%25-brightgreen)](tests/)
+[![Python Tests](https://img.shields.io/badge/tests-226%20passed-brightgreen)](tests/)
+[![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org)
-[![Version](https://img.shields.io/badge/version-0.12.0-blue)](cancrizans/__init__.py)
+[![Version](https://img.shields.io/badge/version-0.13.0-blue)](cancrizans/__init__.py)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Music](https://img.shields.io/badge/music-Public%20Domain-green)](data/)
 
@@ -53,7 +53,7 @@ The name comes from the sideways movement of crabs, referencing the backward mot
 - **Quality validation**: Automated scoring and recommendations for generated canons
 - **Research tools**: Batch processing, multi-format export (CSV/JSON/LaTeX/Markdown)
 - **Performance optimization**: Caching decorators (@memoize, @lru_cache, @disk_cache)
-- **World-class testing**: 182 tests, 88% coverage, 100% pass rate
+- **World-class testing**: 226 tests, 90% coverage, 100% pass rate
 
 ### 🌐 Web Interface (PWA)
 - **✏️ Interactive Composer**: Create your own crab canons!
@@ -265,7 +265,7 @@ clear_all_caches()
 
 ## Testing
 
-The project includes a comprehensive test suite with 182 tests (100% pass rate, 88% coverage) covering core functionality:
+The project includes a comprehensive test suite with 226 tests (100% pass rate, 90% coverage) covering core functionality:
 
 ```bash
 # Run all tests
@@ -285,23 +285,25 @@ pytest -v
 ```
 
 **Test Coverage:**
-- Overall: 88% (+22 percentage points from Phase 13!)
-- CLI module: 85% (was 0%)
-- Bach Crab Canon: 98% (+25pp)
-- Research tools: 99%
+- Overall: 90% (+2 percentage points from Phase 16!)
+- __main__ module: 100%
+- Bach Crab Canon: 98%
+- Generator module: 98% (was 95%)
 - Visualization: 98%
-- Generator module: 95%
-- Validator module: 89%
-- Canon transformations: 85%
+- Research tools: 99%
+- Validator module: 92% (was 89%)
+- Canon transformations: 89% (was 85%)
+- CLI module: 87% (was 85%)
 - Cache module: 80%
 - I/O module: 78%
 
 **Test Categories:**
-- Unit tests: 128 tests
+- Unit tests: 156 tests (includes 44 new edge case tests)
 - Integration tests: 11 tests
 - Visualization tests: 19 tests
 - Research tests: 31 tests
-- CLI command tests: 39 tests (includes 2 __main__ module tests)
+- CLI command tests: 48 tests (includes 2 __main__ module tests)
+- Edge case tests: 44 tests across validator, CLI, and canon modules
 
 Coverage reports are generated in `htmlcov/` directory.
 

@@ -754,3 +754,186 @@ class TestMainModule:
         )
         assert result.returncode == 0
         assert 'cancrizans' in result.stdout.lower()
+
+
+class TestCLIEdgeCases:
+    """Test edge cases and error handling in CLI commands."""
+
+    def test_research_nonexistent_directory(self, capsys):
+        """Test research command with non-existent directory."""
+        args = argparse.Namespace(
+            directory='/nonexistent/directory',
+            pattern='*.mid',
+            output='research_output',
+            csv=False,
+            json=False,
+            latex=False,
+            markdown=False,
+            all=False
+        )
+
+        result = research_command(args)
+        assert result == 1
+
+        captured = capsys.readouterr()
+        assert 'not found' in captured.out.lower() or 'error' in captured.out.lower()
+
+    def test_render_wav_missing_soundfont(self, test_midi_file):
+        """Test render command with missing soundfont file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_out = Path(tmpdir) / "out.mid"
+            wav_out = Path(tmpdir) / "out.wav"
+
+            args = argparse.Namespace(
+                input=str(test_midi_file),
+                midi=str(midi_out),
+                xml=None,
+                wav=str(wav_out),
+                soundfont='/nonexistent/soundfont.sf2',  # Missing soundfont
+                roll=None,
+                mirror=None
+            )
+
+            result = render_command(args)
+            assert result == 1
+
+    def test_render_wav_without_soundfont_arg(self, test_midi_file):
+        """Test render WAV without providing soundfont argument."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_out = Path(tmpdir) / "out.mid"
+            wav_out = Path(tmpdir) / "out.wav"
+
+            args = argparse.Namespace(
+                input=str(test_midi_file),
+                midi=str(midi_out),
+                xml=None,
+                wav=str(wav_out),
+                soundfont=None,  # No soundfont provided
+                roll=None,
+                mirror=None
+            )
+
+            result = render_command(args)
+            assert result == 1
+
+    def test_main_no_command(self, monkeypatch, capsys):
+        """Test main function with no command specified."""
+        monkeypatch.setattr(sys, 'argv', ['cancrizans'])
+
+        result = main()
+        assert result == 1
+
+        captured = capsys.readouterr()
+        # Should print help when no command given
+        assert 'usage' in captured.out.lower() or 'command' in captured.out.lower()
+
+    def test_generate_with_validation_warnings(self, capsys):
+        """Test generate command with validation showing warnings."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_file = Path(tmpdir) / "generated.mid"
+
+            args = argparse.Namespace(
+                algorithm='scale',
+                output=str(output_file),
+                key='C',
+                root='C4',
+                mode='major',
+                length=4,  # Short length might trigger warnings
+                seed=42,
+                validate=True,
+                verbose=True  # Enable verbose to show warnings
+            )
+
+            result = generate_command(args)
+            assert result == 0  # Should still succeed
+            assert output_file.exists()
+
+    def test_validate_json_export(self, test_midi_file):
+        """Test validate command with JSON export."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_json = Path(tmpdir) / "validation.json"
+
+            args = argparse.Namespace(
+                input=str(test_midi_file),
+                output=str(output_json),
+                verbose=True
+            )
+
+            result = validate_command(args)
+            # Result can be 0 or 1 depending on if canon is valid palindrome
+            assert output_json.exists()
+
+            # Verify JSON structure
+            import json
+            with open(output_json) as f:
+                data = json.load(f)
+                assert 'is_valid_canon' in data
+                assert 'quality_scores' in data
+                assert 'grade' in data
+
+    def test_research_no_matching_files(self, capsys):
+        """Test research command when pattern matches no files."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create empty directory
+            research_dir = Path(tmpdir) / "empty_research"
+            research_dir.mkdir()
+
+            args = argparse.Namespace(
+                directory=str(research_dir),
+                pattern='*.nonexistent',  # Pattern that won't match anything
+                output=str(Path(tmpdir) / "output"),
+                csv=False,
+                json=False,
+                latex=False,
+                markdown=False,
+                all=False
+            )
+
+            result = research_command(args)
+            assert result == 1
+
+            captured = capsys.readouterr()
+            assert 'no files' in captured.out.lower()
+
+    def test_analyze_with_rests(self, capsys):
+        """Test analyze command with a score containing rests."""
+        from music21 import stream, note
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a simple score with rests
+            score = stream.Score()
+            part = stream.Part()
+            part.append(note.Note('C4', quarterLength=1.0))
+            part.append(note.Rest(quarterLength=1.0))
+            part.append(note.Note('D4', quarterLength=1.0))
+            score.append(part)
+
+            midi_path = Path(tmpdir) / "with_rests.mid"
+            score.write('midi', fp=str(midi_path))
+
+            args = argparse.Namespace(input=str(midi_path))
+            result = analyze_command(args)
+
+            assert result == 0
+            captured = capsys.readouterr()
+            assert 'rests' in captured.out.lower()
+
+    def test_synthesize_with_transposition_and_tempo(self, capsys):
+        """Test synthesize with both transposition and tempo."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            args = argparse.Namespace(
+                tempo=120,
+                transpose=5,
+                output=str(tmpdir)
+            )
+
+            result = synthesize_command(args)
+            assert result == 0
+
+            captured = capsys.readouterr()
+            assert 'transposing' in captured.out.lower()
+            assert 'tempo' in captured.out.lower()
+
+            # Check output files exist
+            assert (Path(tmpdir) / "synthesized_crab.mid").exists()
+            assert (Path(tmpdir) / "synthesized_crab.musicxml").exists()

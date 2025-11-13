@@ -295,3 +295,232 @@ class TestRhythmAnalysis:
         assert isinstance(analysis, dict)
         assert 'total_events' in analysis
         assert 'average_duration' in analysis
+
+
+class TestCanonEdgeCases:
+    """Test edge cases and boundary conditions in canon transformations."""
+
+    def test_retrograde_empty_stream(self):
+        """Test retrograde with empty stream."""
+        empty_part = stream.Part()
+        retro = retrograde(empty_part)
+
+        assert isinstance(retro, stream.Part)
+        assert len(list(retro.notes)) == 0
+
+    def test_retrograde_with_chord(self):
+        """Test retrograde with chords."""
+        from music21 import chord as m21chord
+
+        melody = stream.Part()
+        melody.append(m21chord.Chord(['C4', 'E4', 'G4'], quarterLength=1.0))
+        melody.append(note.Note('D4', quarterLength=1.0))
+
+        retro = retrograde(melody)
+
+        assert len(list(retro.flatten().notesAndRests)) == 2
+        # First element in retrograde should be the original second element
+        assert isinstance(list(retro.flatten().notesAndRests)[0], note.Note)
+
+    def test_retrograde_with_rest(self):
+        """Test retrograde with rests."""
+        melody = stream.Part()
+        melody.append(note.Note('C4', quarterLength=1.0))
+        melody.append(note.Rest(quarterLength=1.0))
+        melody.append(note.Note('D4', quarterLength=1.0))
+
+        retro = retrograde(melody)
+
+        elements = list(retro.flatten().notesAndRests)
+        assert len(elements) == 3
+        # Check that rest is in the retrograde
+        assert any(el.isRest for el in elements)
+
+    def test_retrograde_sequence(self):
+        """Test retrograde with a sequence (not a Stream)."""
+        sequence = [1, 2, 3, 4, 5]
+        retro = retrograde(sequence)
+
+        assert retro == [5, 4, 3, 2, 1]
+
+    def test_invert_with_chord(self):
+        """Test inversion with chords."""
+        from music21 import chord as m21chord
+
+        melody = stream.Part()
+        melody.append(m21chord.Chord(['C4', 'E4', 'G4'], quarterLength=1.0))
+
+        inverted = invert(melody, axis_pitch='C4')
+
+        assert len(list(inverted.flatten().notesAndRests)) == 1
+        inverted_el = list(inverted.flatten().notesAndRests)[0]
+        assert isinstance(inverted_el, m21chord.Chord)
+
+    def test_invert_with_rest(self):
+        """Test inversion preserves rests."""
+        melody = stream.Part()
+        melody.append(note.Note('C4', quarterLength=1.0))
+        melody.append(note.Rest(quarterLength=1.0))
+        melody.append(note.Note('E4', quarterLength=1.0))
+
+        inverted = invert(melody, axis_pitch='C4')
+
+        elements = list(inverted.flatten().notesAndRests)
+        assert len(elements) == 3
+        assert any(el.isRest for el in elements)
+
+    def test_invert_sequence(self):
+        """Test inversion with a sequence of pitches."""
+        from music21 import pitch as m21pitch
+
+        sequence = [m21pitch.Pitch('C4'), m21pitch.Pitch('D4'), m21pitch.Pitch('E4')]
+        inverted = invert(sequence, axis_pitch='D4')
+
+        assert len(inverted) == 3
+        # Verify pitches are inverted around D4
+        assert all(hasattr(p, 'midi') for p in inverted)
+
+    def test_augmentation_with_chord(self):
+        """Test augmentation with chords."""
+        from music21 import chord as m21chord
+
+        melody = stream.Part()
+        melody.append(m21chord.Chord(['C4', 'E4', 'G4'], quarterLength=1.0))
+
+        aug = augmentation(melody, factor=2.0)
+
+        chord_el = list(aug.flatten().notesAndRests)[0]
+        assert isinstance(chord_el, m21chord.Chord)
+        assert chord_el.quarterLength == 2.0
+
+    def test_diminution_with_chord(self):
+        """Test diminution with chords."""
+        from music21 import chord as m21chord
+
+        melody = stream.Part()
+        melody.append(m21chord.Chord(['C4', 'E4', 'G4'], quarterLength=2.0))
+
+        dim = diminution(melody, factor=2.0)
+
+        chord_el = list(dim.flatten().notesAndRests)[0]
+        assert isinstance(chord_el, m21chord.Chord)
+        assert chord_el.quarterLength == 1.0
+
+    def test_is_time_palindrome_wrong_part_count(self):
+        """Test is_time_palindrome with wrong number of parts."""
+        score = stream.Score()
+        part1 = stream.Part()
+        part1.append(note.Note('C4', quarterLength=1.0))
+        score.append(part1)
+
+        # Only 1 part, should return False
+        assert is_time_palindrome(score) is False
+
+        # Add 2 more parts (total 3)
+        part2 = stream.Part()
+        part2.append(note.Note('D4', quarterLength=1.0))
+        part3 = stream.Part()
+        part3.append(note.Note('E4', quarterLength=1.0))
+        score.append(part2)
+        score.append(part3)
+
+        # 3 parts, should return False
+        assert is_time_palindrome(score) is False
+
+    def test_is_time_palindrome_different_lengths(self):
+        """Test is_time_palindrome with parts of different lengths."""
+        score = stream.Score()
+        part1 = stream.Part()
+        part1.append(note.Note('C4', quarterLength=1.0))
+        part1.append(note.Note('D4', quarterLength=1.0))
+
+        part2 = stream.Part()
+        part2.append(note.Note('E4', quarterLength=1.0))
+
+        score.append(part1)
+        score.append(part2)
+
+        # Different number of notes, should return False
+        assert is_time_palindrome(score) is False
+
+    def test_is_time_palindrome_empty_parts(self):
+        """Test is_time_palindrome with empty parts."""
+        score = stream.Score()
+        part1 = stream.Part()
+        part2 = stream.Part()
+        score.append(part1)
+        score.append(part2)
+
+        # Empty parts should return True (vacuously true)
+        assert is_time_palindrome(score) is True
+
+    def test_extract_events_with_chord(self):
+        """Test _extract_events with chords."""
+        from cancrizans.canon import _extract_events
+        from music21 import chord as m21chord
+
+        part = stream.Part()
+        part.append(note.Note('C4', quarterLength=1.0))
+        part.append(m21chord.Chord(['E4', 'G4', 'C5'], quarterLength=1.0))
+
+        events = _extract_events(part)
+
+        assert len(events) == 2
+        # Chord event should use lowest pitch (E4 = MIDI 64)
+        assert events[1][2] == 64  # MIDI pitch of E4
+
+    def test_interval_analysis_empty_stream(self):
+        """Test interval_analysis with empty or single-note stream."""
+        empty_part = stream.Part()
+        analysis = interval_analysis(empty_part)
+
+        assert analysis['total_intervals'] == 0
+        assert analysis['average'] == 0
+
+    def test_interval_analysis_single_note(self):
+        """Test interval_analysis with only one note."""
+        part = stream.Part()
+        part.append(note.Note('C4', quarterLength=1.0))
+
+        analysis = interval_analysis(part)
+
+        assert analysis['total_intervals'] == 0
+
+    def test_harmonic_analysis_single_part(self):
+        """Test harmonic_analysis with only one part."""
+        score = stream.Score()
+        part = stream.Part()
+        part.append(note.Note('C4', quarterLength=1.0))
+        score.append(part)
+
+        analysis = harmonic_analysis(score)
+
+        assert analysis['total_sonorities'] == 0
+        assert analysis['consonances'] == 0
+
+    def test_rhythm_analysis_empty_stream(self):
+        """Test rhythm_analysis with empty stream."""
+        empty_part = stream.Part()
+        analysis = rhythm_analysis(empty_part)
+
+        assert analysis['total_events'] == 0
+        assert analysis['average_duration'] == 0
+
+    def test_pairwise_symmetry_map_empty(self):
+        """Test pairwise_symmetry_map with empty stream."""
+        empty_part = stream.Part()
+        pairs = pairwise_symmetry_map(empty_part)
+
+        assert isinstance(pairs, list)
+        assert len(pairs) == 0
+
+    def test_pairwise_symmetry_map_single_note(self):
+        """Test pairwise_symmetry_map with single note."""
+        part = stream.Part()
+        part.append(note.Note('C4', quarterLength=1.0))
+
+        pairs = pairwise_symmetry_map(part)
+
+        # Single note should map to itself
+        assert len(pairs) == 1
+        assert pairs[0] == (0, 0)
