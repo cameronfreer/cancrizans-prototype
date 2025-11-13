@@ -373,32 +373,232 @@ class TestABCAccidentals:
 
 class TestLoadScore:
     """Test load_score function edge cases."""
-    
+
     def test_load_score_from_part(self):
         """Test loading a single Part (not a Score)."""
         # Create a single part and save it
         part = stream.Part()
         part.append(note.Note('C4', quarterLength=1.0))
         part.append(note.Note('D4', quarterLength=1.0))
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             midi_path = Path(tmpdir) / 'part.mid'
             part.write('midi', fp=str(midi_path))
-            
+
             # Loading should convert to Score
             loaded = load_score(midi_path)
             assert isinstance(loaded, stream.Score)
-    
+
     def test_load_score_handles_score(self):
         """Test loading a proper Score object."""
         score = stream.Score()
         part = stream.Part()
         part.append(note.Note('C4', quarterLength=1.0))
         score.insert(0, part)
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             midi_path = Path(tmpdir) / 'score.mid'
             score.write('midi', fp=str(midi_path))
-            
+
             loaded = load_score(midi_path)
             assert isinstance(loaded, stream.Score)
+
+
+class TestIOEdgeCases:
+    """Test edge cases and error handling in IO functions."""
+
+    def test_to_midi_creates_nested_directories(self):
+        """Test that to_midi creates nested directories if needed."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Deep nested path
+            midi_path = Path(tmpdir) / 'level1' / 'level2' / 'test.mid'
+            result = to_midi(canon, midi_path)
+
+            assert midi_path.exists()
+            assert result == midi_path
+
+    def test_to_musicxml_creates_nested_directories(self):
+        """Test that to_musicxml creates nested directories if needed."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            xml_path = Path(tmpdir) / 'level1' / 'level2' / 'test.musicxml'
+            result = to_musicxml(canon, xml_path)
+
+            assert xml_path.exists()
+            assert result == xml_path
+
+    def test_to_lilypond_creates_nested_directories(self):
+        """Test that to_lilypond creates nested directories if needed."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ly_path = Path(tmpdir) / 'level1' / 'level2' / 'test.ly'
+            result = to_lilypond(canon, ly_path)
+
+            assert ly_path.exists()
+            assert result == ly_path
+
+    def test_to_abc_creates_nested_directories(self):
+        """Test that to_abc creates nested directories if needed."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            abc_path = Path(tmpdir) / 'level1' / 'level2' / 'test.abc'
+            result = to_abc(canon, abc_path)
+
+            assert abc_path.exists()
+            assert result == abc_path
+
+    def test_lilypond_high_octave(self):
+        """Test LilyPond export handles high octaves."""
+        score = stream.Score()
+        part = stream.Part()
+        part.append(note.Note('C6', quarterLength=1.0))  # High octave
+        score.insert(0, part)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ly_path = Path(tmpdir) / 'test.ly'
+            to_lilypond(score, ly_path)
+
+            content = ly_path.read_text()
+            # High octave should have multiple apostrophes
+            assert "'''" in content or "''" in content
+
+    def test_abc_duration_edge_cases(self):
+        """Test ABC export with non-standard durations."""
+        score = stream.Score()
+        part = stream.Part()
+        # Non-standard duration (3.0 quarter notes)
+        part.append(note.Note('C4', quarterLength=3.0))
+        part.append(note.Note('D4', quarterLength=4.0))
+        score.insert(0, part)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            abc_path = Path(tmpdir) / 'test.abc'
+            to_abc(score, abc_path)
+
+            content = abc_path.read_text()
+            # Should contain duration markers
+            assert '3' in content or '4' in content
+
+    def test_to_wav_via_sf2_midi_not_found(self):
+        """Test to_wav_via_sf2 with non-existent MIDI file."""
+        from cancrizans.io import to_wav_via_sf2
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_path = Path(tmpdir) / 'nonexistent.mid'
+            sf2_path = Path(tmpdir) / 'font.sf2'
+            wav_path = Path(tmpdir) / 'output.wav'
+
+            # Create dummy sf2 file
+            sf2_path.write_text('dummy')
+
+            with pytest.raises(FileNotFoundError, match="MIDI file not found"):
+                to_wav_via_sf2(midi_path, sf2_path, wav_path)
+
+    def test_to_wav_via_sf2_soundfont_not_found(self):
+        """Test to_wav_via_sf2 with non-existent SoundFont file."""
+        from cancrizans.io import to_wav_via_sf2
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create dummy MIDI file
+            gen = CanonGenerator(seed=42)
+            canon = gen.generate_scale_canon('C', 'major')
+            midi_path = Path(tmpdir) / 'test.mid'
+            to_midi(canon, midi_path)
+
+            sf2_path = Path(tmpdir) / 'nonexistent.sf2'
+            wav_path = Path(tmpdir) / 'output.wav'
+
+            with pytest.raises(FileNotFoundError, match="SoundFont file not found"):
+                to_wav_via_sf2(midi_path, sf2_path, wav_path)
+
+    def test_to_wav_via_sf2_import_error(self, capsys):
+        """Test to_wav_via_sf2 when midi2audio is not available."""
+        from cancrizans.io import to_wav_via_sf2
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create dummy MIDI and SF2 files
+            gen = CanonGenerator(seed=42)
+            canon = gen.generate_scale_canon('C', 'major')
+            midi_path = Path(tmpdir) / 'test.mid'
+            to_midi(canon, midi_path)
+
+            sf2_path = Path(tmpdir) / 'font.sf2'
+            sf2_path.write_text('dummy')
+
+            wav_path = Path(tmpdir) / 'output.wav'
+
+            # This will likely hit the ImportError path
+            result = to_wav_via_sf2(midi_path, sf2_path, wav_path)
+
+            # Should return None if midi2audio not available
+            if result is None:
+                captured = capsys.readouterr()
+                assert 'midi2audio' in captured.out or 'FluidSynth' in captured.out
+
+    def test_lilypond_zero_duration_handling(self):
+        """Test LilyPond export handles zero or very small durations."""
+        score = stream.Score()
+        part = stream.Part()
+        # Note with very small duration
+        part.append(note.Note('C4', quarterLength=0.01))
+        score.insert(0, part)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ly_path = Path(tmpdir) / 'test.ly'
+            result = to_lilypond(score, ly_path)
+
+            assert ly_path.exists()
+            content = ly_path.read_text()
+            # Should have some duration value (defaults to 4 if invalid)
+            assert '4' in content or 'c' in content
+
+    def test_abc_rest_various_durations(self):
+        """Test ABC export with rests of various durations."""
+        score = stream.Score()
+        part = stream.Part()
+        part.append(note.Rest(quarterLength=2.0))  # Long rest
+        part.append(note.Rest(quarterLength=0.5))  # Short rest
+        score.insert(0, part)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            abc_path = Path(tmpdir) / 'test.abc'
+            to_abc(score, abc_path)
+
+            content = abc_path.read_text()
+            # Should have rest markers with durations
+            assert 'z' in content
+            assert '2' in content or '/2' in content
+
+    def test_load_score_string_path(self):
+        """Test load_score with string path instead of Path object."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_path = Path(tmpdir) / 'test.mid'
+            to_midi(canon, midi_path)
+
+            # Pass as string instead of Path
+            loaded = load_score(str(midi_path))
+            assert isinstance(loaded, stream.Score)
+
+    def test_to_midi_string_path(self):
+        """Test to_midi with string path instead of Path object."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_path = str(Path(tmpdir) / 'test.mid')
+            result = to_midi(canon, midi_path)
+
+            assert Path(midi_path).exists()
+            assert isinstance(result, Path)

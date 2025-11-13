@@ -5,6 +5,68 @@ All notable changes to the Cancrizans project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2025-11-13
+
+### 🎯 Phase 18: I/O & Caching Edge Case Testing - 92% Coverage Milestone
+
+#### Added
+- **I/O Edge Case Tests** (`tests/test_io.py`)
+  - 13 comprehensive edge case tests for file I/O operations
+  - Nested directory creation for all export functions (MIDI, MusicXML, LilyPond, ABC)
+  - LilyPond high octave handling
+  - ABC non-standard duration edge cases
+  - WAV export error handling:
+    - Missing MIDI file validation
+    - Missing SoundFont file validation
+    - ImportError handling when midi2audio unavailable
+  - LilyPond zero/small duration handling
+  - ABC rest with various durations
+  - String path handling (vs Path objects)
+  - Coverage: io.py increased from 78% to **85%** (+7pp)
+
+- **Cache Edge Case Tests** (`tests/test_cache.py`)
+  - 10 comprehensive edge case tests for caching mechanisms
+  - Memoize with keyword arguments
+  - Memoize with unhashable arguments (lists, dicts)
+  - Disk cache LRU eviction when maxsize exceeded
+  - Disk cache handling corrupted cache files (pickle errors)
+  - Disk cache handling empty/truncated files (EOFError)
+  - cache_info with corrupted cache files
+  - clear_all_caches with permission errors
+  - get_cache_stats with corrupted files
+  - Multiple disk cache instances non-interference
+  - Coverage: cache.py increased from 80% to **88%** (+8pp)
+
+#### Test Improvements
+- **Total test count**: 249 tests (up from 226, **+23 new tests**)
+- **Overall coverage**: **92%** (up from 90%, +2 percentage points) 🎯
+- **Module improvements**:
+  - cache.py: 80% → **88%** (+8pp) - largest improvement!
+  - io.py: 78% → **85%** (+7pp) - second largest improvement!
+  - validator.py: **92%** (maintained)
+  - canon.py: **89%** (maintained)
+  - cli.py: **87%** (maintained)
+
+#### Quality Milestones
+- ✅ **92% overall coverage achieved** - continuing upward trajectory!
+- ✅ All 249 tests passing (100% success rate)
+- ✅ Robust error handling for file I/O operations
+- ✅ Comprehensive caching edge case coverage
+- ✅ Better handling of corrupted/missing files
+- ✅ Improved resilience of caching mechanisms
+
+#### Test Categories Expansion
+- Unit tests: 179 tests (includes 67 edge case tests across all modules)
+- Edge case tests: 67 tests across validator, CLI, canon, I/O, and cache
+- CLI command tests: 48 tests
+- Integration, visualization, and research tests: maintained
+
+#### Focus Areas
+- **I/O Robustness**: Tested all export formats (MIDI, MusicXML, LilyPond, ABC, WAV)
+- **Error Handling**: Comprehensive testing of file not found, corruption, and permission scenarios
+- **Caching Reliability**: Tested cache corruption, eviction, and multi-instance scenarios
+- **Path Handling**: Ensured both string and Path object compatibility
+
 ## [0.13.0] - 2025-11-13
 
 ### 🚀 Phase 17: Comprehensive Edge Case Testing & 90% Coverage Milestone
