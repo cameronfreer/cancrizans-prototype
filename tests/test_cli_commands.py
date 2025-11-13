@@ -733,3 +733,24 @@ class TestCLIIntegration:
             # 4. Analyze
             ana_args = argparse.Namespace(input=str(canon_file))
             assert analyze_command(ana_args) == 0
+
+
+class TestMainModule:
+    """Test __main__.py module entry point."""
+
+    def test_main_module_import(self):
+        """Test that __main__ module can be imported."""
+        import cancrizans.__main__
+        assert hasattr(cancrizans.__main__, 'main')
+
+    def test_main_module_execution(self):
+        """Test running as module with --help."""
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, '-m', 'cancrizans', '--help'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        assert result.returncode == 0
+        assert 'cancrizans' in result.stdout.lower()

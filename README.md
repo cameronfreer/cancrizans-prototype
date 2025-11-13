@@ -4,10 +4,10 @@
 
 Cancrizans is a comprehensive toolkit for analyzing, verifying, and rendering palindromic musical structures, with a focus on Bach's *Canon Cancrizans* from *The Musical Offering* (BWV 1079).
 
-[![Python Tests](https://img.shields.io/badge/tests-176%20passed-brightgreen)](tests/)
+[![Python Tests](https://img.shields.io/badge/tests-182%20passed-brightgreen)](tests/)
 [![Coverage](https://img.shields.io/badge/coverage-88%25-brightgreen)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org)
-[![Version](https://img.shields.io/badge/version-0.11.0-blue)](cancrizans/__init__.py)
+[![Version](https://img.shields.io/badge/version-0.12.0-blue)](cancrizans/__init__.py)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Music](https://img.shields.io/badge/music-Public%20Domain-green)](data/)
 
@@ -53,7 +53,7 @@ The name comes from the sideways movement of crabs, referencing the backward mot
 - **Quality validation**: Automated scoring and recommendations for generated canons
 - **Research tools**: Batch processing, multi-format export (CSV/JSON/LaTeX/Markdown)
 - **Performance optimization**: Caching decorators (@memoize, @lru_cache, @disk_cache)
-- **World-class testing**: 176 tests, 88% coverage, 100% pass rate
+- **World-class testing**: 182 tests, 88% coverage, 100% pass rate
 
 ### 🌐 Web Interface (PWA)
 - **✏️ Interactive Composer**: Create your own crab canons!
@@ -265,7 +265,7 @@ clear_all_caches()
 
 ## Testing
 
-The project includes a comprehensive test suite with 176 tests (100% pass rate, 88% coverage) covering core functionality:
+The project includes a comprehensive test suite with 182 tests (100% pass rate, 88% coverage) covering core functionality:
 
 ```bash
 # Run all tests
@@ -297,11 +297,11 @@ pytest -v
 - I/O module: 78%
 
 **Test Categories:**
-- Unit tests: 122 tests
+- Unit tests: 128 tests
 - Integration tests: 11 tests
 - Visualization tests: 19 tests
 - Research tests: 31 tests
-- CLI command tests: 37 tests (new)
+- CLI command tests: 39 tests (includes 2 __main__ module tests)
 
 Coverage reports are generated in `htmlcov/` directory.
 

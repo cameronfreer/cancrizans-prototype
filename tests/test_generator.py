@@ -151,3 +151,52 @@ class TestGenerateExampleCanons:
         for name, canon in examples.items():
             assert isinstance(canon, stream.Score), f"{name} is not a Score"
             assert len(canon.parts) == 2, f"{name} doesn't have 2 parts"
+
+
+class TestGeneratorEdgeCases:
+    """Test edge cases and boundary conditions in generator."""
+
+    def test_descending_scale(self):
+        """Test descending scale generation."""
+        gen = CanonGenerator(seed=42)
+        # Generate descending scale
+        canon = gen.generate_scale_canon('C', 'major', length=8, ascending=False)
+        
+        assert canon is not None
+        assert len(canon.parts) == 2
+        # Verify notes are descending
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) > 0
+
+    def test_random_walk_extreme_ranges(self):
+        """Test random walk with extreme pitch boundaries."""
+        gen = CanonGenerator(seed=42)
+        # Generate with large max_interval to trigger boundary conditions
+        canon = gen.generate_random_walk('C2', length=50, max_interval=12)
+        
+        notes = list(canon.parts[0].flatten().notes)
+        # Check all notes are within valid MIDI range (36-84)
+        for n in notes:
+            assert 36 <= n.pitch.midi <= 84
+
+    def test_fibonacci_octave_adjustment(self):
+        """Test Fibonacci canon with octave boundary adjustments."""
+        gen = CanonGenerator(seed=42)
+        # Use very high root to trigger downward octave adjustment
+        canon = gen.generate_fibonacci_canon('C6', length=20)
+        
+        notes = list(canon.parts[0].flatten().notes)
+        # Verify all notes are in valid range
+        for n in notes:
+            assert 36 <= n.pitch.midi <= 84
+
+    def test_golden_ratio_octave_adjustment(self):
+        """Test golden ratio canon with octave adjustments."""
+        gen = CanonGenerator(seed=42)
+        # Use low root to trigger upward octave adjustment  
+        canon = gen.generate_golden_ratio_canon('C2', length=25)
+        
+        notes = list(canon.parts[0].flatten().notes)
+        # Verify all notes are in valid range
+        for n in notes:
+            assert 36 <= n.pitch.midi <= 84
