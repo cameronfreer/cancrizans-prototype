@@ -232,3 +232,25 @@ class TestGeneratorEdgeCases:
         notes = list(canon.parts[0].flatten().notes)
         # All notes should be brought up to at least MIDI 36
         assert all(n.pitch.midi >= 36 for n in notes)
+
+    def test_random_walk_exact_high_clamping(self):
+        """Test random walk exact high pitch clamping assignment (line 137)."""
+        gen = CanonGenerator(seed=42)
+        # Start very high with large upward intervals to trigger clamping
+        canon = gen.generate_random_walk('C6', length=100, max_interval=12)
+
+        notes = list(canon.parts[0].flatten().notes)
+        # Should clamp to exactly 84 when going above
+        assert all(n.pitch.midi <= 84 for n in notes)
+        # Verify we actually hit the upper bound
+        assert any(n.pitch.midi == 84 for n in notes)
+
+    def test_fibonacci_exact_low_octave_adjustment(self):
+        """Test fibonacci canon exact low pitch octave adjustment (line 177)."""
+        gen = CanonGenerator(seed=555)
+        # Start low and use many iterations to potentially go below 36
+        canon = gen.generate_fibonacci_canon('C2', length=50)
+
+        notes = list(canon.parts[0].flatten().notes)
+        # All notes should be at least MIDI 36 after octave adjustment
+        assert all(n.pitch.midi >= 36 for n in notes)

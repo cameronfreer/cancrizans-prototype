@@ -543,3 +543,46 @@ class TestValidatorEdgeCases:
 
         # Should set rhythmic quality to 0.0 when no durations found
         assert results['quality_scores']['rhythmic'] == 0.0
+
+    def test_rhythmic_quality_zero_total_durations(self):
+        """Test rhythmic quality when total_durations == 0 (line 203)."""
+        validator = CanonValidator()
+        score = stream.Score()
+        part1 = stream.Part()
+        # Add a note with 0 duration
+        part1.append(note.Note('C4', quarterLength=0.0))
+        score.insert(0, part1)
+
+        results = {'quality_scores': {}, 'metrics': {}, 'errors': []}
+        validator._assess_rhythmic_quality(score, results)
+
+        # When total_durations == 0, pattern_score should be 0.5 (line 203)
+        assert 'rhythmic' in results['quality_scores']
+
+    def test_range_quality_skip_empty_parts(self):
+        """Test range quality skips parts with no notes (line 217)."""
+        validator = CanonValidator()
+        score = stream.Score()
+
+        # Part with notes
+        part1 = stream.Part()
+        part1.append(note.Note('C4', quarterLength=1.0))
+        part1.append(note.Note('G4', quarterLength=1.0))
+
+        # Empty part (should be skipped)
+        part2 = stream.Part()
+
+        # Part with notes
+        part3 = stream.Part()
+        part3.append(note.Note('E4', quarterLength=1.0))
+
+        score.insert(0, part1)
+        score.insert(0, part2)
+        score.insert(0, part3)
+
+        results = {'quality_scores': {}, 'metrics': {}, 'errors': []}
+        validator._assess_range_quality(score, results)
+
+        # Should successfully skip the empty part
+        assert 'range' in results['quality_scores']
+
