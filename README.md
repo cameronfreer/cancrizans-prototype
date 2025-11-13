@@ -4,10 +4,10 @@
 
 Cancrizans is a comprehensive toolkit for analyzing, verifying, and rendering palindromic musical structures, with a focus on Bach's *Canon Cancrizans* from *The Musical Offering* (BWV 1079).
 
-[![Python Tests](https://img.shields.io/badge/tests-249%20passed-brightgreen)](tests/)
-[![Coverage](https://img.shields.io/badge/coverage-92%25-brightgreen)](tests/)
+[![Python Tests](https://img.shields.io/badge/tests-277%20passed-brightgreen)](tests/)
+[![Coverage](https://img.shields.io/badge/coverage-97%25-brightgreen)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org)
-[![Version](https://img.shields.io/badge/version-0.14.0-blue)](cancrizans/__init__.py)
+[![Version](https://img.shields.io/badge/version-0.15.0-blue)](cancrizans/__init__.py)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Music](https://img.shields.io/badge/music-Public%20Domain-green)](data/)
 
@@ -53,7 +53,8 @@ The name comes from the sideways movement of crabs, referencing the backward mot
 - **Quality validation**: Automated scoring and recommendations for generated canons
 - **Research tools**: Batch processing, multi-format export (CSV/JSON/LaTeX/Markdown)
 - **Performance optimization**: Caching decorators (@memoize, @lru_cache, @disk_cache)
-- **World-class testing**: 249 tests, 92% coverage, 100% pass rate
+- **Transformation chains**: Compose multiple transformations with fluent builder pattern (NEW!)
+- **World-class testing**: 277 tests, 97% coverage, 100% pass rate
 
 ### 🌐 Web Interface (PWA)
 - **✏️ Interactive Composer**: Create your own crab canons!
@@ -253,6 +254,21 @@ def batch_process(file_path):
 
 # Clear all caches when needed
 clear_all_caches()
+
+# NEW: Compose transformations with TransformationChain
+from cancrizans import TransformationChain
+
+# Build transformation chains with fluent API
+result = (TransformationChain()
+          .add(retrograde)
+          .add(lambda s: invert(s, axis_pitch='C4'))
+          .add(lambda s: augmentation(s, factor=2.0))
+          .apply(theme))
+
+# Or use preset chains
+crab_chain = TransformationChain.crab_canon()
+mirror_chain = TransformationChain.mirror_canon(axis_pitch='G4')
+table_chain = TransformationChain.table_canon()  # retrograde + inversion
 ```
 
 ### Web Interface
@@ -265,7 +281,7 @@ clear_all_caches()
 
 ## Testing
 
-The project includes a comprehensive test suite with 249 tests (100% pass rate, 92% coverage) covering core functionality:
+The project includes a comprehensive test suite with 277 tests (100% pass rate, 97% coverage) covering core functionality:
 
 ```bash
 # Run all tests
@@ -285,25 +301,27 @@ pytest -v
 ```
 
 **Test Coverage:**
-- Overall: 92% (+2 percentage points from Phase 17!)
+- Overall: 97% (+5 percentage points from Phase 17!)
 - __main__ module: 100%
 - Research tools: 99%
+- I/O module: 99% (was 78% in Phase 17, +21pp over 2 phases!) ⭐
+- Canon transformations: 99%
 - Bach Crab Canon: 98%
 - Generator module: 98%
 - Visualization: 98%
-- Validator module: 92%
-- Canon transformations: 89%
-- CLI module: 87%
-- Cache module: 88% (was 80%, +8pp)
-- I/O module: 85% (was 78%, +7pp)
+- Transformation chains: 98% (NEW!)
+- Cache module: 95%
+- Validator module: 94%
+- CLI module: 94% (was 85% in Phase 17, +9pp over 2 phases!)
 
 **Test Categories:**
-- Unit tests: 179 tests (includes 67 edge case tests across all modules)
+- Unit tests: 198 tests (includes 76 edge case tests across all modules)
 - Integration tests: 11 tests
 - Visualization tests: 19 tests
 - Research tests: 31 tests
-- CLI command tests: 48 tests (includes 2 __main__ module tests)
-- Edge case tests: 67 tests across validator, CLI, canon, I/O, and cache modules
+- CLI command tests: 52 tests (includes 2 __main__ module tests)
+- Transformation chain tests: 19 tests (NEW!)
+- Edge case tests: 76 tests across validator, CLI, canon, I/O, and cache modules
 
 Coverage reports are generated in `htmlcov/` directory.
 

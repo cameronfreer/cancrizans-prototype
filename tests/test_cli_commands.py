@@ -218,6 +218,63 @@ class TestRenderCommand:
             assert xml_out.exists()
             assert roll_out.exists()
 
+    def test_render_wav_success_path(self, test_midi_file, capsys):
+        """Test successful WAV export path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_out = Path(tmpdir) / 'output.mid'
+            wav_out = Path(tmpdir) / 'output.wav'
+            sf2_path = Path(tmpdir) / 'soundfont.sf2'
+
+            # Create empty soundfont file for testing
+            sf2_path.write_bytes(b'')
+
+            args = argparse.Namespace(
+                input=str(test_midi_file),
+                midi=str(midi_out),
+                xml=None,
+                wav=str(wav_out),
+                soundfont=str(sf2_path),
+                roll=None,
+                mirror=None
+            )
+
+            # Mock the to_wav_via_sf2 to simulate success
+            with patch('cancrizans.cli.to_wav_via_sf2') as mock_wav:
+                mock_wav.return_value = wav_out
+                result = render_command(args)
+
+                assert result == 0
+                captured = capsys.readouterr()
+                assert '✓ WAV exported to:' in captured.out
+
+    def test_render_wav_failure_path(self, test_midi_file, capsys):
+        """Test WAV export failure path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_out = Path(tmpdir) / 'output.mid'
+            wav_out = Path(tmpdir) / 'output.wav'
+            sf2_path = Path(tmpdir) / 'soundfont.sf2'
+
+            # Create empty soundfont file for testing
+            sf2_path.write_bytes(b'')
+
+            args = argparse.Namespace(
+                input=str(test_midi_file),
+                midi=str(midi_out),
+                xml=None,
+                wav=str(wav_out),
+                soundfont=str(sf2_path),
+                roll=None,
+                mirror=None
+            )
+
+            # Mock the to_wav_via_sf2 to simulate failure
+            with patch('cancrizans.cli.to_wav_via_sf2') as mock_wav:
+                mock_wav.return_value = None
+                result = render_command(args)
+
+                captured = capsys.readouterr()
+                assert '✗ WAV export failed' in captured.out
+
     def test_render_wav_without_midi_fails(self, test_midi_file, capsys):
         """Test that WAV export requires MIDI."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -580,6 +637,56 @@ class TestResearchCommand:
 
             captured = capsys.readouterr()
             assert "No files found" in captured.out or result == 1
+
+    def test_research_latex_export(self, test_midi_file):
+        """Test research with LaTeX export."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+
+            # Create test file
+            to_midi(load_bach_crab_canon(), tmppath / 'canon.mid')
+
+            output_dir = tmppath / 'results'
+            args = argparse.Namespace(
+                directory=str(tmppath),
+                pattern='*.mid',
+                output=str(output_dir),
+                all=False,
+                csv=False,
+                json=False,
+                latex=True,
+                markdown=False
+            )
+            result = research_command(args)
+
+            assert result == 0
+            latex_file = output_dir / 'analysis.tex'
+            assert latex_file.exists()
+
+    def test_research_markdown_export(self, test_midi_file):
+        """Test research with Markdown export."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+
+            # Create test file
+            to_midi(load_bach_crab_canon(), tmppath / 'canon.mid')
+
+            output_dir = tmppath / 'results'
+            args = argparse.Namespace(
+                directory=str(tmppath),
+                pattern='*.mid',
+                output=str(output_dir),
+                all=False,
+                csv=False,
+                json=False,
+                latex=False,
+                markdown=True
+            )
+            result = research_command(args)
+
+            assert result == 0
+            md_file = output_dir / 'analysis.md'
+            assert md_file.exists()
 
 
 class TestMainFunction:
