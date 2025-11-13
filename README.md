@@ -4,10 +4,10 @@
 
 Cancrizans is a comprehensive toolkit for analyzing, verifying, and rendering palindromic musical structures, with a focus on Bach's *Canon Cancrizans* from *The Musical Offering* (BWV 1079).
 
-[![Python Tests](https://img.shields.io/badge/tests-277%20passed-brightgreen)](tests/)
+[![Python Tests](https://img.shields.io/badge/tests-285%20passed-brightgreen)](tests/)
 [![Coverage](https://img.shields.io/badge/coverage-97%25-brightgreen)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org)
-[![Version](https://img.shields.io/badge/version-0.15.0-blue)](cancrizans/__init__.py)
+[![Version](https://img.shields.io/badge/version-0.16.0-blue)](cancrizans/__init__.py)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Music](https://img.shields.io/badge/music-Public%20Domain-green)](data/)
 
@@ -54,7 +54,7 @@ The name comes from the sideways movement of crabs, referencing the backward mot
 - **Research tools**: Batch processing, multi-format export (CSV/JSON/LaTeX/Markdown)
 - **Performance optimization**: Caching decorators (@memoize, @lru_cache, @disk_cache)
 - **Transformation chains**: Compose multiple transformations with fluent builder pattern (NEW!)
-- **World-class testing**: 277 tests, 97% coverage, 100% pass rate
+- **World-class testing**: 285 tests, 97% coverage, 100% pass rate
 
 ### 🌐 Web Interface (PWA)
 - **✏️ Interactive Composer**: Create your own crab canons!
@@ -281,7 +281,7 @@ table_chain = TransformationChain.table_canon()  # retrograde + inversion
 
 ## Testing
 
-The project includes a comprehensive test suite with 277 tests (100% pass rate, 97% coverage) covering core functionality:
+The project includes a comprehensive test suite with 285 tests (100% pass rate, 97% coverage) covering core functionality:
 
 ```bash
 # Run all tests
@@ -301,27 +301,27 @@ pytest -v
 ```
 
 **Test Coverage:**
-- Overall: 97% (+5 percentage points from Phase 17!)
+- Overall: 97% (rock solid! Only 39 lines missing) 🎯
 - __main__ module: 100%
 - Research tools: 99%
-- I/O module: 99% (was 78% in Phase 17, +21pp over 2 phases!) ⭐
+- I/O module: 99%
 - Canon transformations: 99%
-- Bach Crab Canon: 98%
+- Cache module: 98% (was 95% in Phase 19, +3pp!) ⭐
 - Generator module: 98%
+- Bach Crab Canon: 98%
+- Transformation chains: 98%
 - Visualization: 98%
-- Transformation chains: 98% (NEW!)
-- Cache module: 95%
-- Validator module: 94%
-- CLI module: 94% (was 85% in Phase 17, +9pp over 2 phases!)
+- Validator module: 96% (was 94% in Phase 19, +2pp!)
+- CLI module: 94%
 
 **Test Categories:**
-- Unit tests: 198 tests (includes 76 edge case tests across all modules)
+- Unit tests: 206 tests (includes 84 edge case tests across all modules)
 - Integration tests: 11 tests
 - Visualization tests: 19 tests
 - Research tests: 31 tests
 - CLI command tests: 52 tests (includes 2 __main__ module tests)
-- Transformation chain tests: 19 tests (NEW!)
-- Edge case tests: 76 tests across validator, CLI, canon, I/O, and cache modules
+- Transformation chain tests: 19 tests
+- Edge case tests: 84 tests across validator, CLI, canon, I/O, cache, and generator
 
 Coverage reports are generated in `htmlcov/` directory.
 

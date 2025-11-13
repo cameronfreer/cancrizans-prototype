@@ -495,3 +495,51 @@ class TestValidatorEdgeCases:
         # Should have positive message
         assert any('excellent' in r.lower() or 'no improvements' in r.lower()
                   for r in recommendations)
+
+    def test_harmonic_quality_direct_single_part(self):
+        """Test harmonic quality assessment directly with single-part (line 144-145)."""
+        from music21 import stream, note
+
+        validator = CanonValidator()
+
+        # Create single-part score
+        score = stream.Score()
+        part = stream.Part()
+        part.append(note.Note('C4', quarterLength=1.0))
+        part.append(note.Note('D4', quarterLength=1.0))
+        score.insert(0, part)
+
+        # Test the private method directly (defensive code path)
+        results = {
+            'quality_scores': {},
+            'metrics': {},
+            'errors': []
+        }
+        validator._assess_harmonic_quality(score, results)
+
+        # Should set default harmonic score for single part
+        assert results['quality_scores']['harmonic'] == 0.7
+
+    def test_rhythmic_quality_direct_no_durations(self):
+        """Test rhythmic quality assessment with parts that have no durations (line 188-189)."""
+        from music21 import stream
+
+        validator = CanonValidator()
+
+        # Create a score with empty parts (no notes)
+        score = stream.Score()
+        part1 = stream.Part()
+        part2 = stream.Part()
+        score.insert(0, part1)
+        score.insert(0, part2)
+
+        # Test the private method directly
+        results = {
+            'quality_scores': {},
+            'metrics': {},
+            'errors': []
+        }
+        validator._assess_rhythmic_quality(score, results)
+
+        # Should set rhythmic quality to 0.0 when no durations found
+        assert results['quality_scores']['rhythmic'] == 0.0

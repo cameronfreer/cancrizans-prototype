@@ -193,10 +193,42 @@ class TestGeneratorEdgeCases:
     def test_golden_ratio_octave_adjustment(self):
         """Test golden ratio canon with octave adjustments."""
         gen = CanonGenerator(seed=42)
-        # Use low root to trigger upward octave adjustment  
+        # Use low root to trigger upward octave adjustment
         canon = gen.generate_golden_ratio_canon('C2', length=25)
-        
+
         notes = list(canon.parts[0].flatten().notes)
         # Verify all notes are in valid range
         for n in notes:
             assert 36 <= n.pitch.midi <= 84
+
+    def test_random_walk_extreme_high_pitch_clamping(self):
+        """Test random walk with extreme high pitches triggers clamping (line 137)."""
+        gen = CanonGenerator(seed=123)  # Seed that produces upward movement
+        # Start very high and with large max_interval to force clamping
+        canon = gen.generate_random_walk('C6', length=50, max_interval=12)
+
+        notes = list(canon.parts[0].flatten().notes)
+        # Should clamp at MIDI 84 (C6)
+        assert all(n.pitch.midi <= 84 for n in notes)
+        # With 50 notes and large intervals, should hit the upper limit
+        assert any(n.pitch.midi == 84 for n in notes)
+
+    def test_fibonacci_extreme_high_pitch_clamping(self):
+        """Test Fibonacci canon extreme high pitch clamping (line 177)."""
+        gen = CanonGenerator(seed=999)
+        # Generate with very high root
+        canon = gen.generate_fibonacci_canon('C6', length=30)
+
+        notes = list(canon.parts[0].flatten().notes)
+        # All notes should be clamped at or below MIDI 84
+        assert all(n.pitch.midi <= 84 for n in notes)
+
+    def test_fractal_extreme_low_pitch_octave_up(self):
+        """Test fractal canon extreme low pitch triggers octave up (line 251)."""
+        gen = CanonGenerator(seed=100)
+        # Start at very low pitch with descending pattern to trigger upward octave adjustment
+        canon = gen.generate_fractal_canon(seed_pattern=[-2, -3, -1], iterations=4, root='C2')
+
+        notes = list(canon.parts[0].flatten().notes)
+        # All notes should be brought up to at least MIDI 36
+        assert all(n.pitch.midi >= 36 for n in notes)

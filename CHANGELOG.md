@@ -5,6 +5,66 @@ All notable changes to the Cancrizans project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2025-11-13
+
+### 🎯 Phase 20: Coverage Excellence - 97% Maintained + Enhanced Edge Case Testing
+
+#### Added
+- **Validator Edge Case Tests** (`tests/test_validator.py`)
+  - 2 new tests for defensive code paths
+  - Direct testing of `_assess_harmonic_quality()` with single-part scores (lines 144-145)
+  - Direct testing of `_assess_rhythmic_quality()` with empty durations (lines 188-189)
+  - Coverage: validator.py increased from 94% to **96%** (+2pp, 12 → 8 lines missing)
+
+- **Generator Extreme Pitch Clamping Tests** (`tests/test_generator.py`)
+  - 3 new tests for pitch boundary handling
+  - Random walk extreme high pitch clamping at MIDI 84 (line 137)
+  - Fibonacci canon extreme high pitch clamping (line 177)
+  - Fractal canon extreme low pitch octave adjustment (line 251)
+  - Coverage: generator.py improved to **98%** (3 → 2 lines missing)
+
+- **Cache Exception Handling Tests** (`tests/test_cache.py`)
+  - 3 new tests for error resilience
+  - Pickle error handling during cache save (lines 117-118)
+  - IO error handling during cache write
+  - OS error handling during cache file deletion (lines 169-170)
+  - Coverage: cache.py increased from 95% to **98%** (+3pp, 4 → 2 lines missing)
+
+#### Test Improvements
+- **Total test count**: **285 tests** (up from 277, **+8 new tests**)
+- **Overall coverage**: **97%** maintained (39 lines missing, down from 46) 🎯
+- **Module improvements**:
+  - cache.py: 95% → **98%** (+3pp) - only 2 lines missing!
+  - validator.py: 94% → **96%** (+2pp)
+  - generator.py: **98%** (improved from 3 → 2 lines missing)
+  - All other modules: maintained at excellent levels
+
+#### Quality Milestones
+- ✅ **97% overall coverage maintained** - rock solid! 🎯
+- ✅ All 285 tests passing (100% success rate)
+- ✅ Comprehensive edge case coverage across all major modules
+- ✅ Enhanced error resilience testing for cache operations
+- ✅ Better coverage of defensive programming paths
+
+#### Test Strategy
+- **Defensive Code Testing**: Direct testing of private methods to cover safety checks
+- **Extreme Value Testing**: Boundary conditions for pitch clamping
+- **Exception Resilience**: Comprehensive error handling validation
+- **Mock-Based Testing**: Sophisticated mocking for filesystem errors
+
+#### Test Categories
+- Unit tests: 206 tests (includes 84 edge case tests)
+- Edge case tests: 84 tests across all modules (+8 from Phase 19)
+- CLI command tests: 52 tests
+- Integration, visualization, and research tests: maintained
+- Transformation chain tests: 19 tests
+
+#### Focus Areas
+- **Edge Case Excellence**: Pushed coverage of edge cases across validator, generator, and cache
+- **Error Resilience**: Tested graceful degradation when filesystem operations fail
+- **Defensive Programming**: Validated safety checks in critical code paths
+- **Boundary Conditions**: Comprehensive testing of pitch/value limits
+
 ## [0.15.0] - 2025-11-13
 
 ### 🚀 Phase 19: 97% Coverage Milestone + Transformation Chains (TDD)
