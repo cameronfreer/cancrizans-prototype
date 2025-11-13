@@ -242,3 +242,21 @@ class TestTransformationChainEdgeCases:
 
         with pytest.raises(ValueError):
             chain.apply(theme)
+
+    def test_chain_named_transformation_exception(self):
+        """Test named transformation exception includes name (line 91)."""
+        def broken_transform(s):
+            raise RuntimeError("Something went wrong")
+
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+
+        chain = TransformationChain()
+        chain.add(broken_transform, name="MyBrokenTransform")
+
+        with pytest.raises(ValueError) as exc_info:
+            chain.apply(theme)
+
+        # Should include the transformation name in the error message
+        assert "MyBrokenTransform" in str(exc_info.value)
+        assert "failed" in str(exc_info.value).lower()

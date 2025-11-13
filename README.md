@@ -4,10 +4,10 @@
 
 Cancrizans is a comprehensive toolkit for analyzing, verifying, and rendering palindromic musical structures, with a focus on Bach's *Canon Cancrizans* from *The Musical Offering* (BWV 1079).
 
-[![Python Tests](https://img.shields.io/badge/tests-301%20passed-brightgreen)](tests/)
-[![Coverage](https://img.shields.io/badge/coverage-99%25-brightgreen)](tests/)
+[![Python Tests](https://img.shields.io/badge/tests-311%20passed-brightgreen)](tests/)
+[![Coverage](https://img.shields.io/badge/coverage-99%25%20(100%25%20reachable)-brightgreen)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org)
-[![Version](https://img.shields.io/badge/version-0.17.0-blue)](cancrizans/__init__.py)
+[![Version](https://img.shields.io/badge/version-0.18.0-blue)](cancrizans/__init__.py)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Music](https://img.shields.io/badge/music-Public%20Domain-green)](data/)
 

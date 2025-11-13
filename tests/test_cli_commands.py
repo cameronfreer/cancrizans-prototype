@@ -1294,3 +1294,35 @@ class TestCLIPhase21Coverage:
                 # Should display the errors (lines 551-553)
                 assert 'Error 1: Test error' in captured.out or 'Test error' in captured.out
                 assert 'Error' in captured.out
+
+
+class TestBachCrabUtilities:
+    """Test Bach Crab Canon utility functions."""
+
+    def test_save_crab_canon_xml_with_force(self):
+        """Test save_crab_canon_xml with force=True overwrites (line 1038)."""
+        from cancrizans.bach_crab import save_crab_canon_xml
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Temporarily override CACHE_DIR for this test
+            from unittest.mock import patch
+            import cancrizans.bach_crab as bach_module
+
+            with patch.object(bach_module, 'ensure_data_dir', return_value=Path(tmpdir)):
+                # First call creates the file
+                xml_path1 = save_crab_canon_xml()
+                assert xml_path1.exists()
+                original_content = xml_path1.read_text()
+
+                # Modify the file
+                xml_path1.write_text("modified content")
+                assert xml_path1.read_text() == "modified content"
+
+                # Call with force=True should overwrite
+                xml_path2 = save_crab_canon_xml(force=True)
+                assert xml_path2.exists()
+                # Should have restored original content
+                assert xml_path2.read_text() == original_content
+                assert "modified content" not in xml_path2.read_text()

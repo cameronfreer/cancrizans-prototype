@@ -446,3 +446,24 @@ class TestCacheUtilityEdgeCases:
             # Should silently handle the error when trying to evict old cache
             result = func_to_evict(3)
             assert result == 12  # Function still works
+
+    def test_clear_all_caches_with_os_error(self):
+        """Test clear_all_caches handles OSError gracefully (lines 169-170)."""
+        from unittest.mock import patch, MagicMock
+        from pathlib import Path
+
+        # Create a cache file first
+        @disk_cache(maxsize=10)
+        def cached_func(x):
+            return x * 5
+
+        cached_func(10)
+
+        # Mock glob to return a path, and unlink to raise OSError
+        mock_path = MagicMock(spec=Path)
+        mock_path.unlink.side_effect = OSError("Permission denied")
+
+        with patch.object(Path, 'glob', return_value=[mock_path]):
+            # Should handle OSError silently and not crash
+            clear_all_caches()
+            # If we get here without exception, the test passes

@@ -254,3 +254,17 @@ class TestGeneratorEdgeCases:
         notes = list(canon.parts[0].flatten().notes)
         # All notes should be at least MIDI 36 after octave adjustment
         assert all(n.pitch.midi >= 36 for n in notes)
+
+    def test_fibonacci_multiple_octave_adjustments(self):
+        """Test fibonacci canon with multiple octave adjustments (line 177)."""
+        gen = CanonGenerator(seed=777)
+        # Start very low to trigger octave adjustments in the loop
+        canon = gen.generate_fibonacci_canon('C1', length=60)
+
+        notes = list(canon.parts[0].flatten().notes)
+        # Most notes (except possibly the first) should be adjusted to >= 36
+        # The first note uses the root directly without adjustment
+        notes_after_first = notes[1:]  # Skip first note
+        assert all(n.pitch.midi >= 36 for n in notes_after_first)
+        # Verify we generated notes
+        assert len(notes) > 0

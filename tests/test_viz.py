@@ -310,3 +310,49 @@ class TestVisualizationIntegration:
 
             assert piano_result.exists()
             assert sym_result.exists()
+
+    def test_piano_roll_with_non_note_elements(self):
+        """Test piano roll skips non-note/chord elements (line 61)."""
+        from music21 import expressions
+
+        score = stream.Score()
+        part = stream.Part()
+
+        part.append(note.Note('C4', quarterLength=1.0))
+        # Add a dynamic marking (not a note or chord)
+        part.append(expressions.TextExpression('forte'))
+        part.append(note.Note('E4', quarterLength=1.0))
+
+        score.insert(0, part)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_file = Path(tmpdir) / 'piano.png'
+            result = piano_roll(score, output_file)
+
+            # Should handle non-note elements gracefully
+            assert result.exists()
+
+    def test_symmetry_with_non_note_elements(self):
+        """Test symmetry plot skips non-note/chord elements (line 160)."""
+        from music21 import expressions
+
+        score = stream.Score()
+        part1 = stream.Part()
+        part2 = stream.Part()
+
+        part1.append(note.Note('C4', quarterLength=1.0))
+        part1.append(expressions.TextExpression('dolce'))
+        part1.append(note.Note('E4', quarterLength=1.0))
+
+        part2.append(note.Note('E4', quarterLength=1.0))
+        part2.append(note.Note('C4', quarterLength=1.0))
+
+        score.insert(0, part1)
+        score.insert(0, part2)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_file = Path(tmpdir) / 'symmetry.png'
+            result = symmetry(score, output_file)
+
+            # Should handle non-note elements gracefully
+            assert result.exists()

@@ -721,3 +721,10 @@ class TestIOEdgeCases:
 
                 # Should be wrapped in a Score
                 assert isinstance(loaded, stream.Score)
+
+    def test_load_score_file_not_found(self):
+        """Test load_score raises FileNotFoundError for missing file (line 303)."""
+        with pytest.raises(FileNotFoundError) as exc_info:
+            load_score('/nonexistent/path/to/file.mid')
+
+        assert 'File not found' in str(exc_info.value)
