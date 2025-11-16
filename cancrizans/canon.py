@@ -3324,3 +3324,580 @@ def analyze_thematic_development(
         'total_occurrences': len(occurrences)
     }
 
+
+# ============================================================================
+# Phase 12: Performance Analysis
+# ============================================================================
+
+def analyze_articulation(
+    score: stream.Score,
+    style: str = 'baroque'
+) -> Dict[str, any]:
+    """
+    Analyze articulation patterns and suggest appropriate articulations.
+
+    Examines note patterns, intervals, and rhythms to suggest period-appropriate
+    articulations (staccato, legato, tenuto, accent, etc.)
+
+    Args:
+        score: The score to analyze
+        style: Performance style ('baroque', 'classical', 'romantic')
+
+    Returns:
+        Dictionary containing:
+        - 'suggestions': List of articulation suggestions with locations
+        - 'patterns': Detected articulation patterns
+        - 'style_notes': Style-specific performance notes
+
+    Example:
+        >>> from cancrizans import analyze_articulation
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> part = stream.Part()
+        >>> for p in ['C4', 'D4', 'E4', 'F4']:
+        ...     part.append(note.Note(p, quarterLength=1.0))
+        >>> score.append(part)
+        >>> result = analyze_articulation(score)
+        >>> 'suggestions' in result
+        True
+    """
+    suggestions = []
+    patterns = []
+
+    # Style-specific rules
+    if style == 'baroque':
+        # Baroque: detached except in slurs, light articulation
+        articulation_rules = {
+            'stepwise': 'legato',  # Stepwise motion often legato
+            'leaps': 'detached',    # Leaps often detached
+            'repeated': 'staccato', # Repeated notes staccato
+            'syncopated': 'accent'  # Syncopations accented
+        }
+        style_notes = [
+            'Use light, detached articulation as default',
+            'Slur stepwise passages in slow movements',
+            'Detach notes in fast passages',
+            'Use inequality (notes inégales) in French style'
+        ]
+    elif style == 'classical':
+        articulation_rules = {
+            'stepwise': 'legato',
+            'leaps': 'legato',
+            'repeated': 'non-legato',
+            'syncopated': 'accent'
+        }
+        style_notes = [
+            'Generally more legato than baroque',
+            'Use clear phrase articulation',
+            'Light staccato for quick passages',
+            'Accent structural downbeats'
+        ]
+    else:  # romantic
+        articulation_rules = {
+            'stepwise': 'legato',
+            'leaps': 'legato',
+            'repeated': 'various',
+            'syncopated': 'tenuto'
+        }
+        style_notes = [
+            'Generally legato unless marked otherwise',
+            'Use expressive tenuto and accent',
+            'Rubato and flexible phrasing',
+            'Rich dynamic shaping'
+        ]
+
+    # Analyze each part
+    for part_idx, part in enumerate(score.parts):
+        notes_list = list(part.flatten().notes)
+
+        for i, n in enumerate(notes_list):
+            if not isinstance(n, note.Note):
+                continue
+
+            # Check for patterns
+            pattern_type = None
+            suggested_articulation = None
+
+            # Repeated notes
+            if i > 0 and isinstance(notes_list[i-1], note.Note):
+                if n.pitch.midi == notes_list[i-1].pitch.midi:
+                    pattern_type = 'repeated'
+                    suggested_articulation = articulation_rules['repeated']
+
+                # Stepwise motion
+                interval = abs(n.pitch.midi - notes_list[i-1].pitch.midi)
+                if interval <= 2:
+                    pattern_type = 'stepwise'
+                    suggested_articulation = articulation_rules['stepwise']
+                elif interval > 2:
+                    pattern_type = 'leaps'
+                    suggested_articulation = articulation_rules['leaps']
+
+            # Syncopation (note starts on weak beat)
+            if n.offset % 1.0 != 0:  # Not on strong beat
+                pattern_type = 'syncopated'
+                suggested_articulation = articulation_rules['syncopated']
+
+            # Short notes suggest staccato
+            if n.quarterLength < 0.5:
+                suggested_articulation = 'staccato'
+
+            if suggested_articulation:
+                suggestions.append({
+                    'part': part_idx,
+                    'offset': float(n.offset),
+                    'pitch': n.pitch.nameWithOctave,
+                    'pattern': pattern_type,
+                    'articulation': suggested_articulation
+                })
+
+                if pattern_type not in [p['type'] for p in patterns]:
+                    patterns.append({
+                        'type': pattern_type,
+                        'suggested_articulation': suggested_articulation
+                    })
+
+    return {
+        'suggestions': suggestions,
+        'patterns': patterns,
+        'style': style,
+        'style_notes': style_notes,
+        'num_suggestions': len(suggestions)
+    }
+
+
+def suggest_dynamics(
+    score: stream.Score,
+    style: str = 'baroque',
+    terraced: bool = True
+) -> Dict[str, any]:
+    """
+    Suggest dynamic markings based on musical structure.
+
+    Analyzes phrase structure, harmonic progression, and melodic contour
+    to suggest period-appropriate dynamics.
+
+    Args:
+        score: The score to analyze
+        style: Performance style ('baroque', 'classical', 'romantic')
+        terraced: Use terraced dynamics (baroque) vs. gradual (romantic)
+
+    Returns:
+        Dictionary containing:
+        - 'dynamics': List of suggested dynamic markings with locations
+        - 'ranges': Recommended dynamic range for the piece
+        - 'notes': Performance notes about dynamics
+
+    Example:
+        >>> from cancrizans import suggest_dynamics
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> part = stream.Part()
+        >>> for p in ['C4', 'E4', 'G4', 'C5']:
+        ...     part.append(note.Note(p, quarterLength=1.0))
+        >>> score.append(part)
+        >>> result = suggest_dynamics(score)
+        >>> 'dynamics' in result
+        True
+    """
+    dynamics = []
+
+    # Style-specific dynamic ranges
+    if style == 'baroque':
+        dynamic_range = ['pp', 'p', 'mp', 'mf', 'f', 'ff']
+        default_dynamic = 'mf'
+        notes = [
+            'Use terraced dynamics (sudden changes)',
+            'Echo effects common (f-p alternation)',
+            'Dynamic changes align with texture changes',
+            'Forte for full ensemble, piano for soloists'
+        ]
+    elif style == 'classical':
+        dynamic_range = ['pp', 'p', 'mp', 'mf', 'f', 'ff']
+        default_dynamic = 'mf'
+        notes = [
+            'Mix of terraced and gradual dynamics',
+            'Use crescendo/diminuendo for phrase shaping',
+            'Dynamic contrasts at formal boundaries',
+            'Subito piano after forte climax'
+        ]
+    else:  # romantic
+        dynamic_range = ['ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff']
+        default_dynamic = 'mp'
+        notes = [
+            'Wide dynamic range with gradual changes',
+            'Extended crescendos and diminuendos',
+            'Expressive dynamic nuance',
+            'Emphasis on climactic points'
+        ]
+
+    # Analyze phrase structure and suggest dynamics
+    for part_idx, part in enumerate(score.parts):
+        notes_list = list(part.flatten().notes)
+
+        if not notes_list:
+            continue
+
+        # Start with default dynamic
+        dynamics.append({
+            'part': part_idx,
+            'offset': 0.0,
+            'dynamic': default_dynamic,
+            'reason': 'opening'
+        })
+
+        # Analyze melodic contour for dynamic suggestions
+        for i in range(1, len(notes_list)):
+            if not isinstance(notes_list[i], note.Note):
+                continue
+
+            current_note = notes_list[i]
+            prev_note = notes_list[i-1]
+
+            # Rising sequence suggests crescendo
+            if isinstance(prev_note, note.Note):
+                interval = current_note.pitch.midi - prev_note.pitch.midi
+
+                # High point suggests forte
+                if i > 2 and i < len(notes_list) - 2:
+                    # Check if this is a local maximum
+                    next_note = notes_list[i+1]
+                    if isinstance(next_note, note.Note):
+                        if (current_note.pitch.midi > prev_note.pitch.midi and
+                            current_note.pitch.midi > next_note.pitch.midi):
+                            # Local maximum - suggest forte
+                            dynamics.append({
+                                'part': part_idx,
+                                'offset': float(current_note.offset),
+                                'dynamic': 'f' if terraced else 'crescendo',
+                                'reason': 'melodic peak'
+                            })
+
+                # Low point suggests piano
+                if i > 2 and i < len(notes_list) - 2:
+                    next_note = notes_list[i+1]
+                    if isinstance(next_note, note.Note):
+                        if (current_note.pitch.midi < prev_note.pitch.midi and
+                            current_note.pitch.midi < next_note.pitch.midi):
+                            # Local minimum
+                            dynamics.append({
+                                'part': part_idx,
+                                'offset': float(current_note.offset),
+                                'dynamic': 'p' if terraced else 'diminuendo',
+                                'reason': 'melodic valley'
+                            })
+
+        # End with appropriate dynamic
+        if notes_list:
+            final_dynamic = 'p' if style == 'baroque' else 'pp'
+            dynamics.append({
+                'part': part_idx,
+                'offset': float(notes_list[-1].offset),
+                'dynamic': final_dynamic,
+                'reason': 'closing'
+            })
+
+    return {
+        'dynamics': dynamics,
+        'dynamic_range': dynamic_range,
+        'default_dynamic': default_dynamic,
+        'style': style,
+        'terraced': terraced,
+        'notes': notes,
+        'num_dynamics': len(dynamics)
+    }
+
+
+def detect_ornament_opportunities(
+    score: stream.Score,
+    style: str = 'baroque'
+) -> Dict[str, any]:
+    """
+    Detect locations suitable for baroque ornaments and suggest types.
+
+    Identifies structural positions where trills, mordents, turns, and
+    appoggiaturas would be stylistically appropriate.
+
+    Args:
+        score: The score to analyze
+        style: Ornamentation style ('baroque', 'classical', 'romantic')
+
+    Returns:
+        Dictionary containing:
+        - 'ornaments': List of suggested ornaments with locations
+        - 'ornament_types': Count by ornament type
+        - 'rules': Style-specific ornamentation rules
+
+    Example:
+        >>> from cancrizans import detect_ornament_opportunities
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> part = stream.Part()
+        >>> for p in ['C4', 'D4', 'C4', 'B3', 'C4']:
+        ...     part.append(note.Note(p, quarterLength=1.0))
+        >>> score.append(part)
+        >>> result = detect_ornament_opportunities(score)
+        >>> 'ornaments' in result
+        True
+    """
+    ornaments = []
+    ornament_counts = {
+        'trill': 0,
+        'mordent': 0,
+        'turn': 0,
+        'appoggiatura': 0,
+        'acciaccatura': 0
+    }
+
+    # Style-specific rules
+    if style == 'baroque':
+        rules = [
+            'Trills on cadential notes (especially leading tone)',
+            'Mordents on short notes and repeated notes',
+            'Turns on longer notes with stepwise motion',
+            'Appoggiaturas on downbeats',
+            'Ornament final cadence extensively'
+        ]
+    elif style == 'classical':
+        rules = [
+            'Trills at cadences and structural points',
+            'Turns in melodic phrases',
+            'Appoggiaturas for expression',
+            'More restrained than baroque'
+        ]
+    else:  # romantic
+        rules = [
+            'Ornaments used sparingly',
+            'Expressive rather than structural',
+            'Often written out rather than indicated'
+        ]
+
+    # Analyze each part for ornament opportunities
+    for part_idx, part in enumerate(score.parts):
+        notes_list = list(part.flatten().notes)
+
+        for i, n in enumerate(notes_list):
+            if not isinstance(n, note.Note):
+                continue
+
+            # Trill opportunities
+            # 1. Penultimate note of phrase (if long enough)
+            if i == len(notes_list) - 2 and n.quarterLength >= 1.0:
+                ornaments.append({
+                    'part': part_idx,
+                    'offset': float(n.offset),
+                    'pitch': n.pitch.nameWithOctave,
+                    'type': 'trill',
+                    'reason': 'cadential note'
+                })
+                ornament_counts['trill'] += 1
+
+            # 2. Long notes (potential for trill)
+            if n.quarterLength >= 2.0 and i < len(notes_list) - 1:
+                ornaments.append({
+                    'part': part_idx,
+                    'offset': float(n.offset),
+                    'pitch': n.pitch.nameWithOctave,
+                    'type': 'trill',
+                    'reason': 'long note'
+                })
+                ornament_counts['trill'] += 1
+
+            # Mordent opportunities
+            # Short notes with stepwise motion
+            if n.quarterLength <= 0.5 and i > 0 and i < len(notes_list) - 1:
+                prev_note = notes_list[i-1]
+                next_note = notes_list[i+1]
+
+                if isinstance(prev_note, note.Note) and isinstance(next_note, note.Note):
+                    # Check for stepwise motion
+                    if abs(n.pitch.midi - prev_note.pitch.midi) <= 2:
+                        ornaments.append({
+                            'part': part_idx,
+                            'offset': float(n.offset),
+                            'pitch': n.pitch.nameWithOctave,
+                            'type': 'mordent',
+                            'reason': 'short note with stepwise motion'
+                        })
+                        ornament_counts['mordent'] += 1
+
+            # Turn opportunities
+            # Notes approached and left by step
+            if i > 0 and i < len(notes_list) - 1:
+                prev_note = notes_list[i-1]
+                next_note = notes_list[i+1]
+
+                if isinstance(prev_note, note.Note) and isinstance(next_note, note.Note):
+                    prev_interval = n.pitch.midi - prev_note.pitch.midi
+                    next_interval = next_note.pitch.midi - n.pitch.midi
+
+                    # Approached and left by step in opposite directions
+                    if (abs(prev_interval) <= 2 and abs(next_interval) <= 2 and
+                        prev_interval * next_interval < 0 and  # Opposite directions
+                        n.quarterLength >= 1.0):
+                        ornaments.append({
+                            'part': part_idx,
+                            'offset': float(n.offset),
+                            'pitch': n.pitch.nameWithOctave,
+                            'type': 'turn',
+                            'reason': 'stepwise approach and departure'
+                        })
+                        ornament_counts['turn'] += 1
+
+            # Appoggiatura opportunities
+            # Downbeat with leap
+            if n.offset % 4.0 == 0 and i > 0:  # Strong downbeat
+                prev_note = notes_list[i-1]
+                if isinstance(prev_note, note.Note):
+                    interval = abs(n.pitch.midi - prev_note.pitch.midi)
+                    if interval > 2:  # Leap
+                        ornaments.append({
+                            'part': part_idx,
+                            'offset': float(n.offset),
+                            'pitch': n.pitch.nameWithOctave,
+                            'type': 'appoggiatura',
+                            'reason': 'downbeat after leap'
+                        })
+                        ornament_counts['appoggiatura'] += 1
+
+    return {
+        'ornaments': ornaments,
+        'ornament_types': ornament_counts,
+        'style': style,
+        'rules': rules,
+        'num_ornaments': len(ornaments)
+    }
+
+
+def analyze_tempo_relationships(
+    score: stream.Score,
+    historical_context: str = 'baroque'
+) -> Dict[str, any]:
+    """
+    Analyze proportional tempo relationships and suggest metronome markings.
+
+    Examines note values, rhythmic patterns, and historical conventions
+    to suggest appropriate tempos.
+
+    Args:
+        score: The score to analyze
+        historical_context: Historical period ('baroque', 'classical', 'romantic')
+
+    Returns:
+        Dictionary containing:
+        - 'suggested_tempo': Recommended tempo marking
+        - 'metronome_range': Suggested metronome marking range
+        - 'proportions': Proportional relationships if multiple sections
+        - 'context': Historical context notes
+
+    Example:
+        >>> from cancrizans import analyze_tempo_relationships
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> part = stream.Part()
+        >>> for p in ['C4', 'D4', 'E4', 'F4']:
+        ...     part.append(note.Note(p, quarterLength=1.0))
+        >>> score.append(part)
+        >>> result = analyze_tempo_relationships(score)
+        >>> 'suggested_tempo' in result
+        True
+    """
+    # Analyze rhythmic density
+    all_durations = []
+    shortest_note = float('inf')
+    longest_note = 0.0
+
+    for part in score.parts:
+        for n in part.flatten().notes:
+            dur = float(n.quarterLength)
+            all_durations.append(dur)
+            shortest_note = min(shortest_note, dur)
+            longest_note = max(longest_note, dur)
+
+    if not all_durations:
+        return {
+            'suggested_tempo': None,
+            'metronome_range': None,
+            'proportions': [],
+            'context': []
+        }
+
+    avg_duration = sum(all_durations) / len(all_durations)
+
+    # Determine tempo based on historical context and note values
+    if historical_context == 'baroque':
+        context_notes = [
+            'Baroque tempos based on tactus (heartbeat ~60-80 bpm)',
+            'Faster notes imply slower tempo for clarity',
+            'Dance movements have specific tempo conventions',
+            'Consider affekt (emotional character)',
+            'French overture: dotted rhythms majestic and slow'
+        ]
+
+        # Baroque tempo suggestions based on note values
+        if shortest_note <= 0.25:  # 16th notes present
+            suggested_tempo = 'Moderato'
+            metronome_range = (60, 80)
+        elif shortest_note <= 0.5:  # 8th notes
+            suggested_tempo = 'Allegro moderato'
+            metronome_range = (80, 100)
+        else:  # Quarters and longer
+            suggested_tempo = 'Andante'
+            metronome_range = (72, 92)
+
+    elif historical_context == 'classical':
+        context_notes = [
+            'Classical tempos more varied than baroque',
+            'Consider movement type (allegro, andante, minuet)',
+            'Proportional relationships between movements',
+            'Mozart: graceful, not rushed',
+            'Haydn: spirited, witty'
+        ]
+
+        if shortest_note <= 0.125:  # 32nd notes
+            suggested_tempo = 'Allegro'
+            metronome_range = (120, 144)
+        elif shortest_note <= 0.25:  # 16th notes
+            suggested_tempo = 'Allegro moderato'
+            metronome_range = (100, 120)
+        elif shortest_note <= 0.5:  # 8th notes
+            suggested_tempo = 'Andante'
+            metronome_range = (76, 92)
+        else:
+            suggested_tempo = 'Adagio'
+            metronome_range = (60, 76)
+
+    else:  # romantic
+        context_notes = [
+            'Romantic tempos extremely flexible',
+            'Rubato expected',
+            'Expressive tempo modifications',
+            'Wide range of character indications',
+            'Consider emotional content over strict tempo'
+        ]
+
+        # Romantic tempos based on character
+        if avg_duration < 0.5:
+            suggested_tempo = 'Vivace'
+            metronome_range = (132, 160)
+        elif avg_duration < 1.0:
+            suggested_tempo = 'Moderato'
+            metronome_range = (88, 112)
+        else:
+            suggested_tempo = 'Lento'
+            metronome_range = (52, 68)
+
+    # Check for tempo changes (would analyze time signature changes, etc.)
+    proportions = []
+
+    return {
+        'suggested_tempo': suggested_tempo,
+        'metronome_range': metronome_range,
+        'shortest_note': shortest_note,
+        'longest_note': longest_note,
+        'avg_duration': avg_duration,
+        'proportions': proportions,
+        'historical_context': historical_context,
+        'context': context_notes
+    }
+

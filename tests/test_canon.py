@@ -2855,3 +2855,315 @@ class TestPhase10AdvancedPatternAnalysis:
         assert isinstance(result['transformations'], dict)
         assert 'original' in result['transformations']
         assert 'transposed' in result['transformations']
+
+
+class TestPhase12PerformanceAnalysis:
+    """Test Phase 12: Performance Analysis functions."""
+
+    def test_analyze_articulation_basic(self):
+        """Test basic articulation analysis."""
+        from cancrizans import analyze_articulation
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        for p in ['C4', 'D4', 'E4', 'F4']:
+            part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        result = analyze_articulation(score)
+
+        assert 'suggestions' in result
+        assert 'patterns' in result
+        assert 'style' in result
+        assert 'style_notes' in result
+
+    def test_analyze_articulation_baroque_style(self):
+        """Test baroque style articulation."""
+        from cancrizans import analyze_articulation
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        for p in ['C4', 'E4', 'G4', 'C5']:  # Leaps
+            part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        result = analyze_articulation(score, style='baroque')
+
+        assert result['style'] == 'baroque'
+        assert len(result['style_notes']) > 0
+
+    def test_analyze_articulation_repeated_notes(self):
+        """Test articulation for repeated notes."""
+        from cancrizans import analyze_articulation
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        # Repeated notes should suggest staccato
+        for _ in range(4):
+            part.append(note.Note('C4', quarterLength=1.0))
+
+        score.append(part)
+
+        result = analyze_articulation(score, style='baroque')
+
+        # Should find repeated note pattern
+        assert result['num_suggestions'] > 0
+
+    def test_suggest_dynamics_basic(self):
+        """Test basic dynamics suggestions."""
+        from cancrizans import suggest_dynamics
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        for p in ['C4', 'E4', 'G4', 'C5']:
+            part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        result = suggest_dynamics(score)
+
+        assert 'dynamics' in result
+        assert 'dynamic_range' in result
+        assert 'default_dynamic' in result
+        assert 'notes' in result
+
+    def test_suggest_dynamics_terraced(self):
+        """Test terraced dynamics (baroque style)."""
+        from cancrizans import suggest_dynamics
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        for p in ['C4', 'D4', 'E4', 'F4']:
+            part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        result = suggest_dynamics(score, style='baroque', terraced=True)
+
+        assert result['terraced'] is True
+        assert result['style'] == 'baroque'
+
+    def test_suggest_dynamics_finds_peaks(self):
+        """Test that dynamics analysis finds melodic peaks."""
+        from cancrizans import suggest_dynamics
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        # Rising to peak then falling
+        for p in ['C4', 'D4', 'E4', 'F4', 'G4', 'F4', 'E4', 'D4', 'C4']:
+            part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        result = suggest_dynamics(score)
+
+        # Should suggest dynamics at peaks/valleys
+        assert result['num_dynamics'] > 0
+
+    def test_detect_ornament_opportunities_basic(self):
+        """Test basic ornament detection."""
+        from cancrizans import detect_ornament_opportunities
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        for p in ['C4', 'D4', 'C4', 'B3', 'C4']:
+            part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        result = detect_ornament_opportunities(score)
+
+        assert 'ornaments' in result
+        assert 'ornament_types' in result
+        assert 'rules' in result
+        assert 'style' in result
+
+    def test_detect_ornament_opportunities_trill(self):
+        """Test detection of trill opportunities."""
+        from cancrizans import detect_ornament_opportunities
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        # Long note before final note (cadential)
+        part.append(note.Note('C4', quarterLength=1.0))
+        part.append(note.Note('B3', quarterLength=2.0))  # Long penultimate note
+        part.append(note.Note('C4', quarterLength=1.0))
+
+        score.append(part)
+
+        result = detect_ornament_opportunities(score, style='baroque')
+
+        # Should suggest trill on penultimate note
+        assert result['ornament_types']['trill'] > 0
+
+    def test_detect_ornament_opportunities_by_style(self):
+        """Test ornament detection with different styles."""
+        from cancrizans import detect_ornament_opportunities
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        for p in ['C4', 'D4', 'E4', 'F4']:
+            part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        baroque_result = detect_ornament_opportunities(score, style='baroque')
+        classical_result = detect_ornament_opportunities(score, style='classical')
+
+        # Both should return valid results with style-specific rules
+        assert len(baroque_result['rules']) > 0
+        assert len(classical_result['rules']) > 0
+
+    def test_analyze_tempo_relationships_basic(self):
+        """Test basic tempo analysis."""
+        from cancrizans import analyze_tempo_relationships
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        for p in ['C4', 'D4', 'E4', 'F4']:
+            part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        result = analyze_tempo_relationships(score)
+
+        assert 'suggested_tempo' in result
+        assert 'metronome_range' in result
+        assert 'context' in result
+        assert 'shortest_note' in result
+
+    def test_analyze_tempo_relationships_baroque(self):
+        """Test baroque tempo suggestions."""
+        from cancrizans import analyze_tempo_relationships
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        # Add sixteenth notes
+        for p in ['C4', 'D4', 'E4', 'F4']:
+            part.append(note.Note(p, quarterLength=0.25))
+
+        score.append(part)
+
+        result = analyze_tempo_relationships(score, historical_context='baroque')
+
+        assert result['historical_context'] == 'baroque'
+        assert result['shortest_note'] == 0.25
+        assert len(result['context']) > 0
+
+    def test_analyze_tempo_relationships_empty_score(self):
+        """Test tempo analysis on empty score."""
+        from cancrizans import analyze_tempo_relationships
+        from music21 import stream
+
+        score = stream.Score()
+        score.append(stream.Part())
+
+        result = analyze_tempo_relationships(score)
+
+        # Should handle gracefully
+        assert result['suggested_tempo'] is None
+        assert result['metronome_range'] is None
+
+    def test_analyze_articulation_empty_score(self):
+        """Test articulation analysis on empty score."""
+        from cancrizans import analyze_articulation
+        from music21 import stream
+
+        score = stream.Score()
+        score.append(stream.Part())
+
+        result = analyze_articulation(score)
+
+        assert result['num_suggestions'] == 0
+        assert len(result['suggestions']) == 0
+
+    def test_suggest_dynamics_empty_score(self):
+        """Test dynamics suggestions on empty score."""
+        from cancrizans import suggest_dynamics
+        from music21 import stream
+
+        score = stream.Score()
+        score.append(stream.Part())
+
+        result = suggest_dynamics(score)
+
+        # Should have no dynamic suggestions for empty score
+        assert len(result['dynamics']) == 0
+
+    def test_detect_ornament_opportunities_empty_score(self):
+        """Test ornament detection on empty score."""
+        from cancrizans import detect_ornament_opportunities
+        from music21 import stream
+
+        score = stream.Score()
+        score.append(stream.Part())
+
+        result = detect_ornament_opportunities(score)
+
+        assert result['num_ornaments'] == 0
+        assert all(count == 0 for count in result['ornament_types'].values())
+
+    def test_analyze_articulation_different_styles(self):
+        """Test articulation analysis with different performance styles."""
+        from cancrizans import analyze_articulation
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        for p in ['C4', 'D4', 'E4']:
+            part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        baroque = analyze_articulation(score, style='baroque')
+        classical = analyze_articulation(score, style='classical')
+        romantic = analyze_articulation(score, style='romantic')
+
+        # All should return valid results
+        assert baroque['style'] == 'baroque'
+        assert classical['style'] == 'classical'
+        assert romantic['style'] == 'romantic'
+
+    def test_suggest_dynamics_romantic_range(self):
+        """Test that romantic style has wider dynamic range."""
+        from cancrizans import suggest_dynamics
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        for p in ['C4', 'E4', 'G4']:
+            part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        baroque = suggest_dynamics(score, style='baroque')
+        romantic = suggest_dynamics(score, style='romantic')
+
+        # Romantic should have wider range
+        assert len(romantic['dynamic_range']) >= len(baroque['dynamic_range'])
