@@ -2682,3 +2682,645 @@ def generate_figured_bass(
         'num_figures': len(figures)
     }
 
+
+# ============================================================================
+# Phase 10: Advanced Pattern Analysis
+# ============================================================================
+
+def detect_motifs(
+    score: stream.Score,
+    min_length: int = 3,
+    max_length: int = 8,
+    min_occurrences: int = 2,
+    allow_transposition: bool = True,
+    allow_rhythmic_variation: bool = False
+) -> Dict[str, any]:
+    """
+    Detect recurring melodic and rhythmic motifs in a score.
+
+    Identifies patterns that occur multiple times, tracking their
+    transformations (transposition, inversion, augmentation, etc.)
+
+    Args:
+        score: The score to analyze
+        min_length: Minimum number of notes in a motif
+        max_length: Maximum number of notes in a motif
+        min_occurrences: Minimum number of times a motif must appear
+        allow_transposition: Consider transposed versions as same motif
+        allow_rhythmic_variation: Allow rhythmic variations of motifs
+
+    Returns:
+        Dictionary containing:
+        - 'motifs': List of identified motifs with locations
+        - 'num_motifs': Total number of unique motifs found
+        - 'total_occurrences': Total occurrences across all motifs
+        - 'most_common': The most frequently occurring motif
+
+    Example:
+        >>> from cancrizans import detect_motifs
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> part = stream.Part()
+        >>> for p in ['C4', 'D4', 'E4', 'C4', 'D4', 'E4']:
+        ...     part.append(note.Note(p, quarterLength=1.0))
+        >>> score.append(part)
+        >>> result = detect_motifs(score)
+        >>> result['num_motifs'] > 0
+        True
+    """
+    motifs = []
+    motif_dict = {}  # Pattern signature -> motif data
+
+    # Extract all melodic lines from all parts
+    for part_idx, part in enumerate(score.parts):
+        notes_list = list(part.flatten().notes)
+
+        if len(notes_list) < min_length:
+            continue
+
+        # Try all possible motif lengths
+        for motif_len in range(min_length, min(max_length + 1, len(notes_list) + 1)):
+            # Sliding window through the part
+            for start_idx in range(len(notes_list) - motif_len + 1):
+                motif_notes = notes_list[start_idx:start_idx + motif_len]
+
+                # Extract pattern signature
+                if not motif_notes:
+                    continue
+
+                # Melodic contour (intervals between notes)
+                intervals = []
+                rhythms = []
+                pitches = []
+
+                for i, n in enumerate(motif_notes):
+                    if isinstance(n, note.Note):
+                        pitches.append(n.pitch.midi)
+                        rhythms.append(float(n.quarterLength))
+                        if i > 0 and isinstance(motif_notes[i-1], note.Note):
+                            interval = n.pitch.midi - motif_notes[i-1].pitch.midi
+                            intervals.append(interval)
+                    elif isinstance(n, chord.Chord):
+                        # Use highest note of chord
+                        pitches.append(max(p.midi for p in n.pitches))
+                        rhythms.append(float(n.quarterLength))
+                        if i > 0:
+                            prev_pitch = pitches[i-1]
+                            interval = pitches[i] - prev_pitch
+                            intervals.append(interval)
+
+                if not intervals:
+                    continue
+
+                # Create signature based on settings
+                if allow_transposition:
+                    # Use interval pattern (independent of pitch)
+                    if allow_rhythmic_variation:
+                        signature = tuple(intervals)
+                    else:
+                        signature = (tuple(intervals), tuple(rhythms))
+                else:
+                    # Use actual pitches
+                    if allow_rhythmic_variation:
+                        signature = tuple(pitches)
+                    else:
+                        signature = (tuple(pitches), tuple(rhythms))
+
+                # Record occurrence
+                if signature not in motif_dict:
+                    motif_dict[signature] = {
+                        'intervals': intervals,
+                        'rhythms': rhythms,
+                        'pitches': pitches,
+                        'occurrences': []
+                    }
+
+                motif_dict[signature]['occurrences'].append({
+                    'part': part_idx,
+                    'offset': float(motif_notes[0].offset),
+                    'pitches': pitches,
+                    'duration': sum(rhythms)
+                })
+
+    # Filter by minimum occurrences
+    for signature, data in motif_dict.items():
+        if len(data['occurrences']) >= min_occurrences:
+            motifs.append({
+                'intervals': data['intervals'],
+                'rhythms': data['rhythms'],
+                'example_pitches': data['pitches'],
+                'occurrences': data['occurrences'],
+                'num_occurrences': len(data['occurrences'])
+            })
+
+    # Sort by frequency
+    motifs.sort(key=lambda x: x['num_occurrences'], reverse=True)
+
+    total_occurrences = sum(m['num_occurrences'] for m in motifs)
+    most_common = motifs[0] if motifs else None
+
+    return {
+        'motifs': motifs,
+        'num_motifs': len(motifs),
+        'total_occurrences': total_occurrences,
+        'most_common': most_common
+    }
+
+
+def identify_melodic_sequences(
+    score: stream.Score,
+    min_repetitions: int = 2,
+    max_transposition: int = 12
+) -> Dict[str, any]:
+    """
+    Identify melodic sequences (repeated patterns at different pitch levels).
+
+    Detects sequential patterns where a melodic fragment is repeated at
+    different transpositions, common in baroque and classical music.
+
+    Args:
+        score: The score to analyze
+        min_repetitions: Minimum number of sequential repetitions
+        max_transposition: Maximum interval of transposition in semitones
+
+    Returns:
+        Dictionary containing:
+        - 'sequences': List of identified sequences
+        - 'num_sequences': Total number of sequences found
+        - 'types': Classification (ascending, descending, mixed)
+
+    Example:
+        >>> from cancrizans import identify_melodic_sequences
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> part = stream.Part()
+        >>> # C-D-E, then D-E-F# (sequence up by step)
+        >>> for p in ['C4', 'D4', 'E4', 'D4', 'E4', 'F#4']:
+        ...     part.append(note.Note(p, quarterLength=1.0))
+        >>> score.append(part)
+        >>> result = identify_melodic_sequences(score)
+        >>> 'sequences' in result
+        True
+    """
+    sequences = []
+
+    for part_idx, part in enumerate(score.parts):
+        notes_list = list(part.flatten().notes)
+
+        if len(notes_list) < min_repetitions * 2:
+            continue
+
+        # Try different segment lengths
+        for seg_len in range(2, len(notes_list) // min_repetitions + 1):
+            # Try each starting position
+            for start in range(len(notes_list) - seg_len * min_repetitions + 1):
+                # Extract first segment
+                seg1_notes = notes_list[start:start + seg_len]
+
+                if not all(isinstance(n, note.Note) for n in seg1_notes):
+                    continue
+
+                seg1_intervals = []
+                for i in range(1, len(seg1_notes)):
+                    seg1_intervals.append(
+                        seg1_notes[i].pitch.midi - seg1_notes[i-1].pitch.midi
+                    )
+
+                if not seg1_intervals:
+                    continue
+
+                # Look for repetitions
+                transpositions = []
+                positions = [start]
+
+                # Check subsequent segments
+                next_pos = start + seg_len
+                while next_pos + seg_len <= len(notes_list):
+                    seg_notes = notes_list[next_pos:next_pos + seg_len]
+
+                    if not all(isinstance(n, note.Note) for n in seg_notes):
+                        break
+
+                    # Calculate intervals
+                    seg_intervals = []
+                    for i in range(1, len(seg_notes)):
+                        seg_intervals.append(
+                            seg_notes[i].pitch.midi - seg_notes[i-1].pitch.midi
+                        )
+
+                    # Check if intervals match (same melodic contour)
+                    if seg_intervals == seg1_intervals:
+                        # Calculate transposition
+                        trans = seg_notes[0].pitch.midi - seg1_notes[0].pitch.midi
+
+                        if abs(trans) <= max_transposition:
+                            transpositions.append(trans)
+                            positions.append(next_pos)
+                            next_pos += seg_len
+                        else:
+                            break
+                    else:
+                        break
+
+                # Check if we found enough repetitions
+                if len(transpositions) >= min_repetitions - 1:
+                    # Classify sequence type
+                    if all(t > 0 for t in transpositions):
+                        seq_type = 'ascending'
+                    elif all(t < 0 for t in transpositions):
+                        seq_type = 'descending'
+                    elif all(t == transpositions[0] for t in transpositions):
+                        seq_type = 'consistent'
+                    else:
+                        seq_type = 'mixed'
+
+                    sequences.append({
+                        'part': part_idx,
+                        'start_offset': float(seg1_notes[0].offset),
+                        'segment_length': seg_len,
+                        'num_repetitions': len(transpositions) + 1,
+                        'transpositions': transpositions,
+                        'positions': positions,
+                        'type': seq_type,
+                        'intervals': seg1_intervals
+                    })
+
+    # Count sequence types
+    type_counts = {}
+    for seq in sequences:
+        seq_type = seq['type']
+        type_counts[seq_type] = type_counts.get(seq_type, 0) + 1
+
+    return {
+        'sequences': sequences,
+        'num_sequences': len(sequences),
+        'types': type_counts
+    }
+
+
+def detect_imitation_points(
+    score: stream.Score,
+    min_length: int = 3,
+    max_delay: float = 8.0,
+    similarity_threshold: float = 0.8
+) -> Dict[str, any]:
+    """
+    Detect points where voices imitate each other (fugal entries, canonic imitation).
+
+    Identifies when one voice imitates material from another voice,
+    classifying the type of imitation (exact, tonal, rhythmic).
+
+    Args:
+        score: The score to analyze
+        min_length: Minimum number of notes for imitation
+        max_delay: Maximum delay in quarter notes between voices
+        similarity_threshold: Threshold for fuzzy matching (0-1)
+
+    Returns:
+        Dictionary containing:
+        - 'imitation_points': List of imitation entries
+        - 'num_imitations': Total number of imitations found
+        - 'imitation_types': Count by type (exact, tonal, rhythmic)
+
+    Example:
+        >>> from cancrizans import detect_imitation_points
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> part1 = stream.Part()
+        >>> part2 = stream.Part()
+        >>> for p in ['C4', 'D4', 'E4']:
+        ...     part1.append(note.Note(p, quarterLength=1.0))
+        ...     n = note.Note(p, quarterLength=1.0)
+        ...     n.offset = 2.0
+        ...     part2.append(n)
+        >>> score.append(part1)
+        >>> score.append(part2)
+        >>> result = detect_imitation_points(score)
+        >>> 'imitation_points' in result
+        True
+    """
+    imitation_points = []
+
+    parts_list = list(score.parts)
+
+    if len(parts_list) < 2:
+        return {
+            'imitation_points': [],
+            'num_imitations': 0,
+            'imitation_types': {}
+        }
+
+    # Compare each pair of voices
+    for i in range(len(parts_list)):
+        for j in range(i + 1, len(parts_list)):
+            part1 = parts_list[i]
+            part2 = parts_list[j]
+
+            notes1 = list(part1.flatten().notes)
+            notes2 = list(part2.flatten().notes)
+
+            if len(notes1) < min_length or len(notes2) < min_length:
+                continue
+
+            # Try each position in part1 as potential subject
+            for start1 in range(len(notes1) - min_length + 1):
+                subject_notes = notes1[start1:start1 + min_length]
+
+                if not all(isinstance(n, note.Note) for n in subject_notes):
+                    continue
+
+                subject_intervals = []
+                subject_rhythms = []
+                subject_pitches = []
+
+                for k in range(len(subject_notes)):
+                    n = subject_notes[k]
+                    subject_pitches.append(n.pitch.midi)
+                    subject_rhythms.append(float(n.quarterLength))
+                    if k > 0:
+                        subject_intervals.append(
+                            n.pitch.midi - subject_notes[k-1].pitch.midi
+                        )
+
+                subject_offset = float(subject_notes[0].offset)
+
+                # Look for imitation in part2
+                for start2 in range(len(notes2) - min_length + 1):
+                    answer_notes = notes2[start2:start2 + min_length]
+
+                    if not all(isinstance(n, note.Note) for n in answer_notes):
+                        continue
+
+                    answer_offset = float(answer_notes[0].offset)
+                    delay = answer_offset - subject_offset
+
+                    # Check delay constraint
+                    if delay < 0 or delay > max_delay:
+                        continue
+
+                    answer_intervals = []
+                    answer_rhythms = []
+                    answer_pitches = []
+
+                    for k in range(len(answer_notes)):
+                        n = answer_notes[k]
+                        answer_pitches.append(n.pitch.midi)
+                        answer_rhythms.append(float(n.quarterLength))
+                        if k > 0:
+                            answer_intervals.append(
+                                n.pitch.midi - answer_notes[k-1].pitch.midi
+                            )
+
+                    # Classify imitation type
+                    imitation_type = None
+                    similarity = 0.0
+
+                    # Exact imitation (same pitches and rhythms)
+                    if subject_pitches == answer_pitches and subject_rhythms == answer_rhythms:
+                        imitation_type = 'exact'
+                        similarity = 1.0
+
+                    # Tonal imitation (same intervals, different pitches)
+                    elif subject_intervals == answer_intervals and subject_rhythms == answer_rhythms:
+                        imitation_type = 'tonal'
+                        # Calculate similarity based on interval matching
+                        if subject_intervals:
+                            matches = sum(1 for a, b in zip(subject_intervals, answer_intervals) if a == b)
+                            similarity = matches / len(subject_intervals)
+                        else:
+                            similarity = 0.0
+
+                    # Rhythmic imitation (same rhythms, different pitches/intervals)
+                    elif subject_rhythms == answer_rhythms:
+                        imitation_type = 'rhythmic'
+                        if subject_rhythms:
+                            matches = sum(1 for a, b in zip(subject_rhythms, answer_rhythms) if abs(a - b) < 0.01)
+                            similarity = matches / len(subject_rhythms)
+                        else:
+                            similarity = 0.0
+
+                    # Approximate imitation
+                    else:
+                        # Calculate interval similarity
+                        if len(subject_intervals) == len(answer_intervals):
+                            interval_matches = sum(1 for a, b in zip(subject_intervals, answer_intervals) if a == b)
+                            interval_sim = interval_matches / len(subject_intervals) if subject_intervals else 0
+
+                            rhythm_matches = sum(1 for a, b in zip(subject_rhythms, answer_rhythms) if abs(a - b) < 0.01)
+                            rhythm_sim = rhythm_matches / len(subject_rhythms) if subject_rhythms else 0
+
+                            similarity = (interval_sim + rhythm_sim) / 2
+
+                            if similarity >= similarity_threshold:
+                                imitation_type = 'approximate'
+
+                    # Record imitation if found
+                    if imitation_type and similarity >= similarity_threshold:
+                        imitation_points.append({
+                            'subject_part': i,
+                            'answer_part': j,
+                            'subject_offset': subject_offset,
+                            'answer_offset': answer_offset,
+                            'delay': delay,
+                            'length': min_length,
+                            'type': imitation_type,
+                            'similarity': similarity,
+                            'transposition': answer_pitches[0] - subject_pitches[0]
+                        })
+
+    # Count by type
+    type_counts = {}
+    for im in imitation_points:
+        im_type = im['type']
+        type_counts[im_type] = type_counts.get(im_type, 0) + 1
+
+    return {
+        'imitation_points': imitation_points,
+        'num_imitations': len(imitation_points),
+        'imitation_types': type_counts
+    }
+
+
+def analyze_thematic_development(
+    score: stream.Score,
+    theme: Optional[stream.Stream] = None,
+    detect_fragmentation: bool = True,
+    detect_augmentation: bool = True,
+    detect_diminution: bool = True
+) -> Dict[str, any]:
+    """
+    Analyze how themes develop and transform throughout a piece.
+
+    Tracks thematic material and identifies transformations like
+    fragmentation, augmentation, diminution, and recombination.
+
+    Args:
+        score: The score to analyze
+        theme: Optional theme to track (uses first motif if not provided)
+        detect_fragmentation: Detect theme fragments
+        detect_augmentation: Detect augmented versions
+        detect_diminution: Detect diminished versions
+
+    Returns:
+        Dictionary containing:
+        - 'theme': The reference theme
+        - 'occurrences': All occurrences and transformations
+        - 'transformations': Count by transformation type
+        - 'development_timeline': Chronological list of appearances
+
+    Example:
+        >>> from cancrizans import analyze_thematic_development
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> part = stream.Part()
+        >>> for p in ['C4', 'D4', 'E4', 'F4']:
+        ...     part.append(note.Note(p, quarterLength=1.0))
+        >>> score.append(part)
+        >>> result = analyze_thematic_development(score)
+        >>> 'theme' in result
+        True
+    """
+    # If no theme provided, use first motif
+    theme_notes = None  # Track original theme pitches if available
+    if theme is None:
+        motif_result = detect_motifs(score, min_length=3, max_length=6, min_occurrences=1)
+        if not motif_result['motifs']:
+            return {
+                'theme': None,
+                'occurrences': [],
+                'transformations': {},
+                'development_timeline': []
+            }
+
+        # Use the most common motif as theme
+        first_motif = motif_result['motifs'][0]
+        theme_intervals = first_motif['intervals']
+        theme_rhythms = first_motif['rhythms']
+    else:
+        # Extract intervals and rhythms from provided theme
+        theme_notes = list(theme.flatten().notes)
+        theme_intervals = []
+        theme_rhythms = []
+
+        for i, n in enumerate(theme_notes):
+            if isinstance(n, note.Note):
+                theme_rhythms.append(float(n.quarterLength))
+                if i > 0 and isinstance(theme_notes[i-1], note.Note):
+                    theme_intervals.append(
+                        n.pitch.midi - theme_notes[i-1].pitch.midi
+                    )
+
+    occurrences = []
+    transformations = {
+        'original': 0,
+        'transposed': 0,
+        'inverted': 0,
+        'retrograde': 0,
+        'augmented': 0,
+        'diminished': 0,
+        'fragmented': 0
+    }
+
+    # Search for theme and its transformations
+    for part_idx, part in enumerate(score.parts):
+        notes_list = list(part.flatten().notes)
+
+        theme_len = len(theme_intervals) + 1
+
+        # Look for exact and transformed versions
+        for start in range(len(notes_list) - theme_len + 1):
+            segment = notes_list[start:start + theme_len]
+
+            if not all(isinstance(n, note.Note) for n in segment):
+                continue
+
+            seg_intervals = []
+            seg_rhythms = []
+
+            for i in range(len(segment)):
+                n = segment[i]
+                seg_rhythms.append(float(n.quarterLength))
+                if i > 0:
+                    seg_intervals.append(
+                        n.pitch.midi - segment[i-1].pitch.midi
+                    )
+
+            # Check for various transformations
+            transformation = None
+
+            # Original or transposed
+            if seg_intervals == theme_intervals and seg_rhythms == theme_rhythms:
+                if theme_notes and segment[0].pitch.midi == theme_notes[0].pitch.midi:
+                    transformation = 'original'
+                else:
+                    transformation = 'transposed'
+
+            # Inverted
+            elif seg_intervals == [-i for i in theme_intervals] and seg_rhythms == theme_rhythms:
+                transformation = 'inverted'
+
+            # Retrograde
+            elif seg_intervals == theme_intervals[::-1] and seg_rhythms == theme_rhythms[::-1]:
+                transformation = 'retrograde'
+
+            # Augmented (rhythms doubled)
+            elif detect_augmentation and seg_intervals == theme_intervals:
+                if all(abs(sr - 2*tr) < 0.01 for sr, tr in zip(seg_rhythms, theme_rhythms)):
+                    transformation = 'augmented'
+
+            # Diminished (rhythms halved)
+            elif detect_diminution and seg_intervals == theme_intervals:
+                if all(abs(sr - tr/2) < 0.01 for sr, tr in zip(seg_rhythms, theme_rhythms)):
+                    transformation = 'diminished'
+
+            if transformation:
+                occurrences.append({
+                    'part': part_idx,
+                    'offset': float(segment[0].offset),
+                    'transformation': transformation,
+                    'pitches': [n.pitch.midi for n in segment]
+                })
+                transformations[transformation] += 1
+
+        # Look for fragments
+        if detect_fragmentation and len(theme_intervals) > 2:
+            for frag_len in range(2, len(theme_intervals)):
+                for theme_start in range(len(theme_intervals) - frag_len + 1):
+                    theme_fragment = theme_intervals[theme_start:theme_start + frag_len]
+
+                    for start in range(len(notes_list) - frag_len):
+                        segment = notes_list[start:start + frag_len + 1]
+
+                        if not all(isinstance(n, note.Note) for n in segment):
+                            continue
+
+                        seg_intervals = []
+                        for i in range(1, len(segment)):
+                            seg_intervals.append(
+                                segment[i].pitch.midi - segment[i-1].pitch.midi
+                            )
+
+                        if seg_intervals == theme_fragment:
+                            occurrences.append({
+                                'part': part_idx,
+                                'offset': float(segment[0].offset),
+                                'transformation': 'fragmented',
+                                'pitches': [n.pitch.midi for n in segment],
+                                'fragment_length': frag_len
+                            })
+                            transformations['fragmented'] += 1
+
+    # Create timeline
+    timeline = sorted(occurrences, key=lambda x: x['offset'])
+
+    return {
+        'theme': {
+            'intervals': theme_intervals,
+            'rhythms': theme_rhythms
+        },
+        'occurrences': occurrences,
+        'transformations': transformations,
+        'development_timeline': timeline,
+        'total_occurrences': len(occurrences)
+    }
+

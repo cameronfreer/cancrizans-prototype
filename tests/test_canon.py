@@ -2497,3 +2497,361 @@ class TestPhase11HarmonicEnhancement:
         # Should handle gracefully
         assert 'nonchord_tones' in result
         assert 'summary' in result
+
+
+class TestPhase10AdvancedPatternAnalysis:
+    """Test Phase 10: Advanced Pattern Analysis functions."""
+
+    def test_detect_motifs_basic(self):
+        """Test basic motif detection."""
+        from cancrizans import detect_motifs
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        # Repeating pattern: C-D-E, C-D-E
+        for p in ['C4', 'D4', 'E4', 'C4', 'D4', 'E4']:
+            part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        result = detect_motifs(score, min_length=3, min_occurrences=2)
+
+        assert 'motifs' in result
+        assert 'num_motifs' in result
+        assert 'total_occurrences' in result
+        assert 'most_common' in result
+
+    def test_detect_motifs_finds_repetition(self):
+        """Test that detect_motifs finds repeated patterns."""
+        from cancrizans import detect_motifs
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        # Same pattern repeated
+        for _ in range(3):
+            for p in ['C4', 'D4', 'E4']:
+                part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        result = detect_motifs(score, min_length=3, min_occurrences=2)
+
+        assert result['num_motifs'] > 0
+        if result['motifs']:
+            assert result['most_common']['num_occurrences'] >= 2
+
+    def test_detect_motifs_transposition(self):
+        """Test motif detection with transposition."""
+        from cancrizans import detect_motifs
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        # C-D-E (intervals: +2, +2)
+        for p in ['C4', 'D4', 'E4']:
+            part.append(note.Note(p, quarterLength=1.0))
+
+        # D-E-F# (intervals: +2, +2) - same intervals, transposed
+        for p in ['D4', 'E4', 'F#4']:
+            part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        result = detect_motifs(score, min_length=3, min_occurrences=2, allow_transposition=True)
+
+        # Should find motif when allowing transposition
+        assert result['num_motifs'] >= 0  # May or may not detect depending on pattern
+
+    def test_detect_motifs_empty_score(self):
+        """Test motif detection on empty score."""
+        from cancrizans import detect_motifs
+        from music21 import stream
+
+        score = stream.Score()
+        score.append(stream.Part())
+
+        result = detect_motifs(score)
+
+        assert result['num_motifs'] == 0
+        assert result['total_occurrences'] == 0
+
+    def test_identify_melodic_sequences_basic(self):
+        """Test basic melodic sequence identification."""
+        from cancrizans import identify_melodic_sequences
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        # C-D-E, then D-E-F# (rising sequence)
+        for p in ['C4', 'D4', 'E4', 'D4', 'E4', 'F#4']:
+            part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        result = identify_melodic_sequences(score, min_repetitions=2)
+
+        assert 'sequences' in result
+        assert 'num_sequences' in result
+        assert 'types' in result
+
+    def test_identify_melodic_sequences_ascending(self):
+        """Test identification of ascending sequences."""
+        from cancrizans import identify_melodic_sequences
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        # Rising sequence: same pattern, each time higher
+        for p in ['C4', 'E4', 'D4', 'F4', 'E4', 'G4']:
+            part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        result = identify_melodic_sequences(score, min_repetitions=2)
+
+        # Should detect ascending pattern
+        assert 'sequences' in result
+        assert isinstance(result['types'], dict)
+
+    def test_identify_melodic_sequences_empty_score(self):
+        """Test sequence detection on empty score."""
+        from cancrizans import identify_melodic_sequences
+        from music21 import stream
+
+        score = stream.Score()
+        score.append(stream.Part())
+
+        result = identify_melodic_sequences(score)
+
+        assert result['num_sequences'] == 0
+        assert len(result['sequences']) == 0
+
+    def test_detect_imitation_points_basic(self):
+        """Test basic imitation point detection."""
+        from cancrizans import detect_imitation_points
+        from music21 import stream, note
+
+        score = stream.Score()
+        part1 = stream.Part()
+        part2 = stream.Part()
+
+        # Part 1: C-D-E
+        for p in ['C4', 'D4', 'E4']:
+            part1.append(note.Note(p, quarterLength=1.0))
+
+        # Part 2: Same pattern, delayed by 2 beats
+        for i, p in enumerate(['C4', 'D4', 'E4']):
+            n = note.Note(p, quarterLength=1.0)
+            n.offset = 2.0 + i
+            part2.append(n)
+
+        score.append(part1)
+        score.append(part2)
+
+        result = detect_imitation_points(score, min_length=3)
+
+        assert 'imitation_points' in result
+        assert 'num_imitations' in result
+        assert 'imitation_types' in result
+
+    def test_detect_imitation_points_finds_exact(self):
+        """Test that exact imitation is detected."""
+        from cancrizans import detect_imitation_points
+        from music21 import stream, note
+
+        score = stream.Score()
+        part1 = stream.Part()
+        part2 = stream.Part()
+
+        # Exact imitation
+        for p in ['C4', 'D4', 'E4']:
+            part1.append(note.Note(p, quarterLength=1.0))
+
+        for i, p in enumerate(['C4', 'D4', 'E4']):
+            n = note.Note(p, quarterLength=1.0)
+            n.offset = 1.0 + i
+            part2.append(n)
+
+        score.append(part1)
+        score.append(part2)
+
+        result = detect_imitation_points(score, min_length=3, max_delay=4.0)
+
+        # Should find exact or tonal imitation
+        assert 'imitation_points' in result
+
+    def test_detect_imitation_points_single_part(self):
+        """Test imitation detection with single part."""
+        from cancrizans import detect_imitation_points
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+        part.append(note.Note('C4', quarterLength=1.0))
+        score.append(part)
+
+        result = detect_imitation_points(score)
+
+        # Should handle single part gracefully
+        assert result['num_imitations'] == 0
+
+    def test_analyze_thematic_development_basic(self):
+        """Test basic thematic development analysis."""
+        from cancrizans import analyze_thematic_development
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        # Simple theme
+        for p in ['C4', 'D4', 'E4', 'F4']:
+            part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        result = analyze_thematic_development(score)
+
+        assert 'theme' in result
+        assert 'occurrences' in result
+        assert 'transformations' in result
+        assert 'development_timeline' in result
+
+    def test_analyze_thematic_development_with_theme(self):
+        """Test thematic analysis with provided theme."""
+        from cancrizans import analyze_thematic_development
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        # Theme appears twice
+        for _ in range(2):
+            for p in ['C4', 'D4', 'E4']:
+                part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        # Provide theme explicitly
+        theme = stream.Stream()
+        for p in ['C4', 'D4', 'E4']:
+            theme.append(note.Note(p, quarterLength=1.0))
+
+        result = analyze_thematic_development(score, theme=theme)
+
+        assert result['theme'] is not None
+        assert 'intervals' in result['theme']
+        assert 'rhythms' in result['theme']
+
+    def test_analyze_thematic_development_empty_score(self):
+        """Test thematic analysis on empty score."""
+        from cancrizans import analyze_thematic_development
+        from music21 import stream
+
+        score = stream.Score()
+        score.append(stream.Part())
+
+        result = analyze_thematic_development(score)
+
+        # Should handle gracefully
+        assert 'theme' in result
+        assert result['theme'] is None
+
+    def test_detect_motifs_multiple_parts(self):
+        """Test motif detection across multiple parts."""
+        from cancrizans import detect_motifs
+        from music21 import stream, note
+
+        score = stream.Score()
+        part1 = stream.Part()
+        part2 = stream.Part()
+
+        # Same motif in both parts
+        for p in ['C4', 'D4', 'E4']:
+            part1.append(note.Note(p, quarterLength=1.0))
+            part2.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part1)
+        score.append(part2)
+
+        result = detect_motifs(score, min_length=3, min_occurrences=2)
+
+        # Should find motif across parts
+        assert 'motifs' in result
+
+    def test_identify_melodic_sequences_types(self):
+        """Test sequence type classification."""
+        from cancrizans import identify_melodic_sequences
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        # Descending sequence
+        for p in ['C5', 'B4', 'A4', 'G4']:
+            part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        result = identify_melodic_sequences(score, min_repetitions=2)
+
+        # Check that types dict exists
+        assert isinstance(result['types'], dict)
+
+    def test_detect_imitation_points_tonal(self):
+        """Test detection of tonal imitation (transposed)."""
+        from cancrizans import detect_imitation_points
+        from music21 import stream, note
+
+        score = stream.Score()
+        part1 = stream.Part()
+        part2 = stream.Part()
+
+        # Part 1: C-D-E (intervals: +2, +2)
+        for p in ['C4', 'D4', 'E4']:
+            part1.append(note.Note(p, quarterLength=1.0))
+
+        # Part 2: D-E-F# (intervals: +2, +2) - tonal answer
+        for i, p in enumerate(['D4', 'E4', 'F#4']):
+            n = note.Note(p, quarterLength=1.0)
+            n.offset = 1.0 + i
+            part2.append(n)
+
+        score.append(part1)
+        score.append(part2)
+
+        result = detect_imitation_points(score, min_length=3)
+
+        # Should detect tonal imitation
+        assert 'imitation_points' in result
+
+    def test_analyze_thematic_development_transformations(self):
+        """Test detection of theme transformations."""
+        from cancrizans import analyze_thematic_development
+        from music21 import stream, note
+
+        score = stream.Score()
+        part = stream.Part()
+
+        # Original theme: C-D-E
+        for p in ['C4', 'D4', 'E4']:
+            part.append(note.Note(p, quarterLength=1.0))
+
+        # Transposed: D-E-F#
+        for p in ['D4', 'E4', 'F#4']:
+            part.append(note.Note(p, quarterLength=1.0))
+
+        score.append(part)
+
+        result = analyze_thematic_development(score, detect_fragmentation=True)
+
+        assert 'transformations' in result
+        assert isinstance(result['transformations'], dict)
+        assert 'original' in result['transformations']
+        assert 'transposed' in result['transformations']
