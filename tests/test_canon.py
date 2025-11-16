@@ -3167,3 +3167,59 @@ class TestPhase12PerformanceAnalysis:
 
         # Romantic should have wider range
         assert len(romantic['dynamic_range']) >= len(baroque['dynamic_range'])
+
+
+class TestPhase13ExtendedCanonTypes:
+    """Test Phase 13: Extended Canon Types."""
+
+    def test_canon_per_tonos_basic(self):
+        """Test basic circle canon."""
+        from cancrizans import canon_per_tonos
+        from music21 import stream, note
+
+        theme = stream.Stream()
+        for p in ['C4', 'D4', 'E4']:
+            theme.append(note.Note(p, quarterLength=1.0))
+
+        result = canon_per_tonos(theme, num_iterations=4)
+
+        assert len(result.parts) >= 1
+
+    def test_canon_in_hypodiapasson_basic(self):
+        """Test canon at octave below."""
+        from cancrizans import canon_in_hypodiapasson
+        from music21 import stream, note
+
+        theme = stream.Stream()
+        for p in ['C4', 'D4', 'E4']:
+            theme.append(note.Note(p, quarterLength=1.0))
+
+        result = canon_in_hypodiapasson(theme, num_voices=3)
+
+        assert len(result.parts) == 3
+
+    def test_enhanced_canon_contrario_motu_basic(self):
+        """Test enhanced contrary motion canon."""
+        from cancrizans import enhanced_canon_contrario_motu
+        from music21 import stream, note
+
+        theme = stream.Stream()
+        for p in ['C4', 'D4', 'E4']:
+            theme.append(note.Note(p, quarterLength=1.0))
+
+        result = enhanced_canon_contrario_motu(theme)
+
+        assert len(result.parts) == 2
+
+    def test_advanced_crab_canon_basic(self):
+        """Test advanced crab canon."""
+        from cancrizans import advanced_crab_canon
+        from music21 import stream, note
+
+        theme = stream.Stream()
+        for p in ['C4', 'D4', 'E4']:
+            theme.append(note.Note(p, quarterLength=1.0))
+
+        result = advanced_crab_canon(theme)
+
+        assert len(result.parts) >= 2

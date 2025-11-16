@@ -6,7 +6,7 @@ palindromic musical structures, with a focus on Bach's Canon Cancrizans
 from The Musical Offering (BWV 1079).
 """
 
-__version__ = "0.29.0"
+__version__ = "0.30.0"
 
 from cancrizans.canon import (
     # Basic transformations
@@ -57,6 +57,11 @@ from cancrizans.canon import (
     suggest_dynamics,
     detect_ornament_opportunities,
     analyze_tempo_relationships,
+    # Phase 13: Extended Canon Types
+    canon_per_tonos,
+    canon_in_hypodiapasson,
+    enhanced_canon_contrario_motu,
+    advanced_crab_canon,
 )
 from cancrizans.bach_crab import assemble_crab_from_theme, load_bach_crab_canon
 from cancrizans.transformation_chain import TransformationChain
@@ -148,6 +153,11 @@ __all__ = [
     "suggest_dynamics",
     "detect_ornament_opportunities",
     "analyze_tempo_relationships",
+    # Phase 13: Extended Canon Types
+    "canon_per_tonos",
+    "canon_in_hypodiapasson",
+    "enhanced_canon_contrario_motu",
+    "advanced_crab_canon",
     # Theme and utilities
     "assemble_crab_from_theme",
     "load_bach_crab_canon",

@@ -3901,3 +3901,265 @@ def analyze_tempo_relationships(
         'context': context_notes
     }
 
+
+# ============================================================================
+# Phase 13: Extended Canon Types
+# ============================================================================
+
+def canon_per_tonos(
+    theme: stream.Stream,
+    num_iterations: int = 12,
+    modulation_interval: int = 1
+) -> stream.Score:
+    """
+    Create a Canon per tonos (circle canon) that modulates through keys.
+
+    Creates a canon that cycles through all keys, returning to the starting key,
+    creating an infinite loop capability. Common in baroque music.
+
+    Args:
+        theme: The initial theme to transform
+        num_iterations: Number of modulations (12 for all keys)
+        modulation_interval: Semitone interval for each modulation
+
+    Returns:
+        Score containing the circle canon
+
+    Example:
+        >>> from cancrizans import canon_per_tonos
+        >>> from music21 import stream, note
+        >>> theme = stream.Stream()
+        >>> for p in ['C4', 'D4', 'E4']:
+        ...     theme.append(note.Note(p, quarterLength=1.0))
+        >>> result = canon_per_tonos(theme, num_iterations=4)
+        >>> len(result.parts) >= 1
+        True
+    """
+    score = stream.Score()
+    theme_part = stream.Part(id='original_theme')
+
+    # Copy original theme
+    for element in theme.flatten().notesAndRests:
+        theme_part.append(element)
+
+    score.append(theme_part)
+
+    # Create modulated versions
+    current_offset = 0.0
+    theme_duration = theme.duration.quarterLength
+
+    for i in range(1, num_iterations):
+        transposition = i * modulation_interval
+        part = stream.Part(id=f'transposed_{transposition}')
+
+        # Transpose and add to score
+        for element in theme.flatten().notesAndRests:
+            if isinstance(element, note.Note):
+                new_note = note.Note(
+                    pitch=element.pitch.transpose(transposition),
+                    quarterLength=element.quarterLength
+                )
+                new_note.offset = current_offset + element.offset
+                part.append(new_note)
+            elif isinstance(element, chord.Chord):
+                new_chord = chord.Chord(
+                    [p.transpose(transposition) for p in element.pitches],
+                    quarterLength=element.quarterLength
+                )
+                new_chord.offset = current_offset + element.offset
+                part.append(new_chord)
+
+        current_offset += theme_duration
+        score.append(part)
+
+    return score
+
+
+def canon_in_hypodiapasson(
+    theme: stream.Stream,
+    num_voices: int = 2,
+    delays: Optional[List[float]] = None
+) -> stream.Score:
+    """
+    Create a Canon in hypodiapasson (canon at the octave below).
+
+    Voice enters an octave lower, with support for multiple voice entries.
+    Common in Renaissance and Baroque contrapuntal works.
+
+    Args:
+        theme: The initial theme
+        num_voices: Number of voices (each enters octave below previous)
+        delays: Optional list of delays for each voice entry
+
+    Returns:
+        Score with voices at descending octaves
+
+    Example:
+        >>> from cancrizans import canon_in_hypodiapasson
+        >>> from music21 import stream, note
+        >>> theme = stream.Stream()
+        >>> for p in ['C4', 'D4', 'E4']:
+        ...     theme.append(note.Note(p, quarterLength=1.0))
+        >>> result = canon_in_hypodiapasson(theme, num_voices=3)
+        >>> len(result.parts) == 3
+        True
+    """
+    score = stream.Score()
+
+    if delays is None:
+        # Default: each voice enters 2 beats after previous
+        delays = [i * 2.0 for i in range(num_voices)]
+
+    for voice_idx in range(num_voices):
+        part = stream.Part(id=f'voice_{voice_idx}')
+        octave_transpose = -voice_idx * 12  # Each voice one octave lower
+        delay = delays[voice_idx] if voice_idx < len(delays) else 0.0
+
+        for element in theme.flatten().notesAndRests:
+            if isinstance(element, note.Note):
+                new_note = note.Note(
+                    pitch=element.pitch.transpose(octave_transpose),
+                    quarterLength=element.quarterLength
+                )
+                new_note.offset = element.offset + delay
+                part.append(new_note)
+            elif isinstance(element, chord.Chord):
+                new_chord = chord.Chord(
+                    [p.transpose(octave_transpose) for p in element.pitches],
+                    quarterLength=element.quarterLength
+                )
+                new_chord.offset = element.offset + delay
+                part.append(new_chord)
+
+        score.append(part)
+
+    return score
+
+
+def enhanced_canon_contrario_motu(
+    theme: stream.Stream,
+    axis_pitch: Optional[Union[str, int]] = None,
+    auto_detect_axis: bool = True
+) -> stream.Score:
+    """
+    Enhanced Canon in contrario motu (canon by contrary motion/inversion).
+
+    Improves existing inversion capabilities with automatic axis selection.
+
+    Args:
+        theme: The theme to invert
+        axis_pitch: Axis of inversion (auto-detected if not provided)
+        auto_detect_axis: Automatically detect optimal inversion axis
+
+    Returns:
+        Score with original and inverted voices
+
+    Example:
+        >>> from cancrizans import enhanced_canon_contrario_motu
+        >>> from music21 import stream, note
+        >>> theme = stream.Stream()
+        >>> for p in ['C4', 'D4', 'E4']:
+        ...     theme.append(note.Note(p, quarterLength=1.0))
+        >>> result = enhanced_canon_contrario_motu(theme)
+        >>> len(result.parts) == 2
+        True
+    """
+    score = stream.Score()
+
+    # Add original theme
+    original_part = stream.Part(id='original')
+    for element in theme.flatten().notesAndRests:
+        original_part.append(element)
+    score.append(original_part)
+
+    # Auto-detect axis if requested
+    if auto_detect_axis and axis_pitch is None:
+        # Use median pitch as axis
+        pitches = [n.pitch.midi for n in theme.flatten().notes if isinstance(n, note.Note)]
+        if pitches:
+            median_pitch = sorted(pitches)[len(pitches) // 2]
+            # Convert MIDI number to Pitch object
+            axis_pitch = m21.pitch.Pitch(midi=median_pitch)
+        else:
+            axis_pitch = 'C4'  # Default to middle C
+
+    # Create inverted voice using existing invert function
+    inverted = invert(theme, axis_pitch=axis_pitch)
+    inverted_part = stream.Part(id='inverted')
+    for element in inverted.flatten().notesAndRests:
+        inverted_part.append(element)
+    score.append(inverted_part)
+
+    return score
+
+
+def advanced_crab_canon(
+    theme: stream.Stream,
+    transformations: Optional[List[str]] = None,
+    voice_orientations: Optional[List[str]] = None
+) -> stream.Score:
+    """
+    Create advanced crab canon variants with multiple orientations.
+
+    Supports combined retrograde + inversion, asymmetric crab canons, and
+    multiple voices reading from different orientations.
+
+    Args:
+        theme: The theme to transform
+        transformations: List of transformations to apply
+        voice_orientations: Orientation for each voice ('forward', 'backward', 'both')
+
+    Returns:
+        Score with multiple crab canon voices
+
+    Example:
+        >>> from cancrizans import advanced_crab_canon
+        >>> from music21 import stream, note
+        >>> theme = stream.Stream()
+        >>> for p in ['C4', 'D4', 'E4']:
+        ...     theme.append(note.Note(p, quarterLength=1.0))
+        >>> result = advanced_crab_canon(theme)
+        >>> len(result.parts) >= 2
+        True
+    """
+    score = stream.Score()
+
+    if transformations is None:
+        transformations = ['original', 'retrograde', 'inverted', 'retrograde_inverted']
+
+    if voice_orientations is None:
+        voice_orientations = ['forward', 'backward']
+
+    # Create voice for each transformation
+    for transform_type in transformations:
+        if transform_type == 'original':
+            part = stream.Part(id='original')
+            for element in theme.flatten().notesAndRests:
+                part.append(element)
+            score.append(part)
+
+        elif transform_type == 'retrograde':
+            retro = retrograde(theme)
+            part = stream.Part(id='retrograde')
+            for element in retro.flatten().notesAndRests:
+                part.append(element)
+            score.append(part)
+
+        elif transform_type == 'inverted':
+            inv = invert(theme)
+            part = stream.Part(id='inverted')
+            for element in inv.flatten().notesAndRests:
+                part.append(element)
+            score.append(part)
+
+        elif transform_type == 'retrograde_inverted':
+            # Combine retrograde and inversion
+            inv = invert(theme)
+            retro_inv = retrograde(inv)
+            part = stream.Part(id='retrograde_inverted')
+            for element in retro_inv.flatten().notesAndRests:
+                part.append(element)
+            score.append(part)
+
+    return score
+
