@@ -4,10 +4,10 @@
 
 Cancrizans is a comprehensive toolkit for analyzing, verifying, and rendering palindromic musical structures, with a focus on Bach's *Canon Cancrizans* from *The Musical Offering* (BWV 1079).
 
-[![Python Tests](https://img.shields.io/badge/tests-437%20passed-brightgreen)](tests/)
+[![Python Tests](https://img.shields.io/badge/tests-455%20passed-brightgreen)](tests/)
 [![Coverage](https://img.shields.io/badge/coverage-99%25%20(100%25%20reachable)-brightgreen)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org)
-[![Version](https://img.shields.io/badge/version-0.24.0-blue)](cancrizans/__init__.py)
+[![Version](https://img.shields.io/badge/version-0.25.0-blue)](cancrizans/__init__.py)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Music](https://img.shields.io/badge/music-Public%20Domain-green)](data/)
 
@@ -55,7 +55,8 @@ The name comes from the sideways movement of crabs, referencing the backward mot
 - **Research tools**: Batch processing, multi-format export (CSV/JSON/LaTeX/Markdown)
 - **Performance optimization**: Caching decorators (@memoize, @lru_cache, @disk_cache)
 - **Transformation chains**: Compose multiple transformations with fluent builder pattern
-- **World-class testing**: 437 tests, 97% coverage, 100% pass rate
+- **Advanced MIDI features**: Velocity curves, tempo curves, multi-instrument export, MIDI analysis (NEW!)
+- **World-class testing**: 455 tests, 97% coverage, 100% pass rate
 
 ### 🌐 Web Interface (PWA)
 - **✏️ Interactive Composer**: Create your own crab canons!
@@ -292,7 +293,7 @@ table_chain = TransformationChain.table_canon()  # retrograde + inversion
 
 ## Testing
 
-The project includes a comprehensive test suite with 437 tests (100% pass rate, 97% coverage) covering core functionality:
+The project includes a comprehensive test suite with 455 tests (100% pass rate, 97% coverage) covering core functionality:
 
 ```bash
 # Run all tests

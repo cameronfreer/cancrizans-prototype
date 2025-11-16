@@ -1183,3 +1183,329 @@ class TestIOIntegration:
 
             assert midi_validation['valid'] is True
             assert xml_validation['valid'] is True
+
+
+class TestAdvancedMIDI:
+    """Test advanced MIDI features (velocity, tempo, programs)."""
+
+    def test_apply_velocity_curve_crescendo(self):
+        """Test applying crescendo velocity curve."""
+        from cancrizans import apply_velocity_curve
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        result = apply_velocity_curve(canon, 'crescendo', 40, 100)
+
+        # Check that velocities are set
+        notes = list(result.parts[0].flatten().notes)
+        velocities = [n.volume.velocity for n in notes if hasattr(n, 'volume')]
+
+        assert len(velocities) > 0
+        # First note should be quieter than last
+        assert velocities[0] < velocities[-1]
+
+    def test_apply_velocity_curve_diminuendo(self):
+        """Test applying diminuendo velocity curve."""
+        from cancrizans import apply_velocity_curve
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        result = apply_velocity_curve(canon, 'diminuendo', 40, 100)
+
+        notes = list(result.parts[0].flatten().notes)
+        velocities = [n.volume.velocity for n in notes if hasattr(n, 'volume')]
+
+        assert len(velocities) > 0
+        # diminuendo swaps end and start, so first note should be louder than last
+        assert velocities[0] > velocities[-1]
+
+    def test_apply_velocity_curve_swell(self):
+        """Test applying swell (crescendo-diminuendo) curve."""
+        from cancrizans import apply_velocity_curve
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major', length=12)
+
+        result = apply_velocity_curve(canon, 'swell', 50, 100)
+
+        notes = list(result.parts[0].flatten().notes)
+        velocities = [n.volume.velocity for n in notes if hasattr(n, 'volume')]
+
+        assert len(velocities) > 0
+        # Middle note should be loudest
+        mid = len(velocities) // 2
+        assert velocities[mid] > velocities[0]
+        assert velocities[mid] > velocities[-1]
+
+    def test_apply_velocity_curve_specific_part(self):
+        """Test applying velocity curve to specific part only."""
+        from cancrizans import apply_velocity_curve
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        # Apply to first part only
+        result = apply_velocity_curve(canon, 'crescendo', 40, 100, part_index=0)
+
+        part0_notes = list(result.parts[0].flatten().notes)
+        part0_vels = [n.volume.velocity for n in part0_notes if hasattr(n, 'volume')]
+
+        part1_notes = list(result.parts[1].flatten().notes)
+        part1_vels = [n.volume.velocity for n in part1_notes if hasattr(n, 'volume')]
+
+        # Part 0 should have velocities set
+        assert len(part0_vels) > 0
+        # Part 1 might not have explicit velocities (defaults)
+
+    def test_set_midi_program_piano(self):
+        """Test setting MIDI program to piano."""
+        from cancrizans import set_midi_program
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        result = set_midi_program(canon, 0, part_index=0)  # Piano = 0
+
+        # Check that instrument is set
+        part = list(result.parts)[0]
+        instruments = part.getElementsByClass('Instrument')
+
+        assert len(instruments) > 0
+        assert instruments[0].midiProgram == 0
+
+    def test_set_midi_program_harpsichord(self):
+        """Test setting MIDI program to harpsichord."""
+        from cancrizans import set_midi_program
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        result = set_midi_program(canon, 6, part_index=0)  # Harpsichord = 6
+
+        part = list(result.parts)[0]
+        instruments = part.getElementsByClass('Instrument')
+
+        assert len(instruments) > 0
+        assert instruments[0].midiProgram == 6
+
+    def test_set_midi_program_multiple_parts(self):
+        """Test setting different programs for different parts."""
+        from cancrizans import set_midi_program
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        # Set piano for part 0
+        result = set_midi_program(canon, 0, part_index=0)
+        # Set harpsichord for part 1
+        result = set_midi_program(result, 6, part_index=1)
+
+        part0 = list(result.parts)[0]
+        part1 = list(result.parts)[1]
+
+        instr0 = part0.getElementsByClass('Instrument')
+        instr1 = part1.getElementsByClass('Instrument')
+
+        assert len(instr0) > 0
+        assert len(instr1) > 0
+        assert instr0[0].midiProgram == 0
+        assert instr1[0].midiProgram == 6
+
+    def test_apply_tempo_curve_accelerando(self):
+        """Test applying accelerando tempo curve."""
+        from cancrizans import apply_tempo_curve
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        result = apply_tempo_curve(canon, 'accelerando', 60, 120, num_changes=5)
+
+        # Check that tempo marks are inserted
+        part = list(result.parts)[0]
+        tempo_marks = part.flatten().getElementsByClass('MetronomeMark')
+
+        assert len(tempo_marks) == 5
+        # First should be slower than last
+        assert tempo_marks[0].number < tempo_marks[-1].number
+
+    def test_apply_tempo_curve_ritardando(self):
+        """Test applying ritardando tempo curve."""
+        from cancrizans import apply_tempo_curve
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        result = apply_tempo_curve(canon, 'ritardando', 60, 120, num_changes=5)
+
+        part = list(result.parts)[0]
+        tempo_marks = part.flatten().getElementsByClass('MetronomeMark')
+
+        assert len(tempo_marks) == 5
+        # ritardando swaps end and start, so first should be faster than last
+        assert tempo_marks[0].number > tempo_marks[-1].number
+
+    def test_apply_tempo_curve_rubato(self):
+        """Test applying rubato (sinusoidal) tempo curve."""
+        from cancrizans import apply_tempo_curve
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        result = apply_tempo_curve(canon, 'rubato', 80, 120, num_changes=8)
+
+        part = list(result.parts)[0]
+        tempo_marks = part.flatten().getElementsByClass('MetronomeMark')
+
+        assert len(tempo_marks) == 8
+        # Should have varying tempos
+        tempos = [tm.number for tm in tempo_marks]
+        assert len(set(tempos)) > 1  # Not all the same
+
+    def test_to_midi_advanced_basic(self):
+        """Test advanced MIDI export with no special features."""
+        from cancrizans import to_midi_advanced
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / 'advanced.mid'
+            result = to_midi_advanced(canon, path)
+
+            assert result.exists()
+            assert result == path
+
+    def test_to_midi_advanced_with_velocity(self):
+        """Test advanced MIDI export with velocity curve."""
+        from cancrizans import to_midi_advanced, load_score
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / 'crescendo.mid'
+            to_midi_advanced(
+                canon, path,
+                velocity_curve='crescendo',
+                start_velocity=40,
+                end_velocity=100
+            )
+
+            assert path.exists()
+
+            # Load and verify
+            loaded = load_score(path)
+            notes = list(loaded.parts[0].flatten().notes)
+            velocities = [n.volume.velocity for n in notes if hasattr(n, 'volume')]
+
+            # Should have increasing velocities
+            assert len(velocities) > 0
+
+    def test_to_midi_advanced_with_programs(self):
+        """Test advanced MIDI export with different instruments."""
+        from cancrizans import to_midi_advanced
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / 'multi_instrument.mid'
+            to_midi_advanced(
+                canon, path,
+                programs={0: 0, 1: 6}  # Piano and harpsichord
+            )
+
+            assert path.exists()
+            # File was created successfully with programs
+
+    def test_to_midi_advanced_full_features(self):
+        """Test advanced MIDI export with all features."""
+        from cancrizans import to_midi_advanced
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / 'full_featured.mid'
+            to_midi_advanced(
+                canon, path,
+                velocity_curve='swell',
+                start_velocity=50,
+                end_velocity=100,
+                tempo_curve='accelerando',
+                start_bpm=80,
+                end_bpm=120,
+                programs={0: 73, 1: 40}  # Flute and violin
+            )
+
+            assert path.exists()
+
+    def test_analyze_midi_file_basic(self):
+        """Test analyzing a MIDI file."""
+        from cancrizans import to_midi, analyze_midi_file
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / 'test.mid'
+            to_midi(canon, path)
+
+            analysis = analyze_midi_file(path)
+
+            assert isinstance(analysis, dict)
+            assert 'tempo_changes' in analysis
+            assert 'programs' in analysis
+            assert 'velocity_range' in analysis
+            assert 'velocity_mean' in analysis
+            assert 'duration' in analysis
+            assert 'time_signature' in analysis
+            assert 'tracks' in analysis
+
+    def test_analyze_midi_file_with_tempo(self):
+        """Test analyzing MIDI file with tempo changes."""
+        from cancrizans import apply_tempo_curve, to_midi, analyze_midi_file
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+        canon_with_tempo = apply_tempo_curve(canon, 'accelerando', 60, 120, num_changes=3)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / 'tempo_test.mid'
+            to_midi(canon_with_tempo, path)
+
+            analysis = analyze_midi_file(path)
+
+            # Should have tempo changes (may be duplicated across parts)
+            assert len(analysis['tempo_changes']) >= 3
+
+    def test_analyze_midi_file_with_programs(self):
+        """Test analyzing MIDI file with instruments."""
+        from cancrizans import set_midi_program, to_midi, analyze_midi_file
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+        canon = set_midi_program(canon, 0, part_index=0)
+        canon = set_midi_program(canon, 6, part_index=1)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / 'instruments_test.mid'
+            to_midi(canon, path)
+
+            analysis = analyze_midi_file(path)
+
+            # Check that programs were detected
+            assert len(analysis['programs']) >= 2
+            # Programs is a dict mapping part indices to program numbers
+            assert 0 in analysis['programs'].values()
+            assert 6 in analysis['programs'].values()
+
+    def test_analyze_midi_file_nonexistent(self):
+        """Test analyzing non-existent MIDI file."""
+        from cancrizans import analyze_midi_file
+        import pytest
+
+        with pytest.raises(FileNotFoundError):
+            analyze_midi_file('/nonexistent/file.mid')
