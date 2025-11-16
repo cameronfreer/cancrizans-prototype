@@ -3,7 +3,7 @@ Core transformations for canonical music analysis: retrograde, inversion,
 augmentation, diminution, time alignment, and palindrome verification.
 """
 
-from typing import TypeVar, Union, List, Tuple, Dict
+from typing import TypeVar, Union, List, Tuple, Dict, Optional
 import music21 as m21
 from music21 import stream, note, chord
 import numpy as np
@@ -2130,3 +2130,555 @@ def solve_puzzle_canon(
 
     score.append(voice2)
     return score
+
+
+# ============================================================================
+# Phase 11: Harmonic Enhancement
+# ============================================================================
+
+
+def analyze_chord_progressions(
+    score: stream.Score,
+    key_sig: Optional[Union[str, m21.key.Key]] = None
+) -> Dict[str, any]:
+    """
+    Analyze chord progressions in a score.
+
+    Identifies chords at each time point and analyzes the progression.
+    Uses music21's chord detection and analysis capabilities.
+
+    Args:
+        score: The score to analyze
+        key_sig: The key signature (detected automatically if not provided)
+
+    Returns:
+        Dictionary containing:
+        - 'chords': List of detected chords with offsets
+        - 'progressions': Common progression patterns detected
+        - 'key': Detected or specified key
+        - 'num_chords': Total number of chords
+        - 'unique_chords': Number of unique chord types
+
+    Example:
+        >>> from cancrizans import analyze_chord_progressions
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> # Add C major triad
+        >>> part1, part2, part3 = stream.Part(), stream.Part(), stream.Part()
+        >>> part1.append(note.Note('C4', quarterLength=1.0))
+        >>> part2.append(note.Note('E4', quarterLength=1.0))
+        >>> part3.append(note.Note('G4', quarterLength=1.0))
+        >>> score.append(part1)
+        >>> score.append(part2)
+        >>> score.append(part3)
+        >>> result = analyze_chord_progressions(score)
+        >>> result['num_chords'] >= 1
+        True
+    """
+    # Detect key if not provided
+    if key_sig is None:
+        try:
+            key_sig = score.analyze('key')
+        except:
+            # Default to C major if key detection fails
+            key_sig = m21.key.Key('C')
+    elif isinstance(key_sig, str):
+        key_sig = m21.key.Key(key_sig)
+
+    # Use music21's chordify to get vertical slices
+    try:
+        chordified = score.chordify()
+    except:
+        return {
+            'error': 'Could not chordify score',
+            'chords': [],
+            'progressions': [],
+            'key': str(key_sig),
+            'num_chords': 0,
+            'unique_chords': 0
+        }
+
+    # Extract chords
+    chords_list = []
+    for element in chordified.flatten():
+        if isinstance(element, chord.Chord):
+            chord_data = {
+                'offset': float(element.offset),
+                'duration': float(element.quarterLength),
+                'pitches': [p.nameWithOctave for p in element.pitches],
+                'root': element.root().name if element.root() else None,
+                'bass': element.bass().name if element.bass() else None,
+                'quality': element.quality if hasattr(element, 'quality') else 'unknown'
+            }
+
+            # Try to get Roman numeral in the key
+            try:
+                rn = m21.roman.romanNumeralFromChord(element, key_sig)
+                chord_data['roman_numeral'] = str(rn.figure)
+            except:
+                chord_data['roman_numeral'] = None
+
+            chords_list.append(chord_data)
+
+    # Identify common progressions
+    progressions = []
+    roman_numerals = [c.get('roman_numeral') for c in chords_list if c.get('roman_numeral')]
+
+    # Check for common patterns
+    common_patterns = {
+        'authentic_cadence': ['V', 'I'],
+        'plagal_cadence': ['IV', 'I'],
+        'half_cadence': ['I', 'V'],
+        'deceptive_cadence': ['V', 'vi'],
+        'circle_of_fifths': ['ii', 'V', 'I'],
+        'extended_circle': ['vi', 'ii', 'V', 'I'],
+        'four_five_one': ['IV', 'V', 'I'],
+    }
+
+    for pattern_name, pattern in common_patterns.items():
+        # Look for pattern in the progression
+        pattern_len = len(pattern)
+        for i in range(len(roman_numerals) - pattern_len + 1):
+            segment = roman_numerals[i:i + pattern_len]
+            # Normalize for comparison (remove inversions)
+            normalized_segment = [rn.split('/')[0] for rn in segment if rn]
+            normalized_pattern = [p.split('/')[0] for p in pattern]
+
+            if normalized_segment == normalized_pattern:
+                progressions.append({
+                    'type': pattern_name,
+                    'location': i,
+                    'chords': segment
+                })
+
+    # Count unique chords
+    unique_chord_types = set()
+    for c in chords_list:
+        if c.get('roman_numeral'):
+            unique_chord_types.add(c['roman_numeral'].split('/')[0])
+
+    return {
+        'chords': chords_list,
+        'progressions': progressions,
+        'key': str(key_sig),
+        'num_chords': len(chords_list),
+        'unique_chords': len(unique_chord_types),
+        'roman_numerals': roman_numerals
+    }
+
+
+def functional_harmony_analysis(
+    score: stream.Score,
+    key_sig: Optional[Union[str, m21.key.Key]] = None
+) -> Dict[str, any]:
+    """
+    Analyze functional harmony (tonic, dominant, subdominant relationships).
+
+    Classifies chords by their function in the key and analyzes harmonic rhythm.
+
+    Args:
+        score: The score to analyze
+        key_sig: The key signature (detected automatically if not provided)
+
+    Returns:
+        Dictionary containing:
+        - 'functions': List of harmonic functions for each chord
+        - 'harmonic_rhythm': Analysis of how often harmonies change
+        - 'tonic_percentage': Percentage of time spent on tonic
+        - 'dominant_percentage': Percentage on dominant
+        - 'subdominant_percentage': Percentage on subdominant
+        - 'key': The key being analyzed
+
+    Example:
+        >>> from cancrizans import functional_harmony_analysis
+        >>> from music21 import stream, note, key
+        >>> score = stream.Score()
+        >>> part = stream.Part()
+        >>> part.append(note.Note('C4', quarterLength=1.0))
+        >>> score.append(part)
+        >>> result = functional_harmony_analysis(score, 'C')
+        >>> 'functions' in result
+        True
+    """
+    # First get chord progressions
+    chord_analysis = analyze_chord_progressions(score, key_sig)
+
+    if 'error' in chord_analysis:
+        return chord_analysis
+
+    key_str = chord_analysis['key']
+    chords_list = chord_analysis['chords']
+
+    # Classify functions
+    functions = []
+    tonic_duration = 0.0
+    dominant_duration = 0.0
+    subdominant_duration = 0.0
+    other_duration = 0.0
+
+    for chord_data in chords_list:
+        rn = chord_data.get('roman_numeral', '')
+        duration = chord_data.get('duration', 0.0)
+
+        # Remove inversion notation
+        base_rn = rn.split('/')[0] if rn else ''
+
+        # Classify function
+        function = 'other'
+        if base_rn in ['I', 'i', 'vi', 'VI']:
+            function = 'tonic'
+            tonic_duration += duration
+        elif base_rn in ['V', 'v', 'VII', 'vii', 'viio']:
+            function = 'dominant'
+            dominant_duration += duration
+        elif base_rn in ['IV', 'iv', 'ii', 'II']:
+            function = 'subdominant'
+            subdominant_duration += duration
+        else:
+            other_duration += duration
+
+        functions.append({
+            'offset': chord_data['offset'],
+            'roman_numeral': rn,
+            'function': function,
+            'duration': duration
+        })
+
+    # Calculate percentages
+    total_duration = tonic_duration + dominant_duration + subdominant_duration + other_duration
+
+    tonic_pct = (tonic_duration / total_duration * 100) if total_duration > 0 else 0
+    dominant_pct = (dominant_duration / total_duration * 100) if total_duration > 0 else 0
+    subdominant_pct = (subdominant_duration / total_duration * 100) if total_duration > 0 else 0
+
+    # Analyze harmonic rhythm (how often chords change)
+    if len(chords_list) > 1:
+        changes = []
+        for i in range(1, len(chords_list)):
+            time_diff = chords_list[i]['offset'] - chords_list[i-1]['offset']
+            changes.append(time_diff)
+
+        avg_harmonic_rhythm = sum(changes) / len(changes) if changes else 0
+        min_change = min(changes) if changes else 0
+        max_change = max(changes) if changes else 0
+    else:
+        avg_harmonic_rhythm = 0
+        min_change = 0
+        max_change = 0
+
+    return {
+        'functions': functions,
+        'harmonic_rhythm': {
+            'average': avg_harmonic_rhythm,
+            'min': min_change,
+            'max': max_change
+        },
+        'tonic_percentage': tonic_pct,
+        'dominant_percentage': dominant_pct,
+        'subdominant_percentage': subdominant_pct,
+        'other_percentage': (other_duration / total_duration * 100) if total_duration > 0 else 0,
+        'key': key_str,
+        'num_functions': len(functions)
+    }
+
+
+def analyze_nonchord_tones(
+    score: stream.Score,
+    key_sig: Optional[Union[str, m21.key.Key]] = None
+) -> Dict[str, any]:
+    """
+    Analyze non-chord tones (passing tones, neighbor tones, suspensions, etc.).
+
+    Identifies notes that are not part of the prevailing harmony and classifies
+    their type based on melodic motion and metric position.
+
+    Args:
+        score: The score to analyze
+        key_sig: The key signature (detected automatically if not provided)
+
+    Returns:
+        Dictionary containing:
+        - 'nonchord_tones': List of identified non-chord tones with types
+        - 'summary': Count of each type
+        - 'total_notes': Total number of notes analyzed
+        - 'nonchord_percentage': Percentage of notes that are non-chord tones
+
+    Types identified:
+    - 'passing': Passing tone (stepwise approach and departure)
+    - 'neighbor': Neighbor tone (stepwise approach and return)
+    - 'suspension': Suspension (prepared, held over, resolved down)
+    - 'anticipation': Anticipation (jumps to next chord tone early)
+    - 'escape': Escape tone (stepwise approach, leap away)
+    - 'appoggiatura': Appoggiatura (leap to, stepwise resolution)
+    - 'other': Cannot classify
+
+    Example:
+        >>> from cancrizans import analyze_nonchord_tones
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> part = stream.Part()
+        >>> part.append(note.Note('C4', quarterLength=1.0))
+        >>> part.append(note.Note('D4', quarterLength=1.0))
+        >>> part.append(note.Note('E4', quarterLength=1.0))
+        >>> score.append(part)
+        >>> result = analyze_nonchord_tones(score)
+        >>> 'nonchord_tones' in result
+        True
+    """
+    # Get chord analysis
+    chord_analysis = analyze_chord_progressions(score, key_sig)
+
+    if 'error' in chord_analysis:
+        return chord_analysis
+
+    chords_list = chord_analysis['chords']
+
+    # Get all notes from all parts
+    all_notes = []
+    for part in score.parts:
+        for n in part.flatten().notes:
+            if isinstance(n, note.Note):
+                all_notes.append({
+                    'offset': float(n.offset),
+                    'pitch': n.pitch.midi,
+                    'pitch_name': n.pitch.name,
+                    'duration': float(n.quarterLength)
+                })
+
+    # Sort notes by offset
+    all_notes.sort(key=lambda x: x['offset'])
+
+    nonchord_tones = []
+    summary = {
+        'passing': 0,
+        'neighbor': 0,
+        'suspension': 0,
+        'anticipation': 0,
+        'escape': 0,
+        'appoggiatura': 0,
+        'other': 0
+    }
+
+    # For each note, check if it's in the current chord
+    for i, note_data in enumerate(all_notes):
+        note_offset = note_data['offset']
+        note_name = note_data['pitch_name']
+
+        # Find the chord active at this offset
+        current_chord = None
+        for chord_data in chords_list:
+            if chord_data['offset'] <= note_offset < chord_data['offset'] + chord_data['duration']:
+                current_chord = chord_data
+                break
+
+        if current_chord is None:
+            continue
+
+        # Check if note is in the chord
+        chord_pitch_names = [p.rstrip('0123456789') for p in current_chord['pitches']]  # Remove octave
+
+        if note_name not in chord_pitch_names:
+            # This is a non-chord tone - classify it
+            nct_type = 'other'
+
+            # Get previous and next notes if they exist
+            prev_note = all_notes[i-1] if i > 0 else None
+            next_note = all_notes[i+1] if i < len(all_notes) - 1 else None
+
+            if prev_note and next_note:
+                # Calculate intervals
+                prev_interval = note_data['pitch'] - prev_note['pitch']
+                next_interval = next_note['pitch'] - note_data['pitch']
+
+                # Passing tone: stepwise in same direction
+                if abs(prev_interval) <= 2 and abs(next_interval) <= 2:
+                    if (prev_interval > 0 and next_interval > 0) or (prev_interval < 0 and next_interval < 0):
+                        nct_type = 'passing'
+                    # Neighbor tone: stepwise approach and return
+                    elif prev_interval * next_interval < 0 and abs(prev_interval) == abs(next_interval):
+                        nct_type = 'neighbor'
+
+                # Escape tone: stepwise approach, leap away
+                if abs(prev_interval) <= 2 and abs(next_interval) > 2:
+                    nct_type = 'escape'
+
+                # Appoggiatura: leap to, stepwise away
+                if abs(prev_interval) > 2 and abs(next_interval) <= 2:
+                    nct_type = 'appoggiatura'
+
+                # Suspension: prepared (same pitch before), resolved down by step
+                if prev_interval == 0 and next_interval == -1:
+                    nct_type = 'suspension'
+
+                # Anticipation: resolved by staying on same pitch
+                if next_interval == 0:
+                    nct_type = 'anticipation'
+
+            nonchord_tones.append({
+                'offset': note_offset,
+                'pitch': note_data['pitch'],
+                'pitch_name': note_name,
+                'type': nct_type,
+                'chord': current_chord.get('roman_numeral', 'unknown')
+            })
+
+            summary[nct_type] += 1
+
+    total_notes = len(all_notes)
+    num_nonchord = len(nonchord_tones)
+    nonchord_pct = (num_nonchord / total_notes * 100) if total_notes > 0 else 0
+
+    return {
+        'nonchord_tones': nonchord_tones,
+        'summary': summary,
+        'total_notes': total_notes,
+        'total_nonchord_tones': num_nonchord,
+        'nonchord_percentage': nonchord_pct
+    }
+
+
+def generate_figured_bass(
+    score: stream.Score,
+    key_sig: Optional[Union[str, m21.key.Key]] = None
+) -> Dict[str, any]:
+    """
+    Generate figured bass notation from a score.
+
+    Analyzes the harmonic structure and generates figured bass symbols
+    that would be written below the bass line in baroque notation.
+
+    Args:
+        score: The score to analyze
+        key_sig: The key signature (detected automatically if not provided)
+
+    Returns:
+        Dictionary containing:
+        - 'figures': List of figured bass symbols with offsets
+        - 'bass_line': The bass line notes
+        - 'key': The key being analyzed
+
+    Figured bass symbols:
+    - '': Root position triad (assumed, often not notated)
+    - '6': First inversion triad
+    - '6/4' or '64': Second inversion triad
+    - '7': Root position seventh chord
+    - '6/5' or '65': First inversion seventh
+    - '4/3' or '43': Second inversion seventh
+    - '4/2' or '42' or '2': Third inversion seventh
+    - '#', 'b', natural sign: Chromatic alterations
+
+    Example:
+        >>> from cancrizans import generate_figured_bass
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> bass = stream.Part()
+        >>> bass.append(note.Note('C3', quarterLength=1.0))
+        >>> upper = stream.Part()
+        >>> upper.append(note.Note('E4', quarterLength=1.0))
+        >>> score.append(bass)
+        >>> score.append(upper)
+        >>> result = generate_figured_bass(score)
+        >>> 'figures' in result
+        True
+    """
+    # Get chord analysis
+    chord_analysis = analyze_chord_progressions(score, key_sig)
+
+    if 'error' in chord_analysis:
+        return chord_analysis
+
+    chords_list = chord_analysis['chords']
+
+    # Extract bass line (lowest part)
+    if len(score.parts) == 0:
+        return {
+            'error': 'No parts in score',
+            'figures': [],
+            'bass_line': [],
+            'key': str(key_sig) if key_sig else 'C'
+        }
+
+    bass_part = score.parts[-1]  # Assume lowest part is bass
+    bass_notes = []
+    for n in bass_part.flatten().notes:
+        if isinstance(n, note.Note):
+            bass_notes.append({
+                'offset': float(n.offset),
+                'pitch': n.pitch.nameWithOctave,
+                'duration': float(n.quarterLength)
+            })
+
+    # Generate figured bass symbols
+    figures = []
+
+    for chord_data in chords_list:
+        bass_note = chord_data.get('bass')
+        root_note = chord_data.get('root')
+
+        if not bass_note or not root_note:
+            continue
+
+        # Determine inversion
+        figure = ''
+
+        # Count chord members
+        num_pitches = len(chord_data['pitches'])
+
+        # Simple logic for triads and seventh chords
+        if bass_note == root_note:
+            # Root position
+            if num_pitches >= 4:
+                figure = '7'  # Seventh chord
+            else:
+                figure = ''  # Root position triad (often omitted)
+        else:
+            # Inverted
+            try:
+                # Find which chord member is in bass
+                pitch_classes = [m21.pitch.Pitch(p).pitchClass for p in chord_data['pitches']]
+                bass_pc = m21.pitch.Pitch(bass_note).pitchClass
+                root_pc = m21.pitch.Pitch(root_note).pitchClass
+
+                # Calculate position
+                if num_pitches >= 4:
+                    # Seventh chord inversions
+                    if bass_pc == root_pc:
+                        figure = '7'
+                    else:
+                        # Count up from bass to determine inversion
+                        sorted_pcs = sorted(set(pitch_classes))
+                        bass_pos = sorted_pcs.index(bass_pc)
+
+                        if bass_pos == 1:
+                            figure = '6/5'
+                        elif bass_pos == 2:
+                            figure = '4/3'
+                        elif bass_pos == 3:
+                            figure = '4/2'
+                else:
+                    # Triad inversions
+                    sorted_pcs = sorted(set(pitch_classes))
+                    bass_pos = sorted_pcs.index(bass_pc)
+
+                    if bass_pos == 1:
+                        figure = '6'
+                    elif bass_pos == 2:
+                        figure = '6/4'
+            except:
+                figure = '?'
+
+        figures.append({
+            'offset': chord_data['offset'],
+            'figure': figure,
+            'bass_note': bass_note,
+            'roman_numeral': chord_data.get('roman_numeral'),
+            'duration': chord_data['duration']
+        })
+
+    return {
+        'figures': figures,
+        'bass_line': bass_notes,
+        'key': chord_analysis['key'],
+        'num_figures': len(figures)
+    }
+
