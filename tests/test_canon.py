@@ -14,6 +14,10 @@ from cancrizans.canon import (
     interval_analysis,
     harmonic_analysis,
     rhythm_analysis,
+    stretto,
+    canon_at_interval,
+    proportional_canon,
+    counterpoint_check,
 )
 
 
@@ -562,3 +566,423 @@ class TestCanonEdgeCases:
         # The tempo marking should still be in the result
         tempo_marks = [el for el in result.flatten() if isinstance(el, tempo.MetronomeMark)]
         assert len(tempo_marks) >= 0  # Should not crash
+
+
+class TestStretto:
+    """Test stretto transformation."""
+
+    def test_stretto_creates_score(self):
+        """Test that stretto creates a score with multiple voices."""
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+        theme.append(note.Note('D4', quarterLength=1.0))
+        theme.append(note.Note('E4', quarterLength=1.0))
+
+        result = stretto(theme, num_voices=3, entry_interval=2.0)
+
+        assert isinstance(result, stream.Score)
+        assert len(result.parts) == 3
+
+    def test_stretto_voice_timing(self):
+        """Test that voices enter at correct intervals."""
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+
+        result = stretto(theme, num_voices=2, entry_interval=4.0)
+
+        parts = list(result.parts)
+        # Collect all offsets from both voices
+        all_offsets = []
+        for part in parts:
+            for n in part.flatten().notes:
+                all_offsets.append(n.offset)
+
+        # Should have notes at offset 0.0 and 4.0
+        assert 0.0 in all_offsets
+        assert 4.0 in all_offsets
+
+    def test_stretto_with_transformation(self):
+        """Test stretto with inversion transformation."""
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+        theme.append(note.Note('D4', quarterLength=1.0))
+
+        result = stretto(theme, num_voices=2, entry_interval=2.0, transformation='invert')
+
+        parts = list(result.parts)
+        # Second voice should be inverted
+        voice1_pitches = [n.pitch.midi for n in parts[0].flatten().notes]
+        voice2_pitches = [n.pitch.midi for n in parts[1].flatten().notes]
+
+        # Pitches should be different due to inversion
+        assert voice1_pitches != voice2_pitches
+
+    def test_stretto_transformations(self):
+        """Test all transformation options."""
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+
+        for trans in ['none', 'invert', 'retrograde', 'augmentation', 'diminution']:
+            result = stretto(theme, num_voices=2, transformation=trans)
+            assert isinstance(result, stream.Score)
+            assert len(result.parts) == 2
+
+
+class TestCanonAtInterval:
+    """Test canon at interval transformation."""
+
+    def test_canon_at_interval_creates_score(self):
+        """Test that canon_at_interval creates a score."""
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+
+        result = canon_at_interval(theme, interval=7)
+
+        assert isinstance(result, stream.Score)
+        assert len(result.parts) == 2
+
+    def test_canon_at_fifth(self):
+        """Test canon at the fifth (interval = 7 semitones)."""
+        theme = stream.Stream()
+        theme.append(note.Note(midi=60, quarterLength=1.0))  # C4
+
+        result = canon_at_interval(theme, interval=7, time_delay=0.0)
+
+        parts = list(result.parts)
+        voice1_midi = parts[0].flatten().notes[0].pitch.midi
+        voice2_midi = parts[1].flatten().notes[0].pitch.midi
+
+        assert voice1_midi == 60  # C4
+        assert voice2_midi == 67  # G4 (fifth above)
+
+    def test_canon_at_octave(self):
+        """Test canon at the octave."""
+        theme = stream.Stream()
+        theme.append(note.Note(midi=60, quarterLength=1.0))  # C4
+
+        result = canon_at_interval(theme, interval=12, time_delay=0.0)
+
+        parts = list(result.parts)
+        voice2_midi = parts[1].flatten().notes[0].pitch.midi
+
+        assert voice2_midi == 72  # C5 (octave above)
+
+    def test_canon_time_delay(self):
+        """Test that time_delay works correctly."""
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+
+        result = canon_at_interval(theme, interval=0, time_delay=4.0)
+
+        parts = list(result.parts)
+        voice1_offset = parts[0].flatten().notes[0].offset
+        voice2_offset = parts[1].flatten().notes[0].offset
+
+        assert voice1_offset == 0.0
+        assert voice2_offset == 4.0
+
+    def test_canon_negative_interval(self):
+        """Test canon with downward transposition."""
+        theme = stream.Stream()
+        theme.append(note.Note(midi=60, quarterLength=1.0))  # C4
+
+        result = canon_at_interval(theme, interval=-5, time_delay=0.0)
+
+        parts = list(result.parts)
+        voice2_midi = parts[1].flatten().notes[0].pitch.midi
+
+        assert voice2_midi == 55  # G3 (fifth below)
+
+    def test_canon_with_chord(self):
+        """Test canon at interval with chords."""
+        from music21 import chord as m21chord
+
+        theme = stream.Stream()
+        theme.append(m21chord.Chord(['C4', 'E4', 'G4'], quarterLength=1.0))
+
+        result = canon_at_interval(theme, interval=7, mode='strict')
+
+        parts = list(result.parts)
+        # Both voices should have chords
+        assert isinstance(parts[0].flatten().notes[0], m21chord.Chord)
+        assert isinstance(parts[1].flatten().notes[0], m21chord.Chord)
+
+
+class TestProportionalCanon:
+    """Test proportional/mensuration canon."""
+
+    def test_proportional_canon_creates_score(self):
+        """Test that proportional_canon creates a score."""
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+
+        result = proportional_canon(theme, ratio=(2, 3))
+
+        assert isinstance(result, stream.Score)
+        assert len(result.parts) == 2
+
+    def test_proportional_canon_2_3_ratio(self):
+        """Test 2:3 ratio (classic mensuration canon)."""
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+
+        result = proportional_canon(theme, ratio=(2, 3))
+
+        parts = list(result.parts)
+        voice1_duration = parts[0].flatten().notes[0].quarterLength
+        voice2_duration = parts[1].flatten().notes[0].quarterLength
+
+        assert voice1_duration == 2.0  # Slower voice
+        assert voice2_duration == 3.0  # Faster voice
+
+    def test_proportional_canon_1_2_ratio(self):
+        """Test 1:2 ratio (double speed)."""
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+        theme.append(note.Note('D4', quarterLength=1.0))
+
+        result = proportional_canon(theme, ratio=(1, 2))
+
+        parts = list(result.parts)
+        voice1_total = sum(n.quarterLength for n in parts[0].flatten().notes)
+        voice2_total = sum(n.quarterLength for n in parts[1].flatten().notes)
+
+        assert voice1_total == 2.0  # 1x speed
+        assert voice2_total == 4.0  # 2x speed
+
+    def test_proportional_canon_multiple_statements(self):
+        """Test proportional canon with multiple statements."""
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+
+        result = proportional_canon(theme, ratio=(1, 1), num_statements=3)
+
+        parts = list(result.parts)
+        # Each voice should have 3 notes (3 statements of 1 note each)
+        assert len(list(parts[0].flatten().notes)) == 3
+        assert len(list(parts[1].flatten().notes)) == 3
+
+    def test_proportional_canon_preserves_pitches(self):
+        """Test that pitches are preserved in both voices."""
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+        theme.append(note.Note('E4', quarterLength=1.0))
+
+        result = proportional_canon(theme, ratio=(1, 2))
+
+        parts = list(result.parts)
+        voice1_pitches = [n.pitch.nameWithOctave for n in parts[0].flatten().notes]
+        voice2_pitches = [n.pitch.nameWithOctave for n in parts[1].flatten().notes]
+
+        # Both voices should have same pitches
+        assert voice1_pitches == voice2_pitches
+
+
+class TestCounterpointCheck:
+    """Test counterpoint validation."""
+
+    def test_counterpoint_check_returns_dict(self):
+        """Test that counterpoint_check returns a dictionary."""
+        score = stream.Score()
+        part1 = stream.Part()
+        part1.append(note.Note('C4', quarterLength=1.0))
+        part1.append(note.Note('D4', quarterLength=1.0))
+
+        part2 = stream.Part()
+        part2.append(note.Note('E4', quarterLength=1.0))
+        part2.append(note.Note('F4', quarterLength=1.0))
+
+        score.append(part1)
+        score.append(part2)
+
+        result = counterpoint_check(score)
+
+        assert isinstance(result, dict)
+        assert 'parallel_fifths' in result
+        assert 'parallel_octaves' in result
+        assert 'voice_crossings' in result
+        assert 'quality_score' in result
+
+    def test_counterpoint_check_wrong_voice_count(self):
+        """Test counterpoint check with wrong number of voices."""
+        score = stream.Score()
+        part1 = stream.Part()
+        part1.append(note.Note('C4', quarterLength=1.0))
+        score.append(part1)
+
+        result = counterpoint_check(score)
+
+        assert 'error' in result
+        assert result['num_voices'] == 1
+
+    def test_counterpoint_parallel_octaves(self):
+        """Test detection of parallel octaves."""
+        score = stream.Score()
+        part1 = stream.Part()
+        part1.append(note.Note(midi=60, quarterLength=1.0))  # C4
+        part1.append(note.Note(midi=62, quarterLength=1.0))  # D4
+
+        part2 = stream.Part()
+        part2.append(note.Note(midi=72, quarterLength=1.0))  # C5
+        part2.append(note.Note(midi=74, quarterLength=1.0))  # D5
+
+        score.append(part1)
+        score.append(part2)
+
+        result = counterpoint_check(score)
+
+        # Should detect parallel octaves
+        assert result['parallel_octaves'] > 0
+
+    def test_counterpoint_parallel_fifths(self):
+        """Test detection of parallel fifths."""
+        score = stream.Score()
+        part1 = stream.Part()
+        part1.append(note.Note(midi=60, quarterLength=1.0))  # C4
+        part1.append(note.Note(midi=62, quarterLength=1.0))  # D4
+
+        part2 = stream.Part()
+        part2.append(note.Note(midi=67, quarterLength=1.0))  # G4 (fifth above C4)
+        part2.append(note.Note(midi=69, quarterLength=1.0))  # A4 (fifth above D4)
+
+        score.append(part1)
+        score.append(part2)
+
+        result = counterpoint_check(score)
+
+        # Should detect parallel fifths
+        assert result['parallel_fifths'] > 0
+
+    def test_counterpoint_large_leaps(self):
+        """Test detection of large leaps."""
+        score = stream.Score()
+        part1 = stream.Part()
+        part1.append(note.Note(midi=60, quarterLength=1.0))  # C4
+        part1.append(note.Note(midi=72, quarterLength=1.0))  # C5 (octave leap)
+
+        part2 = stream.Part()
+        part2.append(note.Note(midi=64, quarterLength=1.0))  # E4
+        part2.append(note.Note(midi=65, quarterLength=1.0))  # F4
+
+        score.append(part1)
+        score.append(part2)
+
+        result = counterpoint_check(score)
+
+        # Should detect large leap
+        assert result['large_leaps'] > 0
+
+    def test_counterpoint_quality_score(self):
+        """Test quality score calculation."""
+        # Create a good two-voice counterpoint
+        score = stream.Score()
+        part1 = stream.Part()
+        part1.append(note.Note('C4', quarterLength=1.0))
+        part1.append(note.Note('D4', quarterLength=1.0))
+        part1.append(note.Note('E4', quarterLength=1.0))
+
+        part2 = stream.Part()
+        part2.append(note.Note('G4', quarterLength=1.0))
+        part2.append(note.Note('F4', quarterLength=1.0))
+        part2.append(note.Note('G4', quarterLength=1.0))
+
+        score.append(part1)
+        score.append(part2)
+
+        result = counterpoint_check(score)
+
+        # Quality score should be between 0 and 1
+        assert 0.0 <= result['quality_score'] <= 1.0
+        assert 'passed' in result
+        assert isinstance(result['passed'], bool)
+
+    def test_counterpoint_empty_voices(self):
+        """Test counterpoint check with empty voices."""
+        score = stream.Score()
+        part1 = stream.Part()
+        part2 = stream.Part()
+        score.append(part1)
+        score.append(part2)
+
+        result = counterpoint_check(score)
+
+        # Should handle empty voices gracefully
+        assert result['quality_score'] == 1.0
+        assert result['total_simultaneities'] == 0
+
+
+class TestAdvancedCanonEdgeCases:
+    """Test edge cases for advanced canonical transformations."""
+
+    def test_stretto_single_voice(self):
+        """Test stretto with num_voices=1."""
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+
+        result = stretto(theme, num_voices=1)
+
+        assert len(result.parts) == 1
+
+    def test_stretto_empty_theme(self):
+        """Test stretto with empty theme."""
+        empty_theme = stream.Stream()
+
+        result = stretto(empty_theme, num_voices=2)
+
+        assert isinstance(result, stream.Score)
+        assert len(result.parts) == 2
+
+    def test_canon_at_interval_zero(self):
+        """Test canon at interval 0 (unison canon)."""
+        theme = stream.Stream()
+        theme.append(note.Note(midi=60, quarterLength=1.0))
+
+        result = canon_at_interval(theme, interval=0)
+
+        parts = list(result.parts)
+        voice1_midi = parts[0].flatten().notes[0].pitch.midi
+        voice2_midi = parts[1].flatten().notes[0].pitch.midi
+
+        assert voice1_midi == voice2_midi
+
+    def test_proportional_canon_equal_ratio(self):
+        """Test proportional canon with equal ratios (1:1)."""
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+
+        result = proportional_canon(theme, ratio=(1, 1))
+
+        parts = list(result.parts)
+        voice1_duration = parts[0].flatten().notes[0].quarterLength
+        voice2_duration = parts[1].flatten().notes[0].quarterLength
+
+        assert voice1_duration == voice2_duration
+
+    def test_canon_at_interval_with_rest(self):
+        """Test canon at interval preserves rests."""
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+        theme.append(note.Rest(quarterLength=1.0))
+
+        result = canon_at_interval(theme, interval=7)
+
+        parts = list(result.parts)
+        # Both voices should have rests
+        voice1_rests = [el for el in parts[0].flatten().notesAndRests if el.isRest]
+        voice2_rests = [el for el in parts[1].flatten().notesAndRests if el.isRest]
+
+        assert len(voice1_rests) > 0
+        assert len(voice2_rests) > 0
+
+    def test_proportional_canon_with_rest(self):
+        """Test proportional canon preserves rests."""
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+        theme.append(note.Rest(quarterLength=1.0))
+
+        result = proportional_canon(theme, ratio=(1, 2))
+
+        parts = list(result.parts)
+        # Check that rests are present in the result
+        total_elements = len(list(parts[0].flatten().notesAndRests))
+        assert total_elements == 2

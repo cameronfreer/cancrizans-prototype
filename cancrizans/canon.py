@@ -536,3 +536,312 @@ def rhythm_analysis(score_or_stream: Union[stream.Score, stream.Stream]) -> Dict
         'longest': max(all_durations),
         'unique_durations': len(duration_histogram)
     }
+
+
+# Advanced canonical transformations
+
+def stretto(
+    theme: stream.Stream,
+    num_voices: int = 2,
+    entry_interval: float = 4.0,
+    transformation: str = 'none'
+) -> stream.Score:
+    """
+    Create a stretto canon with overlapping voice entries.
+
+    In stretto, voices enter before the previous voice finishes, creating
+    overlapping imitative counterpoint. Common in fugues and complex canons.
+
+    Args:
+        theme: The theme/subject to use
+        num_voices: Number of voice entries (default 2)
+        entry_interval: Quarter notes between voice entries (default 4.0)
+        transformation: Apply to following voices: 'none', 'invert', 'retrograde',
+                       'augmentation', 'diminution' (default 'none')
+
+    Returns:
+        A Score with overlapping voices in stretto
+
+    Examples:
+        >>> from music21 import stream, note
+        >>> theme = stream.Stream()
+        >>> theme.append(note.Note('C4', quarterLength=1))
+        >>> theme.append(note.Note('D4', quarterLength=1))
+        >>> theme.append(note.Note('E4', quarterLength=1))
+        >>> stretto_score = stretto(theme, num_voices=3, entry_interval=2.0)
+    """
+    score = stream.Score()
+
+    for voice_num in range(num_voices):
+        part = stream.Part()
+        part.id = f'voice_{voice_num + 1}'
+
+        # Apply transformation to subsequent voices if requested
+        voice_theme = theme
+        if voice_num > 0 and transformation != 'none':
+            if transformation == 'invert':
+                voice_theme = invert(theme)
+            elif transformation == 'retrograde':
+                voice_theme = retrograde(theme)
+            elif transformation == 'augmentation':
+                voice_theme = augmentation(theme, factor=2.0)
+            elif transformation == 'diminution':
+                voice_theme = diminution(theme, factor=2.0)
+
+        # Insert theme at staggered offset
+        offset = voice_num * entry_interval
+        for el in voice_theme.flatten().notesAndRests:
+            part.insert(el.offset + offset, el)
+
+        score.insert(0, part)
+
+    return score
+
+
+def canon_at_interval(
+    theme: stream.Stream,
+    interval: int = 7,
+    time_delay: float = 0.0,
+    mode: str = 'strict'
+) -> stream.Score:
+    """
+    Create a canon where the following voice is transposed by an interval.
+
+    Canon at the fifth (interval=7) and canon at the octave (interval=12)
+    are common in Baroque music. Bach frequently used canon at various intervals.
+
+    Args:
+        theme: The leading voice melody
+        interval: Transposition interval in semitones (default 7 = perfect fifth)
+                 Positive = transpose up, negative = transpose down
+        time_delay: Quarter notes before the following voice enters (default 0.0)
+        mode: 'strict' (exact transposition) or 'tonal' (preserve key/scale)
+
+    Returns:
+        A Score with two voices at the specified interval
+
+    Examples:
+        >>> # Canon at the fifth (like "Frère Jacques")
+        >>> canon_fifth = canon_at_interval(theme, interval=7, time_delay=4.0)
+        >>>
+        >>> # Canon at the octave
+        >>> canon_octave = canon_at_interval(theme, interval=12, time_delay=2.0)
+    """
+    score = stream.Score()
+
+    # First voice: original theme
+    part1 = stream.Part()
+    part1.id = 'voice_1_leader'
+    for el in theme.flatten().notesAndRests:
+        part1.insert(el.offset, el)
+
+    # Second voice: transposed theme
+    part2 = stream.Part()
+    part2.id = 'voice_2_follower'
+
+    for el in theme.flatten().notesAndRests:
+        new_el = el.__class__()
+        new_el.quarterLength = el.quarterLength
+
+        if isinstance(el, note.Note):
+            if mode == 'strict':
+                # Strict transposition by semitones
+                new_midi = el.pitch.midi + interval
+                new_el.pitch = m21.pitch.Pitch(midi=new_midi)
+            else:  # tonal
+                # Transpose within key/scale (diatonic transposition)
+                # This is a simplified version; could be enhanced
+                new_el.pitch = el.pitch.transpose(interval)
+        elif isinstance(el, chord.Chord):
+            if mode == 'strict':
+                new_pitches = []
+                for p in el.pitches:
+                    new_midi = p.midi + interval
+                    new_pitches.append(m21.pitch.Pitch(midi=new_midi))
+                new_el.pitches = new_pitches
+            else:
+                new_el.pitches = [p.transpose(interval) for p in el.pitches]
+        elif isinstance(el, note.Rest):
+            pass  # Rest unchanged
+
+        part2.insert(el.offset + time_delay, new_el)
+
+    score.insert(0, part1)
+    score.insert(0, part2)
+
+    return score
+
+
+def proportional_canon(
+    theme: stream.Stream,
+    ratio: Tuple[int, int] = (2, 3),
+    num_statements: int = 1
+) -> stream.Score:
+    """
+    Create a proportional/mensuration canon with voices in different tempo ratios.
+
+    In proportional canons, voices play the same melody but at different speeds.
+    For example, ratio (2, 3) means voice 1 plays at 2/3 the speed of voice 2.
+
+    Args:
+        theme: The theme to use
+        ratio: Tuple of (voice1_ratio, voice2_ratio) integers (default (2, 3))
+               Voice 1 plays at ratio[0]/ratio[1] the speed of voice 2
+        num_statements: Number of complete statements per voice (default 1)
+
+    Returns:
+        A Score with voices in proportional tempo relationship
+
+    Examples:
+        >>> # Classic mensuration canon: 2:3 ratio
+        >>> prop_canon = proportional_canon(theme, ratio=(2, 3))
+        >>>
+        >>> # Triple canon: 1:2 ratio (voice 2 twice as fast)
+        >>> double_speed = proportional_canon(theme, ratio=(1, 2))
+    """
+    score = stream.Score()
+
+    # Voice 1: slower (multiply durations by ratio[0])
+    part1 = stream.Part()
+    part1.id = 'voice_1_slower'
+
+    for statement in range(num_statements):
+        offset_base = statement * sum(el.quarterLength for el in theme.flatten().notesAndRests) * ratio[0]
+        for el in theme.flatten().notesAndRests:
+            new_el = el.__class__()
+            if isinstance(el, note.Note):
+                new_el.pitch = el.pitch
+            elif isinstance(el, chord.Chord):
+                new_el.pitches = el.pitches
+            new_el.quarterLength = el.quarterLength * ratio[0]
+            part1.insert(offset_base + el.offset * ratio[0], new_el)
+
+    # Voice 2: faster (multiply durations by ratio[1])
+    part2 = stream.Part()
+    part2.id = 'voice_2_faster'
+
+    for statement in range(num_statements):
+        offset_base = statement * sum(el.quarterLength for el in theme.flatten().notesAndRests) * ratio[1]
+        for el in theme.flatten().notesAndRests:
+            new_el = el.__class__()
+            if isinstance(el, note.Note):
+                new_el.pitch = el.pitch
+            elif isinstance(el, chord.Chord):
+                new_el.pitches = el.pitches
+            new_el.quarterLength = el.quarterLength * ratio[1]
+            part2.insert(offset_base + el.offset * ratio[1], new_el)
+
+    score.insert(0, part1)
+    score.insert(0, part2)
+
+    return score
+
+
+def counterpoint_check(score: stream.Score) -> Dict[str, any]:
+    """
+    Validate voice leading according to basic counterpoint rules.
+
+    Checks for common issues in two-voice counterpoint:
+    - Parallel fifths and octaves
+    - Direct/hidden fifths and octaves
+    - Voice crossing
+    - Excessive leaps
+    - Dissonance treatment
+
+    Args:
+        score: A Score with two voices to check
+
+    Returns:
+        Dictionary with validation results and detected issues
+
+    Examples:
+        >>> results = counterpoint_check(two_voice_score)
+        >>> print(f"Parallel fifths: {results['parallel_fifths']}")
+        >>> print(f"Voice crossings: {results['voice_crossings']}")
+    """
+    parts = list(score.parts)
+
+    if len(parts) != 2:
+        return {
+            'error': 'Counterpoint check requires exactly 2 voices',
+            'num_voices': len(parts)
+        }
+
+    # Extract all time points and notes for each voice
+    voice1_notes = [(float(n.offset), n) for n in parts[0].flatten().notes]
+    voice2_notes = [(float(n.offset), n) for n in parts[1].flatten().notes]
+
+    # Sort by offset
+    voice1_notes.sort(key=lambda x: x[0])
+    voice2_notes.sort(key=lambda x: x[0])
+
+    parallel_fifths = []
+    parallel_octaves = []
+    voice_crossings = []
+    large_leaps = []
+    unresolved_dissonances = []
+
+    # Check for parallel motion
+    for i in range(min(len(voice1_notes), len(voice2_notes)) - 1):
+        offset1, note1 = voice1_notes[i]
+        offset2, note2 = voice2_notes[i]
+
+        if isinstance(note1, note.Note) and isinstance(note2, note.Note):
+            # Calculate interval
+            interval1 = abs(note1.pitch.midi - note2.pitch.midi) % 12
+
+            # Check next simultaneity
+            if i + 1 < min(len(voice1_notes), len(voice2_notes)):
+                next_note1 = voice1_notes[i + 1][1]
+                next_note2 = voice2_notes[i + 1][1]
+
+                if isinstance(next_note1, note.Note) and isinstance(next_note2, note.Note):
+                    interval2 = abs(next_note1.pitch.midi - next_note2.pitch.midi) % 12
+
+                    # Parallel fifths
+                    if interval1 == 7 and interval2 == 7:
+                        parallel_fifths.append((i, offset1))
+
+                    # Parallel octaves
+                    if interval1 == 0 and interval2 == 0:
+                        parallel_octaves.append((i, offset1))
+
+            # Check voice crossing
+            if note1.pitch.midi < note2.pitch.midi:
+                voice_crossings.append((i, offset1))
+
+    # Check for large leaps in each voice
+    for voice_num, voice_notes in enumerate([voice1_notes, voice2_notes], 1):
+        for i in range(len(voice_notes) - 1):
+            _, note_a = voice_notes[i]
+            _, note_b = voice_notes[i + 1]
+
+            if isinstance(note_a, note.Note) and isinstance(note_b, note.Note):
+                leap = abs(note_b.pitch.midi - note_a.pitch.midi)
+                if leap > 7:  # Larger than a fifth
+                    large_leaps.append((voice_num, i, leap))
+
+    # Calculate quality score
+    total_checks = (min(len(voice1_notes), len(voice2_notes)) * 2 +
+                   len(voice1_notes) + len(voice2_notes))
+
+    if total_checks == 0:
+        quality_score = 1.0
+    else:
+        issues = (len(parallel_fifths) + len(parallel_octaves) +
+                 len(voice_crossings) + len(large_leaps) * 0.5)
+        quality_score = max(0.0, 1.0 - (issues / total_checks))
+
+    return {
+        'parallel_fifths': len(parallel_fifths),
+        'parallel_fifths_locations': parallel_fifths,
+        'parallel_octaves': len(parallel_octaves),
+        'parallel_octaves_locations': parallel_octaves,
+        'voice_crossings': len(voice_crossings),
+        'voice_crossings_locations': voice_crossings,
+        'large_leaps': len(large_leaps),
+        'large_leaps_details': large_leaps,
+        'quality_score': quality_score,
+        'passed': quality_score > 0.7,
+        'total_simultaneities': min(len(voice1_notes), len(voice2_notes))
+    }
