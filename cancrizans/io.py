@@ -317,3 +317,300 @@ def load_score(path: Union[str, Path]) -> stream.Score:
         s = stream.Score()
         s.insert(0, score)
         return s
+
+
+def export_all(
+    score: stream.Score,
+    base_path: Union[str, Path],
+    formats: Optional[list] = None
+) -> dict:
+    """
+    Export a score to multiple formats at once.
+
+    Args:
+        score: The Score to export
+        base_path: Base path (without extension) for output files
+        formats: List of formats to export. Available: 'midi', 'musicxml',
+                'lilypond', 'abc'. Defaults to all formats.
+
+    Returns:
+        Dictionary mapping format names to output file paths
+
+    Example:
+        >>> paths = export_all(my_score, 'output/canon')
+        >>> # Creates: canon.mid, canon.musicxml, canon.ly, canon.abc
+    """
+    if formats is None:
+        formats = ['midi', 'musicxml', 'lilypond', 'abc']
+
+    base_path = Path(base_path)
+    results = {}
+
+    format_map = {
+        'midi': ('.mid', to_midi),
+        'musicxml': ('.musicxml', to_musicxml),
+        'lilypond': ('.ly', to_lilypond),
+        'abc': ('.abc', to_abc),
+    }
+
+    for fmt in formats:
+        if fmt not in format_map:
+            raise ValueError(f"Unknown format: {fmt}. Available: {list(format_map.keys())}")
+
+        ext, export_func = format_map[fmt]
+        output_path = base_path.parent / f"{base_path.name}{ext}"
+        results[fmt] = export_func(score, output_path)
+
+    return results
+
+
+def set_metadata(
+    score: stream.Score,
+    title: Optional[str] = None,
+    composer: Optional[str] = None,
+    copyright: Optional[str] = None,
+    date: Optional[str] = None,
+    **kwargs
+) -> stream.Score:
+    """
+    Set metadata fields on a score.
+
+    Args:
+        score: The Score to modify (modified in-place)
+        title: Title of the piece
+        composer: Composer name
+        copyright: Copyright notice
+        date: Date/year of composition
+        **kwargs: Additional metadata fields (e.g., lyricist, dedication)
+
+    Returns:
+        The modified Score (for method chaining)
+
+    Example:
+        >>> set_metadata(score, title="My Canon", composer="J.S. Bach")
+    """
+    if not hasattr(score, 'metadata') or score.metadata is None:
+        score.metadata = m21.metadata.Metadata()
+
+    if title:
+        score.metadata.title = title
+    if composer:
+        score.metadata.composer = composer
+    if copyright:
+        score.metadata.copyright = copyright
+    if date:
+        score.metadata.date = date
+
+    # Handle additional fields
+    for key, value in kwargs.items():
+        setattr(score.metadata, key, value)
+
+    return score
+
+
+def get_metadata(score: stream.Score) -> dict:
+    """
+    Extract metadata from a score.
+
+    Args:
+        score: The Score to read metadata from
+
+    Returns:
+        Dictionary of metadata fields
+
+    Example:
+        >>> meta = get_metadata(score)
+        >>> print(meta['title'], meta['composer'])
+    """
+    if not hasattr(score, 'metadata') or score.metadata is None:
+        return {}
+
+    metadata = {}
+
+    # Standard fields
+    standard_fields = ['title', 'composer', 'copyright', 'date',
+                      'lyricist', 'dedication', 'movementName']
+
+    for field in standard_fields:
+        value = getattr(score.metadata, field, None)
+        if value:
+            metadata[field] = value
+
+    return metadata
+
+
+def merge_scores(*scores: stream.Score) -> stream.Score:
+    """
+    Merge multiple scores into a single score by combining their parts.
+
+    All parts from all scores are added to a new score. Useful for
+    combining separately-created voices or movements.
+
+    Args:
+        *scores: Variable number of Score objects to merge
+
+    Returns:
+        New Score containing all parts from input scores
+
+    Example:
+        >>> merged = merge_scores(score1, score2, score3)
+    """
+    if not scores:
+        return stream.Score()
+
+    merged = stream.Score()
+
+    # Copy metadata from first score if available
+    if hasattr(scores[0], 'metadata') and scores[0].metadata:
+        merged.metadata = scores[0].metadata
+
+    # Add all parts from all scores
+    for score in scores:
+        for part in score.parts:
+            merged.insert(0, part)
+
+    return merged
+
+
+def extract_parts(
+    score: stream.Score,
+    indices: Union[int, list]
+) -> stream.Score:
+    """
+    Extract specific parts/voices from a score.
+
+    Args:
+        score: The Score to extract from
+        indices: Single index or list of indices to extract (0-based)
+
+    Returns:
+        New Score containing only the specified parts
+
+    Example:
+        >>> voice1_only = extract_parts(score, 0)
+        >>> soprano_alto = extract_parts(score, [0, 1])
+    """
+    if isinstance(indices, int):
+        indices = [indices]
+
+    extracted = stream.Score()
+
+    # Copy metadata if available
+    if hasattr(score, 'metadata') and score.metadata:
+        extracted.metadata = score.metadata
+
+    parts = list(score.parts)
+
+    for idx in indices:
+        if idx < 0 or idx >= len(parts):
+            raise IndexError(f"Part index {idx} out of range (0-{len(parts)-1})")
+        extracted.insert(0, parts[idx])
+
+    return extracted
+
+
+def validate_import(path: Union[str, Path]) -> dict:
+    """
+    Validate an imported music file and return diagnostic information.
+
+    Args:
+        path: Path to the file to validate
+
+    Returns:
+        Dictionary with validation results:
+        - 'valid': bool - whether file loaded successfully
+        - 'format': str - detected format (midi, musicxml, etc.)
+        - 'parts': int - number of parts/voices
+        - 'measures': int - number of measures
+        - 'duration': float - total duration in quarter notes
+        - 'errors': list - any errors encountered
+
+    Example:
+        >>> info = validate_import('canon.mid')
+        >>> if info['valid']:
+        >>>     print(f"Loaded {info['parts']} parts")
+    """
+    path = Path(path)
+    result = {
+        'valid': False,
+        'format': None,
+        'parts': 0,
+        'measures': 0,
+        'duration': 0.0,
+        'errors': []
+    }
+
+    if not path.exists():
+        result['errors'].append(f"File not found: {path}")
+        return result
+
+    # Detect format from extension
+    ext = path.suffix.lower()
+    format_map = {
+        '.mid': 'midi',
+        '.midi': 'midi',
+        '.xml': 'musicxml',
+        '.musicxml': 'musicxml',
+        '.mxl': 'musicxml',
+        '.ly': 'lilypond',
+        '.abc': 'abc'
+    }
+    result['format'] = format_map.get(ext, 'unknown')
+
+    try:
+        score = load_score(path)
+        result['valid'] = True
+        result['parts'] = len(score.parts)
+
+        # Get duration
+        if score.parts:
+            result['duration'] = max(p.duration.quarterLength for p in score.parts)
+
+        # Count measures (approximate)
+        if score.parts:
+            measures = score.parts[0].getElementsByClass(m21.stream.Measure)
+            result['measures'] = len(measures)
+
+    except Exception as e:
+        result['errors'].append(str(e))
+
+    return result
+
+
+def convert_format(
+    input_path: Union[str, Path],
+    output_path: Union[str, Path]
+) -> Path:
+    """
+    Convert a music file from one format to another.
+
+    Format is auto-detected from file extensions.
+
+    Args:
+        input_path: Path to input file
+        output_path: Path to output file (extension determines format)
+
+    Returns:
+        Path to the output file
+
+    Example:
+        >>> convert_format('canon.mid', 'canon.musicxml')
+        >>> convert_format('score.xml', 'score.ly')
+    """
+    # Load the input file
+    score = load_score(input_path)
+
+    # Determine output format from extension
+    output_path = Path(output_path)
+    ext = output_path.suffix.lower()
+
+    if ext in ['.mid', '.midi']:
+        return to_midi(score, output_path)
+    elif ext in ['.xml', '.musicxml', '.mxl']:
+        return to_musicxml(score, output_path)
+    elif ext == '.ly':
+        return to_lilypond(score, output_path)
+    elif ext == '.abc':
+        return to_abc(score, output_path)
+    else:
+        raise ValueError(f"Unsupported output format: {ext}")
