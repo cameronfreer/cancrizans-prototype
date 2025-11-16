@@ -5,6 +5,7 @@
 import { Player, PlaybackMode } from './player';
 import { MirrorView } from './mirrorView';
 import { NotationRenderer } from './notation';
+import { InstrumentType } from './instruments';
 
 export class UIController {
   private player: Player;
@@ -17,6 +18,7 @@ export class UIController {
   private tempoSlider: HTMLInputElement;
   private tempoDisplay: HTMLSpanElement;
   private modeSelect: HTMLSelectElement;
+  private instrumentSelect: HTMLSelectElement;
   private muteVoice1: HTMLInputElement;
   private muteVoice2: HTMLInputElement;
   private metronomeToggle: HTMLInputElement;
@@ -39,6 +41,7 @@ export class UIController {
     this.tempoSlider = this.getElement('tempo-slider');
     this.tempoDisplay = this.getElement('tempo-display');
     this.modeSelect = this.getElement('mode-select');
+    this.instrumentSelect = this.getElement('instrument-select');
     this.muteVoice1 = this.getElement('mute-voice1');
     this.muteVoice2 = this.getElement('mute-voice2');
     this.metronomeToggle = this.getElement('metronome-toggle');
@@ -76,6 +79,12 @@ export class UIController {
     this.modeSelect.addEventListener('change', () => {
       const mode = this.modeSelect.value as PlaybackMode;
       this.player.setMode(mode);
+    });
+
+    // Instrument selection
+    this.instrumentSelect.addEventListener('change', () => {
+      const instrument = this.instrumentSelect.value as InstrumentType;
+      this.player.setInstrument(instrument);
     });
 
     // Mute controls

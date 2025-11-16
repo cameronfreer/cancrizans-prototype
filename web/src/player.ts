@@ -4,6 +4,7 @@
 
 import * as Tone from 'tone';
 import { Note, Score } from './scoreLoader';
+import { InstrumentType, createInstrument } from './instruments';
 
 export type PlaybackMode = 'normal' | 'first-half' | 'second-half' | 'from-middle';
 
@@ -27,20 +28,15 @@ export class Player {
   private muteStates: boolean[] = [false, false];
   private metronomeEnabled: boolean = false;
   private metronomePart?: Tone.Part;
+  private currentInstrument: InstrumentType = 'harpsichord';
 
   constructor(score: Score) {
     this.score = score;
 
-    // Create a synth for each voice with different panning
+    // Create a synth for each voice with the default instrument
     this.synths = [
-      new Tone.Synth({
-        oscillator: { type: 'triangle' },
-        envelope: { attack: 0.005, decay: 0.1, sustain: 0.3, release: 0.5 },
-      }).toDestination(),
-      new Tone.Synth({
-        oscillator: { type: 'triangle' },
-        envelope: { attack: 0.005, decay: 0.1, sustain: 0.3, release: 0.5 },
-      }).toDestination(),
+      createInstrument(this.currentInstrument),
+      createInstrument(this.currentInstrument),
     ];
 
     // Pan voices left and right
@@ -167,6 +163,34 @@ export class Player {
       this.metronomePart?.dispose();
       this.metronomePart = undefined;
     }
+  }
+
+  setInstrument(instrumentType: InstrumentType): void {
+    const wasPlaying = this.isPlaying;
+
+    // Stop playback if playing
+    if (wasPlaying) {
+      this.stop();
+    }
+
+    // Dispose old synths
+    this.synths.forEach(synth => synth.dispose());
+
+    // Create new synths with the selected instrument
+    this.synths = [
+      createInstrument(instrumentType),
+      createInstrument(instrumentType),
+    ];
+
+    // Reapply volume settings
+    this.synths[0].set({ volume: -6 });
+    this.synths[1].set({ volume: -6 });
+
+    // Recreate parts with new synths
+    this.parts.forEach(part => part.dispose());
+    this.createParts();
+
+    this.currentInstrument = instrumentType;
   }
 
   private setupMetronome(): void {
