@@ -1042,13 +1042,21 @@ def save_crab_canon_xml(force: bool = False) -> Path:
 
 def load_bach_crab_canon() -> m21.stream.Score:
     """
-    Load Bach's Crab Canon from the embedded MusicXML.
+    Load Bach's Crab Canon from the authentic BWV 1079 MusicXML.
 
     Returns:
         A Score object containing the crab canon
     """
-    xml_path = save_crab_canon_xml()
-    score = m21.converter.parse(str(xml_path))
+    data_dir = ensure_data_dir()
+    real_xml_path = data_dir / "bach_crab_canon_real.musicxml"
+
+    # Use the real Bach Crab Canon if available, otherwise fall back to simplified
+    if real_xml_path.exists():
+        score = m21.converter.parse(str(real_xml_path))
+    else:
+        xml_path = save_crab_canon_xml()
+        score = m21.converter.parse(str(xml_path))
+
     return score  # type: ignore
 
 
