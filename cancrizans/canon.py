@@ -737,6 +737,443 @@ def proportional_canon(
     return score
 
 
+def spectral_analysis(score_or_stream: Union[stream.Score, stream.Stream]) -> Dict[str, any]:
+    """
+    Perform spectral/frequency analysis on a score or stream.
+
+    Analyzes the frequency distribution of pitches, including:
+    - Pitch class histogram (C, C#, D, etc.)
+    - Octave distribution
+    - Most/least common pitches
+    - Pitch range and tessitura
+
+    Args:
+        score_or_stream: A Score or Stream to analyze
+
+    Returns:
+        Dictionary with spectral statistics
+
+    Examples:
+        >>> from cancrizans import load_bach_crab_canon, spectral_analysis
+        >>> score = load_bach_crab_canon()
+        >>> analysis = spectral_analysis(score)
+        >>> print(f"Most common pitch class: {analysis['most_common_pitch_class']}")
+    """
+    if isinstance(score_or_stream, stream.Score):
+        parts = list(score_or_stream.parts)
+    else:
+        parts = [score_or_stream]
+
+    all_pitches = []
+    pitch_class_histogram = {i: 0 for i in range(12)}  # 0=C, 1=C#, etc.
+    octave_histogram = {}
+    pitch_histogram = {}
+
+    for part in parts:
+        for el in part.flatten().notes:
+            if isinstance(el, note.Note):
+                midi = el.pitch.midi
+                pc = midi % 12
+                octave = midi // 12
+
+                all_pitches.append(midi)
+                pitch_class_histogram[pc] += 1
+                octave_histogram[octave] = octave_histogram.get(octave, 0) + 1
+                pitch_histogram[midi] = pitch_histogram.get(midi, 0) + 1
+            elif isinstance(el, chord.Chord):
+                for p in el.pitches:
+                    midi = p.midi
+                    pc = midi % 12
+                    octave = midi // 12
+
+                    all_pitches.append(midi)
+                    pitch_class_histogram[pc] += 1
+                    octave_histogram[octave] = octave_histogram.get(octave, 0) + 1
+                    pitch_histogram[midi] = pitch_histogram.get(midi, 0) + 1
+
+    if not all_pitches:
+        return {
+            'total_pitches': 0,
+            'pitch_class_histogram': pitch_class_histogram,
+            'octave_histogram': {},
+            'pitch_range': 0,
+            'lowest_pitch': None,
+            'highest_pitch': None
+        }
+
+    # Pitch class names
+    pc_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+
+    # Find most common pitch class
+    most_common_pc = max(pitch_class_histogram.items(), key=lambda x: x[1])
+    most_common_pc_name = pc_names[most_common_pc[0]]
+
+    # Calculate tessitura (average pitch)
+    tessitura = sum(all_pitches) / len(all_pitches)
+
+    return {
+        'total_pitches': len(all_pitches),
+        'pitch_class_histogram': pitch_class_histogram,
+        'pitch_class_histogram_named': {pc_names[i]: count for i, count in pitch_class_histogram.items()},
+        'octave_histogram': octave_histogram,
+        'most_common_pitch_class': most_common_pc_name,
+        'most_common_pitch_class_count': most_common_pc[1],
+        'pitch_range': max(all_pitches) - min(all_pitches),
+        'lowest_pitch': min(all_pitches),
+        'highest_pitch': max(all_pitches),
+        'tessitura': tessitura,
+        'unique_pitches': len(set(all_pitches)),
+        'pitch_diversity': len(set(all_pitches)) / len(all_pitches) if all_pitches else 0
+    }
+
+
+def symmetry_metrics(score: stream.Score) -> Dict[str, any]:
+    """
+    Calculate advanced symmetry metrics for a two-voice canon.
+
+    Analyzes multiple dimensions of symmetry including:
+    - Pitch symmetry (retrograde matching)
+    - Rhythmic symmetry
+    - Interval symmetry
+    - Temporal symmetry
+
+    Args:
+        score: A Score with two voices
+
+    Returns:
+        Dictionary with detailed symmetry measurements
+
+    Examples:
+        >>> from cancrizans import load_bach_crab_canon, symmetry_metrics
+        >>> score = load_bach_crab_canon()
+        >>> metrics = symmetry_metrics(score)
+        >>> print(f"Overall symmetry: {metrics['overall_symmetry']:.2%}")
+    """
+    parts = list(score.parts)
+
+    if len(parts) != 2:
+        return {
+            'error': 'Symmetry metrics require exactly 2 voices',
+            'num_voices': len(parts)
+        }
+
+    # Extract note sequences from both parts
+    voice1_notes = [(float(n.offset), n) for n in parts[0].flatten().notes]
+    voice2_notes = [(float(n.offset), n) for n in parts[1].flatten().notes]
+
+    # Sort by offset
+    voice1_notes.sort(key=lambda x: x[0])
+    voice2_notes.sort(key=lambda x: x[0])
+
+    if len(voice1_notes) != len(voice2_notes):
+        return {
+            'error': 'Voices have different numbers of notes',
+            'voice1_notes': len(voice1_notes),
+            'voice2_notes': len(voice2_notes)
+        }
+
+    if len(voice1_notes) == 0:
+        return {
+            'overall_symmetry': 1.0,
+            'pitch_symmetry': 1.0,
+            'rhythmic_symmetry': 1.0,
+            'interval_symmetry': 1.0,
+            'temporal_symmetry': 1.0,
+            'note_count': 0
+        }
+
+    n = len(voice1_notes)
+
+    # Calculate pitch symmetry (retrograde)
+    pitch_matches = 0
+    for i in range(n):
+        note1 = voice1_notes[i][1]
+        note2 = voice2_notes[n - 1 - i][1]
+
+        if isinstance(note1, note.Note) and isinstance(note2, note.Note):
+            if note1.pitch.midi == note2.pitch.midi:
+                pitch_matches += 1
+
+    pitch_symmetry = pitch_matches / n if n > 0 else 0
+
+    # Calculate rhythmic symmetry
+    rhythm_matches = 0
+    for i in range(n):
+        dur1 = voice1_notes[i][1].quarterLength
+        dur2 = voice2_notes[n - 1 - i][1].quarterLength
+
+        if abs(dur1 - dur2) < 0.01:  # Small tolerance for floating point
+            rhythm_matches += 1
+
+    rhythmic_symmetry = rhythm_matches / n if n > 0 else 0
+
+    # Calculate interval symmetry
+    if n > 1:
+        interval_matches = 0
+        for i in range(n - 1):
+            # Forward intervals in voice 1
+            if isinstance(voice1_notes[i][1], note.Note) and isinstance(voice1_notes[i + 1][1], note.Note):
+                interval1 = voice1_notes[i + 1][1].pitch.midi - voice1_notes[i][1].pitch.midi
+
+                # Backward intervals in voice 2 (should match for retrograde)
+                rev_i = n - 2 - i
+                if rev_i >= 0 and isinstance(voice2_notes[rev_i][1], note.Note) and isinstance(voice2_notes[rev_i + 1][1], note.Note):
+                    interval2 = voice2_notes[rev_i][1].pitch.midi - voice2_notes[rev_i + 1][1].pitch.midi
+
+                    if interval1 == interval2:
+                        interval_matches += 1
+
+        interval_symmetry = interval_matches / (n - 1) if n > 1 else 0
+    else:
+        interval_symmetry = 1.0
+
+    # Calculate temporal symmetry (timing alignment)
+    total_duration_v1 = max(off + n.quarterLength for off, n in voice1_notes)
+    total_duration_v2 = max(off + n.quarterLength for off, n in voice2_notes)
+
+    temporal_symmetry = 1.0 - abs(total_duration_v1 - total_duration_v2) / max(total_duration_v1, total_duration_v2)
+
+    # Overall symmetry (weighted average)
+    overall_symmetry = (
+        pitch_symmetry * 0.4 +
+        rhythmic_symmetry * 0.3 +
+        interval_symmetry * 0.2 +
+        temporal_symmetry * 0.1
+    )
+
+    return {
+        'overall_symmetry': overall_symmetry,
+        'pitch_symmetry': pitch_symmetry,
+        'rhythmic_symmetry': rhythmic_symmetry,
+        'interval_symmetry': interval_symmetry,
+        'temporal_symmetry': temporal_symmetry,
+        'note_count': n,
+        'pitch_matches': pitch_matches,
+        'rhythm_matches': rhythm_matches,
+        'is_perfect_palindrome': overall_symmetry >= 0.99
+    }
+
+
+def chord_progression_analysis(score: stream.Score) -> Dict[str, any]:
+    """
+    Analyze chord progressions in a multi-voice score.
+
+    Identifies vertical sonorities and analyzes harmonic progressions.
+
+    Args:
+        score: A Score with multiple voices
+
+    Returns:
+        Dictionary with chord progression information
+
+    Examples:
+        >>> analysis = chord_progression_analysis(two_voice_score)
+        >>> print(f"Unique chords: {analysis['unique_chords']}")
+    """
+    parts = list(score.parts)
+
+    if len(parts) < 2:
+        return {
+            'error': 'Chord analysis requires at least 2 voices',
+            'num_voices': len(parts)
+        }
+
+    # Get all unique time points where notes sound
+    time_points = set()
+    for part in parts:
+        for el in part.flatten().notes:
+            time_points.add(float(el.offset))
+
+    chords_at_time = []
+    chord_types = {}
+
+    for time_point in sorted(time_points):
+        # Find all pitches sounding at this time
+        sounding_pitches = []
+        for part in parts:
+            for el in part.flatten().notes:
+                if float(el.offset) <= time_point < float(el.offset + el.quarterLength):
+                    if isinstance(el, note.Note):
+                        sounding_pitches.append(el.pitch.midi)
+                    elif isinstance(el, chord.Chord):
+                        sounding_pitches.extend([p.midi for p in el.pitches])
+
+        if len(sounding_pitches) >= 2:
+            # Sort and create chord signature
+            sounding_pitches.sort()
+            chord_sig = tuple(p % 12 for p in sounding_pitches)  # Pitch classes
+
+            # Classify chord type (simplified)
+            chord_type = _classify_chord(chord_sig)
+            chord_types[chord_type] = chord_types.get(chord_type, 0) + 1
+
+            chords_at_time.append({
+                'time': time_point,
+                'pitches': sounding_pitches,
+                'pitch_classes': chord_sig,
+                'type': chord_type
+            })
+
+    return {
+        'total_chords': len(chords_at_time),
+        'unique_chords': len(set(c['pitch_classes'] for c in chords_at_time)),
+        'chord_types': chord_types,
+        'progression': chords_at_time[:20],  # First 20 chords
+        'most_common_chord_type': max(chord_types.items(), key=lambda x: x[1])[0] if chord_types else None
+    }
+
+
+def _classify_chord(pitch_classes: Tuple[int, ...]) -> str:
+    """
+    Classify a chord by its interval structure (simplified).
+
+    Args:
+        pitch_classes: Tuple of pitch classes (0-11)
+
+    Returns:
+        String describing chord type
+    """
+    if len(pitch_classes) < 2:
+        return 'single_note'
+
+    # Calculate intervals from root
+    intervals = [(pc - pitch_classes[0]) % 12 for pc in pitch_classes]
+    intervals_set = set(intervals)
+
+    # Common chord types (simplified)
+    if intervals_set == {0, 4, 7}:
+        return 'major_triad'
+    elif intervals_set == {0, 3, 7}:
+        return 'minor_triad'
+    elif intervals_set == {0, 3, 6}:
+        return 'diminished_triad'
+    elif intervals_set == {0, 4, 8}:
+        return 'augmented_triad'
+    elif 7 in intervals_set or 5 in intervals_set:
+        return 'contains_fifth'
+    elif 3 in intervals_set or 4 in intervals_set:
+        return 'contains_third'
+    else:
+        return 'other'
+
+
+def compare_canons(canon1: stream.Score, canon2: stream.Score) -> Dict[str, any]:
+    """
+    Compare two canons across multiple dimensions.
+
+    Analyzes similarities and differences between two canonical works.
+
+    Args:
+        canon1: First canon to compare
+        canon2: Second canon to compare
+
+    Returns:
+        Dictionary with comparison metrics
+
+    Examples:
+        >>> from cancrizans import load_bach_crab_canon
+        >>> bach_canon = load_bach_crab_canon()
+        >>> my_canon = assemble_crab_from_theme(my_theme)
+        >>> comparison = compare_canons(bach_canon, my_canon)
+        >>> print(f"Similarity: {comparison['overall_similarity']:.2%}")
+    """
+    # Get analyses for both canons
+    interval1 = interval_analysis(canon1)
+    interval2 = interval_analysis(canon2)
+
+    rhythm1 = rhythm_analysis(canon1)
+    rhythm2 = rhythm_analysis(canon2)
+
+    spectral1 = spectral_analysis(canon1)
+    spectral2 = spectral_analysis(canon2)
+
+    # Compare interval distributions
+    interval_similarity = _compare_distributions(
+        interval1.get('histogram', {}),
+        interval2.get('histogram', {})
+    )
+
+    # Compare rhythmic distributions
+    rhythm_similarity = _compare_distributions(
+        rhythm1.get('histogram', {}),
+        rhythm2.get('histogram', {})
+    )
+
+    # Compare pitch class distributions
+    pc_similarity = _compare_distributions(
+        spectral1.get('pitch_class_histogram', {}),
+        spectral2.get('pitch_class_histogram', {})
+    )
+
+    # Overall similarity (weighted average)
+    overall_similarity = (
+        interval_similarity * 0.4 +
+        rhythm_similarity * 0.3 +
+        pc_similarity * 0.3
+    )
+
+    return {
+        'overall_similarity': overall_similarity,
+        'interval_similarity': interval_similarity,
+        'rhythm_similarity': rhythm_similarity,
+        'pitch_class_similarity': pc_similarity,
+        'canon1_length': interval1.get('total_intervals', 0),
+        'canon2_length': interval2.get('total_intervals', 0),
+        'length_ratio': interval2.get('total_intervals', 1) / max(interval1.get('total_intervals', 1), 1),
+        'comparison_summary': _generate_comparison_summary(overall_similarity)
+    }
+
+
+def _compare_distributions(dist1: Dict, dist2: Dict) -> float:
+    """
+    Calculate similarity between two distributions using cosine similarity.
+
+    Args:
+        dist1: First distribution dictionary
+        dist2: Second distribution dictionary
+
+    Returns:
+        Similarity score between 0 and 1
+    """
+    if not dist1 or not dist2:
+        return 0.0
+
+    # Get all keys from both distributions
+    all_keys = set(dist1.keys()) | set(dist2.keys())
+
+    if not all_keys:
+        return 0.0
+
+    # Create vectors
+    vec1 = np.array([dist1.get(k, 0) for k in all_keys])
+    vec2 = np.array([dist2.get(k, 0) for k in all_keys])
+
+    # Cosine similarity
+    dot_product = np.dot(vec1, vec2)
+    norm1 = np.linalg.norm(vec1)
+    norm2 = np.linalg.norm(vec2)
+
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+
+    similarity = dot_product / (norm1 * norm2)
+    return float(similarity)
+
+
+def _generate_comparison_summary(similarity: float) -> str:
+    """Generate a text summary of canon similarity."""
+    if similarity >= 0.9:
+        return "Very similar - nearly identical structure"
+    elif similarity >= 0.7:
+        return "Similar - shares many characteristics"
+    elif similarity >= 0.5:
+        return "Moderately similar - some common features"
+    elif similarity >= 0.3:
+        return "Somewhat different - few shared characteristics"
+    else:
+        return "Very different - distinct structures"
+
+
 def counterpoint_check(score: stream.Score) -> Dict[str, any]:
     """
     Validate voice leading according to basic counterpoint rules.

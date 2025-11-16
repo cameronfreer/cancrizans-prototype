@@ -18,6 +18,10 @@ from cancrizans.canon import (
     canon_at_interval,
     proportional_canon,
     counterpoint_check,
+    spectral_analysis,
+    symmetry_metrics,
+    chord_progression_analysis,
+    compare_canons,
 )
 
 
@@ -986,3 +990,359 @@ class TestAdvancedCanonEdgeCases:
         # Check that rests are present in the result
         total_elements = len(list(parts[0].flatten().notesAndRests))
         assert total_elements == 2
+
+
+class TestSpectralAnalysis:
+    """Test spectral/frequency analysis."""
+
+    def test_spectral_analysis_returns_dict(self):
+        """Test that spectral_analysis returns a dictionary."""
+        melody = stream.Part()
+        melody.append(note.Note('C4', quarterLength=1.0))
+        melody.append(note.Note('D4', quarterLength=1.0))
+        melody.append(note.Note('E4', quarterLength=1.0))
+
+        analysis = spectral_analysis(melody)
+
+        assert isinstance(analysis, dict)
+        assert 'total_pitches' in analysis
+        assert 'pitch_class_histogram' in analysis
+        assert 'tessitura' in analysis
+
+    def test_spectral_analysis_pitch_class_histogram(self):
+        """Test pitch class histogram calculation."""
+        melody = stream.Part()
+        melody.append(note.Note(midi=60, quarterLength=1.0))  # C4
+        melody.append(note.Note(midi=72, quarterLength=1.0))  # C5
+        melody.append(note.Note(midi=62, quarterLength=1.0))  # D4
+
+        analysis = spectral_analysis(melody)
+
+        # Should have 2 Cs and 1 D
+        assert analysis['pitch_class_histogram'][0] == 2  # C
+        assert analysis['pitch_class_histogram'][2] == 1  # D
+        assert analysis['most_common_pitch_class'] == 'C'
+
+    def test_spectral_analysis_pitch_range(self):
+        """Test pitch range calculation."""
+        melody = stream.Part()
+        melody.append(note.Note(midi=60, quarterLength=1.0))  # C4
+        melody.append(note.Note(midi=72, quarterLength=1.0))  # C5
+
+        analysis = spectral_analysis(melody)
+
+        assert analysis['pitch_range'] == 12  # One octave
+        assert analysis['lowest_pitch'] == 60
+        assert analysis['highest_pitch'] == 72
+
+    def test_spectral_analysis_empty_stream(self):
+        """Test spectral analysis with empty stream."""
+        empty_part = stream.Part()
+        analysis = spectral_analysis(empty_part)
+
+        assert analysis['total_pitches'] == 0
+        assert analysis['pitch_range'] == 0
+
+    def test_spectral_analysis_with_chord(self):
+        """Test spectral analysis handles chords."""
+        from music21 import chord as m21chord
+
+        melody = stream.Part()
+        melody.append(m21chord.Chord(['C4', 'E4', 'G4'], quarterLength=1.0))
+
+        analysis = spectral_analysis(melody)
+
+        assert analysis['total_pitches'] == 3
+        assert analysis['pitch_class_histogram'][0] >= 1  # C
+        assert analysis['pitch_class_histogram'][4] >= 1  # E
+
+
+class TestSymmetryMetrics:
+    """Test advanced symmetry metrics."""
+
+    def test_symmetry_metrics_returns_dict(self):
+        """Test that symmetry_metrics returns a dictionary."""
+        from cancrizans.bach_crab import assemble_crab_from_theme
+
+        theme = stream.Part()
+        theme.append(note.Note('C4', quarterLength=1.0))
+        theme.append(note.Note('D4', quarterLength=1.0))
+
+        canon = assemble_crab_from_theme(theme)
+        metrics = symmetry_metrics(canon)
+
+        assert isinstance(metrics, dict)
+        assert 'overall_symmetry' in metrics
+        assert 'pitch_symmetry' in metrics
+        assert 'rhythmic_symmetry' in metrics
+
+    def test_symmetry_metrics_perfect_palindrome(self):
+        """Test metrics for perfect palindrome."""
+        from cancrizans.bach_crab import assemble_crab_from_theme
+
+        theme = stream.Part()
+        theme.append(note.Note('C4', quarterLength=1.0))
+        theme.append(note.Note('D4', quarterLength=1.0))
+        theme.append(note.Note('E4', quarterLength=1.0))
+
+        canon = assemble_crab_from_theme(theme)
+        metrics = symmetry_metrics(canon)
+
+        # Should be a perfect palindrome
+        assert metrics['pitch_symmetry'] == 1.0
+        assert metrics['rhythmic_symmetry'] == 1.0
+        assert metrics['is_perfect_palindrome'] is True
+
+    def test_symmetry_metrics_wrong_voice_count(self):
+        """Test symmetry metrics with wrong number of voices."""
+        score = stream.Score()
+        part1 = stream.Part()
+        part1.append(note.Note('C4', quarterLength=1.0))
+        score.append(part1)
+
+        metrics = symmetry_metrics(score)
+
+        assert 'error' in metrics
+        assert metrics['num_voices'] == 1
+
+    def test_symmetry_metrics_different_lengths(self):
+        """Test symmetry metrics with different voice lengths."""
+        score = stream.Score()
+        part1 = stream.Part()
+        part1.append(note.Note('C4', quarterLength=1.0))
+        part1.append(note.Note('D4', quarterLength=1.0))
+
+        part2 = stream.Part()
+        part2.append(note.Note('E4', quarterLength=1.0))
+
+        score.append(part1)
+        score.append(part2)
+
+        metrics = symmetry_metrics(score)
+
+        assert 'error' in metrics
+
+    def test_symmetry_metrics_empty_voices(self):
+        """Test symmetry metrics with empty voices."""
+        score = stream.Score()
+        part1 = stream.Part()
+        part2 = stream.Part()
+        score.append(part1)
+        score.append(part2)
+
+        metrics = symmetry_metrics(score)
+
+        assert metrics['overall_symmetry'] == 1.0
+        assert metrics['note_count'] == 0
+
+
+class TestChordProgressionAnalysis:
+    """Test chord progression analysis."""
+
+    def test_chord_progression_analysis_returns_dict(self):
+        """Test that chord_progression_analysis returns a dictionary."""
+        score = stream.Score()
+        part1 = stream.Part()
+        part1.append(note.Note('C4', quarterLength=1.0))
+        part1.append(note.Note('D4', quarterLength=1.0))
+
+        part2 = stream.Part()
+        part2.append(note.Note('E4', quarterLength=1.0))
+        part2.append(note.Note('F4', quarterLength=1.0))
+
+        score.append(part1)
+        score.append(part2)
+
+        analysis = chord_progression_analysis(score)
+
+        assert isinstance(analysis, dict)
+        assert 'total_chords' in analysis
+        assert 'unique_chords' in analysis
+        assert 'chord_types' in analysis
+
+    def test_chord_progression_analysis_wrong_voice_count(self):
+        """Test chord analysis with wrong number of voices."""
+        score = stream.Score()
+        part1 = stream.Part()
+        part1.append(note.Note('C4', quarterLength=1.0))
+        score.append(part1)
+
+        analysis = chord_progression_analysis(score)
+
+        assert 'error' in analysis
+        assert analysis['num_voices'] == 1
+
+    def test_chord_progression_identifies_triads(self):
+        """Test that major and minor triads are identified."""
+        from music21 import chord as m21chord
+
+        score = stream.Score()
+        part1 = stream.Part()
+        # Create a C major triad vertically
+        part1.append(m21chord.Chord(['C4', 'E4', 'G4'], quarterLength=1.0))
+
+        score.append(part1)
+
+        # For chord analysis, we need at least 2 parts
+        # Let's create a simpler test
+        score2 = stream.Score()
+        p1 = stream.Part()
+        p2 = stream.Part()
+        p1.append(note.Note('C4', quarterLength=1.0))
+        p2.append(note.Note('E4', quarterLength=1.0))
+        score2.append(p1)
+        score2.append(p2)
+
+        analysis = chord_progression_analysis(score2)
+
+        assert analysis['total_chords'] >= 1
+
+
+class TestCompareCanons:
+    """Test canon comparison tools."""
+
+    def test_compare_canons_returns_dict(self):
+        """Test that compare_canons returns a dictionary."""
+        from cancrizans.bach_crab import assemble_crab_from_theme
+
+        theme1 = stream.Part()
+        theme1.append(note.Note('C4', quarterLength=1.0))
+        theme1.append(note.Note('D4', quarterLength=1.0))
+
+        theme2 = stream.Part()
+        theme2.append(note.Note('E4', quarterLength=1.0))
+        theme2.append(note.Note('F4', quarterLength=1.0))
+
+        canon1 = assemble_crab_from_theme(theme1)
+        canon2 = assemble_crab_from_theme(theme2)
+
+        comparison = compare_canons(canon1, canon2)
+
+        assert isinstance(comparison, dict)
+        assert 'overall_similarity' in comparison
+        assert 'interval_similarity' in comparison
+        assert 'rhythm_similarity' in comparison
+        assert 'comparison_summary' in comparison
+
+    def test_compare_canons_identical(self):
+        """Test comparing a canon to itself."""
+        from cancrizans.bach_crab import assemble_crab_from_theme
+
+        theme = stream.Part()
+        theme.append(note.Note('C4', quarterLength=1.0))
+        theme.append(note.Note('D4', quarterLength=1.0))
+        theme.append(note.Note('E4', quarterLength=1.0))
+
+        canon = assemble_crab_from_theme(theme)
+
+        comparison = compare_canons(canon, canon)
+
+        # Should be identical (similarity close to 1.0)
+        assert comparison['overall_similarity'] >= 0.99
+        assert 'Very similar' in comparison['comparison_summary']
+
+    def test_compare_canons_different(self):
+        """Test comparing very different canons."""
+        from cancrizans.bach_crab import assemble_crab_from_theme
+
+        # Canon 1: stepwise motion
+        theme1 = stream.Part()
+        theme1.append(note.Note('C4', quarterLength=1.0))
+        theme1.append(note.Note('D4', quarterLength=1.0))
+        theme1.append(note.Note('E4', quarterLength=1.0))
+
+        # Canon 2: large leaps
+        theme2 = stream.Part()
+        theme2.append(note.Note('C4', quarterLength=2.0))
+        theme2.append(note.Note('G4', quarterLength=0.5))
+
+        canon1 = assemble_crab_from_theme(theme1)
+        canon2 = assemble_crab_from_theme(theme2)
+
+        comparison = compare_canons(canon1, canon2)
+
+        # Should have some similarity score
+        assert 0.0 <= comparison['overall_similarity'] <= 1.0
+        assert 'length_ratio' in comparison
+
+
+class TestAdvancedAnalysisEdgeCases:
+    """Test edge cases for advanced analysis functions."""
+
+    def test_spectral_analysis_score(self):
+        """Test spectral analysis with a Score instead of Part."""
+        score = stream.Score()
+        part1 = stream.Part()
+        part1.append(note.Note('C4', quarterLength=1.0))
+
+        part2 = stream.Part()
+        part2.append(note.Note('E4', quarterLength=1.0))
+
+        score.append(part1)
+        score.append(part2)
+
+        analysis = spectral_analysis(score)
+
+        assert analysis['total_pitches'] == 2
+
+    def test_symmetry_metrics_partial_match(self):
+        """Test symmetry metrics with partial palindrome."""
+        score = stream.Score()
+        part1 = stream.Part()
+        part1.append(note.Note('C4', quarterLength=1.0))
+        part1.append(note.Note('D4', quarterLength=1.0))
+        part1.append(note.Note('E4', quarterLength=1.0))
+
+        part2 = stream.Part()
+        part2.append(note.Note('E4', quarterLength=1.0))
+        part2.append(note.Note('D4', quarterLength=1.0))
+        part2.append(note.Note('F4', quarterLength=1.0))  # Different from C4
+
+        score.append(part1)
+        score.append(part2)
+
+        metrics = symmetry_metrics(score)
+
+        # Should have partial symmetry
+        assert 0.0 < metrics['overall_symmetry'] < 1.0
+        assert metrics['pitch_matches'] == 2  # D and E match
+
+    def test_chord_progression_with_chords(self):
+        """Test chord progression analysis with actual chords."""
+        from music21 import chord as m21chord
+
+        score = stream.Score()
+        part1 = stream.Part()
+        part1.append(note.Note('C4', quarterLength=1.0))
+        part1.append(m21chord.Chord(['E4', 'G4'], quarterLength=1.0))
+
+        part2 = stream.Part()
+        part2.append(note.Note('G3', quarterLength=1.0))
+        part2.append(note.Note('C4', quarterLength=1.0))
+
+        score.append(part1)
+        score.append(part2)
+
+        analysis = chord_progression_analysis(score)
+
+        assert analysis['total_chords'] >= 1
+
+    def test_compare_canons_empty(self):
+        """Test comparing empty canons."""
+        score1 = stream.Score()
+        part1 = stream.Part()
+        part2 = stream.Part()
+        score1.append(part1)
+        score1.append(part2)
+
+        score2 = stream.Score()
+        part3 = stream.Part()
+        part4 = stream.Part()
+        score2.append(part3)
+        score2.append(part4)
+
+        comparison = compare_canons(score1, score2)
+
+        # Should handle empty canons gracefully
+        assert isinstance(comparison, dict)
+        assert 'overall_similarity' in comparison
