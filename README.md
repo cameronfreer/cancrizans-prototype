@@ -135,14 +135,17 @@ The name comes from the sideways movement of crabs, referencing the backward mot
 git clone https://github.com/yourusername/cancrizans.git
 cd cancrizans
 
-# Install with pip (development mode)
-pip install -e .
+# Install with uv (recommended)
+uv sync
 
 # Install with optional audio support
-pip install -e ".[audio]"
+uv sync --extra audio
 
 # Install development dependencies
-pip install -e ".[dev]"
+uv sync --extra dev
+
+# Or install all optional dependencies
+uv sync --all-extras
 ```
 
 ### Web Interface
@@ -285,19 +288,19 @@ The project includes a comprehensive test suite with 285 tests (100% pass rate, 
 
 ```bash
 # Run all tests
-pytest
+uv run pytest
 
 # Run with coverage report
-pytest --cov=cancrizans --cov-report=html
+uv run pytest --cov=cancrizans --cov-report=html
 
 # Run specific test file
-pytest tests/test_generator.py
+uv run pytest tests/test_generator.py
 
 # Run CLI integration tests
-pytest tests/test_cli_integration.py
+uv run pytest tests/test_cli_integration.py
 
 # Run tests in verbose mode
-pytest -v
+uv run pytest -v
 ```
 
 **Test Coverage:**
@@ -521,16 +524,16 @@ Run the test suite:
 
 ```bash
 # Install test dependencies
-pip install -e ".[dev]"
+uv sync --extra dev
 
 # Run all tests
-pytest
+uv run pytest
 
 # Run with coverage
-pytest --cov=cancrizans --cov-report=html
+uv run pytest --cov=cancrizans --cov-report=html
 
 # Run specific test file
-pytest cancrizans/tests/test_palindrome.py -v
+uv run pytest cancrizans/tests/test_palindrome.py -v
 ```
 
 All tests run offline and require no external resources.
