@@ -382,3 +382,88 @@ class TestCacheUtilityEdgeCases:
         stats = get_cache_stats()
         # Should have entries for both functions
         assert len(stats) >= 0  # May have other caches from previous tests
+
+    def test_disk_cache_pickle_error_during_save(self):
+        """Test disk cache handles pickle errors gracefully during save (line 117-118)."""
+        from unittest.mock import patch, MagicMock
+        import pickle
+
+        @disk_cache(maxsize=10)
+        def func_with_unpicklable(x):
+            return x * 2
+
+        # First call should work
+        result = func_with_unpicklable(5)
+        assert result == 10
+
+        # Mock pickle.dump to raise PickleError
+        with patch('cancrizans.cache.pickle.dump') as mock_dump:
+            mock_dump.side_effect = pickle.PickleError("Cannot pickle")
+
+            # Should silently handle the error and still return correct result
+            result = func_with_unpicklable(7)
+            assert result == 14  # Function still works even if caching fails
+
+    def test_disk_cache_io_error_during_save(self):
+        """Test disk cache handles IO errors gracefully during save (line 117-118)."""
+        from unittest.mock import patch, mock_open
+        import builtins
+
+        @disk_cache(maxsize=10)
+        def func_with_io_issue(x):
+            return x * 3
+
+        # First call should work
+        result = func_with_io_issue(5)
+        assert result == 15
+
+        # Create a mock that allows reading but fails on writing
+        original_open = builtins.open
+        def selective_open(file, mode='r', *args, **kwargs):
+            if 'w' in mode:
+                raise IOError("Disk full")
+            return original_open(file, mode, *args, **kwargs)
+
+        with patch('builtins.open', side_effect=selective_open):
+            # Should silently handle the error during write
+            result = func_with_io_issue(7)
+            assert result == 21
+
+    def test_disk_cache_os_error_during_delete(self):
+        """Test disk cache handles OS errors during cache deletion (line 169-170)."""
+        from unittest.mock import patch, MagicMock
+
+        @disk_cache(maxsize=2)
+        def func_to_evict(x):
+            return x * 4
+
+        # Fill cache
+        func_to_evict(1)
+        func_to_evict(2)
+
+        # Mock unlink to raise OSError
+        with patch('pathlib.Path.unlink', side_effect=OSError("Permission denied")):
+            # Should silently handle the error when trying to evict old cache
+            result = func_to_evict(3)
+            assert result == 12  # Function still works
+
+    def test_clear_all_caches_with_os_error(self):
+        """Test clear_all_caches handles OSError gracefully (lines 169-170)."""
+        from unittest.mock import patch, MagicMock
+        from pathlib import Path
+
+        # Create a cache file first
+        @disk_cache(maxsize=10)
+        def cached_func(x):
+            return x * 5
+
+        cached_func(10)
+
+        # Mock glob to return a path, and unlink to raise OSError
+        mock_path = MagicMock(spec=Path)
+        mock_path.unlink.side_effect = OSError("Permission denied")
+
+        with patch.object(Path, 'glob', return_value=[mock_path]):
+            # Should handle OSError silently and not crash
+            clear_all_caches()
+            # If we get here without exception, the test passes

@@ -439,3 +439,24 @@ class TestResearchIntegration:
             # Verify
             assert len(analyses) == 2
             assert (output_dir / 'analyses.json').exists()
+
+    def test_contour_correlation_single_note(self):
+        """Test contour correlation returns 0.0 for voices with < 2 notes (line 112)."""
+        from music21 import stream, note
+
+        # Create voices with only 1 note each
+        voice1 = stream.Part()
+        voice1.append(note.Note('C4', quarterLength=1.0))
+
+        voice2 = stream.Part()
+        voice2.append(note.Note('G4', quarterLength=1.0))
+
+        score = stream.Score()
+        score.insert(0, voice1)
+        score.insert(0, voice2)
+
+        analyzer = CanonAnalyzer(score, name="Single Note Canon")
+        analysis = analyzer.analyze()
+
+        # Should return 0.0 when there are < 2 notes
+        assert analysis['structure']['contour_correlation'] == 0.0

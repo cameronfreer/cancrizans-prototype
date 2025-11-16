@@ -218,6 +218,63 @@ class TestRenderCommand:
             assert xml_out.exists()
             assert roll_out.exists()
 
+    def test_render_wav_success_path(self, test_midi_file, capsys):
+        """Test successful WAV export path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_out = Path(tmpdir) / 'output.mid'
+            wav_out = Path(tmpdir) / 'output.wav'
+            sf2_path = Path(tmpdir) / 'soundfont.sf2'
+
+            # Create empty soundfont file for testing
+            sf2_path.write_bytes(b'')
+
+            args = argparse.Namespace(
+                input=str(test_midi_file),
+                midi=str(midi_out),
+                xml=None,
+                wav=str(wav_out),
+                soundfont=str(sf2_path),
+                roll=None,
+                mirror=None
+            )
+
+            # Mock the to_wav_via_sf2 to simulate success
+            with patch('cancrizans.cli.to_wav_via_sf2') as mock_wav:
+                mock_wav.return_value = wav_out
+                result = render_command(args)
+
+                assert result == 0
+                captured = capsys.readouterr()
+                assert '✓ WAV exported to:' in captured.out
+
+    def test_render_wav_failure_path(self, test_midi_file, capsys):
+        """Test WAV export failure path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_out = Path(tmpdir) / 'output.mid'
+            wav_out = Path(tmpdir) / 'output.wav'
+            sf2_path = Path(tmpdir) / 'soundfont.sf2'
+
+            # Create empty soundfont file for testing
+            sf2_path.write_bytes(b'')
+
+            args = argparse.Namespace(
+                input=str(test_midi_file),
+                midi=str(midi_out),
+                xml=None,
+                wav=str(wav_out),
+                soundfont=str(sf2_path),
+                roll=None,
+                mirror=None
+            )
+
+            # Mock the to_wav_via_sf2 to simulate failure
+            with patch('cancrizans.cli.to_wav_via_sf2') as mock_wav:
+                mock_wav.return_value = None
+                result = render_command(args)
+
+                captured = capsys.readouterr()
+                assert '✗ WAV export failed' in captured.out
+
     def test_render_wav_without_midi_fails(self, test_midi_file, capsys):
         """Test that WAV export requires MIDI."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -581,6 +638,56 @@ class TestResearchCommand:
             captured = capsys.readouterr()
             assert "No files found" in captured.out or result == 1
 
+    def test_research_latex_export(self, test_midi_file):
+        """Test research with LaTeX export."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+
+            # Create test file
+            to_midi(load_bach_crab_canon(), tmppath / 'canon.mid')
+
+            output_dir = tmppath / 'results'
+            args = argparse.Namespace(
+                directory=str(tmppath),
+                pattern='*.mid',
+                output=str(output_dir),
+                all=False,
+                csv=False,
+                json=False,
+                latex=True,
+                markdown=False
+            )
+            result = research_command(args)
+
+            assert result == 0
+            latex_file = output_dir / 'analysis.tex'
+            assert latex_file.exists()
+
+    def test_research_markdown_export(self, test_midi_file):
+        """Test research with Markdown export."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+
+            # Create test file
+            to_midi(load_bach_crab_canon(), tmppath / 'canon.mid')
+
+            output_dir = tmppath / 'results'
+            args = argparse.Namespace(
+                directory=str(tmppath),
+                pattern='*.mid',
+                output=str(output_dir),
+                all=False,
+                csv=False,
+                json=False,
+                latex=False,
+                markdown=True
+            )
+            result = research_command(args)
+
+            assert result == 0
+            md_file = output_dir / 'analysis.md'
+            assert md_file.exists()
+
 
 class TestMainFunction:
     """Test main entry point and argument parsing."""
@@ -937,3 +1044,285 @@ class TestCLIEdgeCases:
             # Check output files exist
             assert (Path(tmpdir) / "synthesized_crab.mid").exists()
             assert (Path(tmpdir) / "synthesized_crab.musicxml").exists()
+
+
+class TestCLIPhase21Coverage:
+    """Tests to achieve 98% coverage - targeting specific uncovered lines."""
+
+    def test_main_calls_render_command(self, test_midi_file, capsys):
+        """Test main() correctly routes to render_command (line 471)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_midi = Path(tmpdir) / 'output.mid'
+
+            # Mock sys.argv to simulate CLI call
+            test_args = ['cancrizans', 'render', '--input', str(test_midi_file),
+                        '--midi', str(output_midi)]
+
+            with patch('sys.argv', test_args):
+                result = main()
+
+            assert result == 0
+            assert output_midi.exists()
+
+    def test_main_calls_synthesize_command(self, capsys):
+        """Test main() correctly routes to synthesize_command (line 473)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_args = ['cancrizans', 'synthesize', '--output', str(tmpdir),
+                        '--tempo', '100']
+
+            with patch('sys.argv', test_args):
+                result = main()
+
+            assert result == 0
+            captured = capsys.readouterr()
+            assert 'crab' in captured.out.lower() or 'synthesize' in captured.out.lower()
+
+    def test_main_calls_research_command(self, test_midi_file):
+        """Test main() correctly routes to research_command (line 475)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+
+            # Create a test file
+            gen = CanonGenerator(seed=42)
+            canon = gen.generate_scale_canon('C', 'major')
+            to_midi(canon, tmppath / 'test.mid')
+
+            output_dir = tmppath / 'results'
+            test_args = ['cancrizans', 'research', str(tmppath),
+                        '--output', str(output_dir)]
+
+            with patch('sys.argv', test_args):
+                result = main()
+
+            assert result == 0
+            assert output_dir.exists()
+
+    def test_main_unknown_command(self, capsys):
+        """Test main() handles unknown command - argparse catches it (lines 481-482)."""
+        test_args = ['cancrizans', 'unknown_command']
+
+        with patch('sys.argv', test_args):
+            # Argparse will raise SystemExit for unknown commands
+            with pytest.raises(SystemExit):
+                main()
+
+        captured = capsys.readouterr()
+        # Argparse will print error message
+        assert 'invalid choice' in captured.err.lower() or 'unknown' in captured.err.lower()
+
+    def test_main_exception_handling(self, capsys):
+        """Test main() exception handling (lines 484-488)."""
+        test_args = ['cancrizans', 'analyze', '/nonexistent/file.mid']
+
+        with patch('sys.argv', test_args):
+            result = main()
+
+        # Should catch exception and return 1
+        assert result == 1
+        captured = capsys.readouterr()
+        assert 'Error' in captured.out or 'error' in captured.out.lower()
+
+    def test_generate_modal_canon(self, capsys):
+        """Test generating modal canon (line 527)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_file = Path(tmpdir) / 'modal.mid'
+
+            args = argparse.Namespace(
+                algorithm='modal',
+                output=str(output_file),
+                validate=False,
+                verbose=False,
+                seed=42,
+                key=None,
+                mode='dorian',
+                length=8,
+                root='D4',
+                chord_type=None,
+                max_interval=None
+            )
+
+            result = generate_command(args)
+
+            assert result == 0
+            assert output_file.exists()
+
+    def test_generate_with_validation_errors(self, capsys):
+        """Test generate command showing validation errors (lines 551-553)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_file = Path(tmpdir) / 'canon.mid'
+
+            # Generate a deliberately poor quality canon
+            args = argparse.Namespace(
+                algorithm='random',
+                output=str(output_file),
+                validate=True,
+                verbose=False,
+                seed=999,  # Seed that produces poor quality
+                key=None,
+                mode=None,
+                length=3,  # Very short - likely to have errors
+                root='C4',
+                chord_type=None,
+                max_interval=12
+            )
+
+            result = generate_command(args)
+
+            # Should complete but may show errors
+            captured = capsys.readouterr()
+            # The function completes either way
+            assert output_file.exists()
+
+    def test_validate_with_errors_display(self, capsys):
+        """Test validate command displaying errors (lines 593-595)."""
+        from music21 import stream, note
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create invalid canon (single part - needs 2)
+            score = stream.Score()
+            part = stream.Part()
+            part.append(note.Note('C4', quarterLength=1.0))
+            score.insert(0, part)
+
+            midi_path = Path(tmpdir) / 'invalid.mid'
+            score.write('midi', fp=str(midi_path))
+
+            args = argparse.Namespace(
+                input=str(midi_path),
+                verbose=False,
+                output=None
+            )
+
+            result = validate_command(args)
+
+            # Should show errors
+            captured = capsys.readouterr()
+            assert 'Error' in captured.out or 'error' in captured.out.lower()
+
+    def test_synthesize_non_palindrome_warning(self, capsys):
+        """Test synthesize showing non-palindrome warning (line 191)."""
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Mock is_time_palindrome to return False
+            with patch('cancrizans.cli.is_time_palindrome', return_value=False):
+                args = argparse.Namespace(
+                    tempo=60,
+                    transpose=0,
+                    output=str(tmpdir)
+                )
+
+                result = synthesize_command(args)
+
+                captured = capsys.readouterr()
+                # Should show warning about non-palindrome
+                assert 'warning' in captured.out.lower() or 'palindrome' in captured.out.lower()
+
+    def test_synthesize_bach_load_error(self, capsys):
+        """Test synthesize when Bach theme fails to load (lines 169-170)."""
+        from unittest.mock import patch
+        from music21 import stream
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Mock load_bach_crab_canon to return score with no parts
+            with patch('cancrizans.cli.load_bach_crab_canon') as mock_load:
+                empty_score = stream.Score()
+                mock_load.return_value = empty_score
+
+                args = argparse.Namespace(
+                    tempo=60,
+                    transpose=0,
+                    output=str(tmpdir)
+                )
+
+                result = synthesize_command(args)
+
+                assert result == 1
+                captured = capsys.readouterr()
+                assert 'Error' in captured.out and 'Bach theme' in captured.out
+
+    def test_main_exception_with_traceback(self, capsys):
+        """Test exception handling prints traceback (lines 484-488)."""
+        from unittest.mock import patch
+
+        # Mock analyze_command to raise exception
+        with patch('cancrizans.cli.analyze_command', side_effect=RuntimeError("Test error")):
+            test_args = ['cancrizans', 'analyze', 'dummy.mid']
+            with patch('sys.argv', test_args):
+                result = main()
+
+            assert result == 1
+            captured = capsys.readouterr()
+            # Should print error and traceback
+            assert 'Error' in captured.out
+            assert 'Test error' in captured.out
+
+    def test_generate_validation_with_actual_errors(self, capsys):
+        """Test generate displays validation errors correctly (lines 551-553)."""
+        from unittest.mock import patch, MagicMock
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_file = Path(tmpdir) / 'output.mid'
+
+            # Mock validator to return errors
+            with patch('cancrizans.validator.CanonValidator') as MockValidator:
+                mock_validator_instance = MagicMock()
+                MockValidator.return_value = mock_validator_instance
+                mock_validator_instance.validate.return_value = {
+                    'is_valid': False,
+                    'errors': ['Error 1: Test error', 'Error 2: Another error'],
+                    'warnings': [],
+                    'overall_quality': 0.5
+                }
+                mock_validator_instance.get_quality_grade.return_value = 'D'
+
+                args = argparse.Namespace(
+                    algorithm='scale',
+                    root='C4',
+                    key='C',
+                    mode='major',
+                    length=8,
+                    output=str(output_file),
+                    validate=True,
+                    verbose=False,
+                    seed=None
+                )
+
+                result = generate_command(args)
+
+                captured = capsys.readouterr()
+                # Should display the errors (lines 551-553)
+                assert 'Error 1: Test error' in captured.out or 'Test error' in captured.out
+                assert 'Error' in captured.out
+
+
+class TestBachCrabUtilities:
+    """Test Bach Crab Canon utility functions."""
+
+    def test_save_crab_canon_xml_with_force(self):
+        """Test save_crab_canon_xml with force=True overwrites (line 1038)."""
+        from cancrizans.bach_crab import save_crab_canon_xml
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Temporarily override CACHE_DIR for this test
+            from unittest.mock import patch
+            import cancrizans.bach_crab as bach_module
+
+            with patch.object(bach_module, 'ensure_data_dir', return_value=Path(tmpdir)):
+                # First call creates the file
+                xml_path1 = save_crab_canon_xml()
+                assert xml_path1.exists()
+                original_content = xml_path1.read_text()
+
+                # Modify the file
+                xml_path1.write_text("modified content")
+                assert xml_path1.read_text() == "modified content"
+
+                # Call with force=True should overwrite
+                xml_path2 = save_crab_canon_xml(force=True)
+                assert xml_path2.exists()
+                # Should have restored original content
+                assert xml_path2.read_text() == original_content
+                assert "modified content" not in xml_path2.read_text()

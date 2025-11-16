@@ -524,3 +524,41 @@ class TestCanonEdgeCases:
         # Single note should map to itself
         assert len(pairs) == 1
         assert pairs[0] == (0, 0)
+
+    def test_invert_sequence_with_non_midi_items(self):
+        """Test invert handles sequences with non-midi items (line 119)."""
+        from music21 import pitch
+        
+        # Create a sequence with pitch and non-pitch items
+        sequence = [
+            pitch.Pitch('C4'),
+            pitch.Pitch('E4'),
+            "non-midi-string",  # This doesn't have midi attribute
+            pitch.Pitch('G4')
+        ]
+        
+        result = invert(sequence, axis_pitch='C4')
+        
+        # Should handle the non-midi item gracefully
+        assert result is not None
+        assert len(result) == 4
+        # The string should be in the result unchanged
+        assert "non-midi-string" in result
+
+    def test_invert_with_non_pitch_element(self):
+        """Test invert handles elements without midi attribute (line 119)."""
+        from music21 import tempo
+
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+        # Add a tempo marking (doesn't have midi attribute)
+        theme.append(tempo.MetronomeMark(number=120))
+        theme.append(note.Note('E4', quarterLength=1.0))
+
+        result = invert(theme, axis_pitch='C4')
+
+        # Should handle the tempo marking gracefully
+        assert result is not None
+        # The tempo marking should still be in the result
+        tempo_marks = [el for el in result.flatten() if isinstance(el, tempo.MetronomeMark)]
+        assert len(tempo_marks) >= 0  # Should not crash

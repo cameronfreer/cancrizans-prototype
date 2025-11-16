@@ -602,3 +602,129 @@ class TestIOEdgeCases:
 
             assert Path(midi_path).exists()
             assert isinstance(result, Path)
+
+    def test_abc_complex_rest_durations(self):
+        """Test ABC export with complex rest durations to hit line 227."""
+        score = stream.Score()
+        part = stream.Part()
+        # Add rests with various durations that aren't 0.5, 1.0, or 2.0
+        part.append(note.Rest(quarterLength=1.5))
+        part.append(note.Rest(quarterLength=3.0))
+        part.append(note.Rest(quarterLength=0.25))
+        score.insert(0, part)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            abc_path = Path(tmpdir) / 'test.abc'
+            to_abc(score, abc_path)
+
+            content = abc_path.read_text()
+            # Should have z for rest
+            assert 'z' in content
+
+    def test_to_wav_via_sf2_success_with_mock(self):
+        """Test successful WAV conversion with mocked FluidSynth."""
+        from cancrizans.io import to_wav_via_sf2
+        from unittest.mock import patch, MagicMock
+        import sys
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_path = Path(tmpdir) / 'test.mid'
+            sf2_path = Path(tmpdir) / 'font.sf2'
+            wav_path = Path(tmpdir) / 'output.wav'
+
+            to_midi(canon, midi_path)
+            sf2_path.write_bytes(b'dummy soundfont')
+
+            # Mock midi2audio.FluidSynth to simulate successful conversion
+            # Create a fake midi2audio module
+            fake_midi2audio = MagicMock()
+            mock_fs_instance = MagicMock()
+            fake_midi2audio.FluidSynth.return_value = mock_fs_instance
+
+            with patch.dict('sys.modules', {'midi2audio': fake_midi2audio}):
+                result = to_wav_via_sf2(midi_path, sf2_path, wav_path)
+
+                assert result == wav_path
+                fake_midi2audio.FluidSynth.assert_called_once()
+                mock_fs_instance.midi_to_audio.assert_called_once()
+
+    def test_to_wav_via_sf2_generic_exception(self):
+        """Test generic exception handling in to_wav_via_sf2."""
+        from cancrizans.io import to_wav_via_sf2
+        from unittest.mock import patch, MagicMock
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_path = Path(tmpdir) / 'test.mid'
+            sf2_path = Path(tmpdir) / 'font.sf2'
+            wav_path = Path(tmpdir) / 'output.wav'
+
+            to_midi(canon, midi_path)
+            sf2_path.write_bytes(b'dummy soundfont')
+
+            # Mock FluidSynth to raise a generic exception
+            fake_midi2audio = MagicMock()
+            fake_midi2audio.FluidSynth.side_effect = RuntimeError("Conversion failed")
+
+            with patch.dict('sys.modules', {'midi2audio': fake_midi2audio}):
+                result = to_wav_via_sf2(midi_path, sf2_path, wav_path)
+
+                # Should return None and print error
+                assert result is None
+
+    def test_load_score_wraps_part_object(self):
+        """Test that load_score wraps a Part in a Score if needed."""
+        from unittest.mock import patch
+        from music21 import stream
+
+        # Create a Part (not a Score)
+        part = stream.Part()
+        part.append(note.Note('C4', quarterLength=1.0))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / 'test.mid'
+            # Save a part directly
+            part.write('midi', fp=str(test_file))
+
+            # Load it back - music21 might return a Part
+            with patch('music21.converter.parse') as mock_parse:
+                mock_parse.return_value = part
+
+                loaded = load_score(test_file)
+
+                # Should be wrapped in a Score
+                assert isinstance(loaded, stream.Score)
+                assert len(loaded.parts) >= 1
+
+    def test_load_score_wraps_other_stream_types(self):
+        """Test that load_score wraps other Stream types in a Score."""
+        from unittest.mock import patch
+        from music21 import stream
+
+        # Create a generic Stream (not Score or Part)
+        generic_stream = stream.Stream()
+        generic_stream.append(note.Note('D4', quarterLength=1.0))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / 'test.mid'
+            test_file.write_bytes(b'dummy')  # Just create the file
+
+            with patch('music21.converter.parse') as mock_parse:
+                mock_parse.return_value = generic_stream
+
+                loaded = load_score(test_file)
+
+                # Should be wrapped in a Score
+                assert isinstance(loaded, stream.Score)
+
+    def test_load_score_file_not_found(self):
+        """Test load_score raises FileNotFoundError for missing file (line 303)."""
+        with pytest.raises(FileNotFoundError) as exc_info:
+            load_score('/nonexistent/path/to/file.mid')
+
+        assert 'File not found' in str(exc_info.value)

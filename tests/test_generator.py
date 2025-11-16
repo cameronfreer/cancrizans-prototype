@@ -193,10 +193,78 @@ class TestGeneratorEdgeCases:
     def test_golden_ratio_octave_adjustment(self):
         """Test golden ratio canon with octave adjustments."""
         gen = CanonGenerator(seed=42)
-        # Use low root to trigger upward octave adjustment  
+        # Use low root to trigger upward octave adjustment
         canon = gen.generate_golden_ratio_canon('C2', length=25)
-        
+
         notes = list(canon.parts[0].flatten().notes)
         # Verify all notes are in valid range
         for n in notes:
             assert 36 <= n.pitch.midi <= 84
+
+    def test_random_walk_extreme_high_pitch_clamping(self):
+        """Test random walk with extreme high pitches triggers clamping (line 137)."""
+        gen = CanonGenerator(seed=123)  # Seed that produces upward movement
+        # Start very high and with large max_interval to force clamping
+        canon = gen.generate_random_walk('C6', length=50, max_interval=12)
+
+        notes = list(canon.parts[0].flatten().notes)
+        # Should clamp at MIDI 84 (C6)
+        assert all(n.pitch.midi <= 84 for n in notes)
+        # With 50 notes and large intervals, should hit the upper limit
+        assert any(n.pitch.midi == 84 for n in notes)
+
+    def test_fibonacci_extreme_high_pitch_clamping(self):
+        """Test Fibonacci canon extreme high pitch clamping (line 177)."""
+        gen = CanonGenerator(seed=999)
+        # Generate with very high root
+        canon = gen.generate_fibonacci_canon('C6', length=30)
+
+        notes = list(canon.parts[0].flatten().notes)
+        # All notes should be clamped at or below MIDI 84
+        assert all(n.pitch.midi <= 84 for n in notes)
+
+    def test_fractal_extreme_low_pitch_octave_up(self):
+        """Test fractal canon extreme low pitch triggers octave up (line 251)."""
+        gen = CanonGenerator(seed=100)
+        # Start at very low pitch with descending pattern to trigger upward octave adjustment
+        canon = gen.generate_fractal_canon(seed_pattern=[-2, -3, -1], iterations=4, root='C2')
+
+        notes = list(canon.parts[0].flatten().notes)
+        # All notes should be brought up to at least MIDI 36
+        assert all(n.pitch.midi >= 36 for n in notes)
+
+    def test_random_walk_exact_high_clamping(self):
+        """Test random walk exact high pitch clamping assignment (line 137)."""
+        gen = CanonGenerator(seed=42)
+        # Start very high with large upward intervals to trigger clamping
+        canon = gen.generate_random_walk('C6', length=100, max_interval=12)
+
+        notes = list(canon.parts[0].flatten().notes)
+        # Should clamp to exactly 84 when going above
+        assert all(n.pitch.midi <= 84 for n in notes)
+        # Verify we actually hit the upper bound
+        assert any(n.pitch.midi == 84 for n in notes)
+
+    def test_fibonacci_exact_low_octave_adjustment(self):
+        """Test fibonacci canon exact low pitch octave adjustment (line 177)."""
+        gen = CanonGenerator(seed=555)
+        # Start low and use many iterations to potentially go below 36
+        canon = gen.generate_fibonacci_canon('C2', length=50)
+
+        notes = list(canon.parts[0].flatten().notes)
+        # All notes should be at least MIDI 36 after octave adjustment
+        assert all(n.pitch.midi >= 36 for n in notes)
+
+    def test_fibonacci_multiple_octave_adjustments(self):
+        """Test fibonacci canon with multiple octave adjustments (line 177)."""
+        gen = CanonGenerator(seed=777)
+        # Start very low to trigger octave adjustments in the loop
+        canon = gen.generate_fibonacci_canon('C1', length=60)
+
+        notes = list(canon.parts[0].flatten().notes)
+        # Most notes (except possibly the first) should be adjusted to >= 36
+        # The first note uses the root directly without adjustment
+        notes_after_first = notes[1:]  # Skip first note
+        assert all(n.pitch.midi >= 36 for n in notes_after_first)
+        # Verify we generated notes
+        assert len(notes) > 0
