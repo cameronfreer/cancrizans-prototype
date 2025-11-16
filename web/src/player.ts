@@ -40,8 +40,9 @@ export class Player {
     ];
 
     // Pan voices left and right
-    this.synths[0].set({ volume: -6 });
-    this.synths[1].set({ volume: -6 });
+    // Volume set to ~20% (-14 dB)
+    this.synths[0].set({ volume: -14 });
+    this.synths[1].set({ volume: -14 });
 
     // Create parts for each voice
     this.parts = [];
@@ -182,9 +183,9 @@ export class Player {
       createInstrument(instrumentType),
     ];
 
-    // Reapply volume settings
-    this.synths[0].set({ volume: -6 });
-    this.synths[1].set({ volume: -6 });
+    // Reapply volume settings (~20% volume = -14 dB)
+    this.synths[0].set({ volume: -14 });
+    this.synths[1].set({ volume: -14 });
 
     // Recreate parts with new synths
     this.parts.forEach(part => part.dispose());
