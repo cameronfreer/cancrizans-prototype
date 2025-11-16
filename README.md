@@ -153,9 +153,16 @@ uv sync --all-extras
 
 ```bash
 cd web
+
+# Using pnpm (recommended)
+pnpm install
+pnpm dev  # Development server at http://localhost:3000
+pnpm build  # Build for production
+
+# Or using npm
 npm install
-npm run dev  # Development server at http://localhost:3000
-npm run build  # Build for production
+npm run dev
+npm run build
 ```
 
 ## Quick Start
