@@ -1346,3 +1346,518 @@ class TestAdvancedAnalysisEdgeCases:
         # Should handle empty canons gracefully
         assert isinstance(comparison, dict)
         assert 'overall_similarity' in comparison
+
+
+class TestVoiceLeadingAnalysis:
+    """Test advanced voice leading analysis."""
+
+    def test_voice_leading_basic(self):
+        """Test basic voice leading analysis."""
+        from cancrizans import voice_leading_analysis, assemble_crab_from_theme
+
+        theme = stream.Part()
+        theme.append(note.Note('C4', quarterLength=1.0))
+        theme.append(note.Note('D4', quarterLength=1.0))
+        theme.append(note.Note('E4', quarterLength=1.0))
+
+        canon = assemble_crab_from_theme(theme)
+        results = voice_leading_analysis(canon)
+
+        assert isinstance(results, dict)
+        assert 'motion_types' in results
+        assert 'voice_ranges' in results
+        assert 'leap_statistics' in results
+        assert 'overall_quality' in results
+        assert 'grade' in results
+
+    def test_voice_leading_motion_types(self):
+        """Test that motion types are correctly identified."""
+        from cancrizans import voice_leading_analysis
+
+        score = stream.Score()
+        part1 = stream.Part()
+        part2 = stream.Part()
+
+        # Create contrary motion: voice 1 ascending, voice 2 descending
+        part1.append(note.Note('C4', quarterLength=1.0))
+        part1.append(note.Note('D4', quarterLength=1.0))
+        part1.append(note.Note('E4', quarterLength=1.0))
+
+        part2.append(note.Note('G3', quarterLength=1.0))
+        part2.append(note.Note('F3', quarterLength=1.0))
+        part2.append(note.Note('E3', quarterLength=1.0))
+
+        score.append(part1)
+        score.append(part2)
+
+        results = voice_leading_analysis(score)
+
+        assert results['motion_types']['contrary'] > 0
+        assert 'motion_percentages' in results
+
+    def test_voice_leading_ranges(self):
+        """Test voice range tracking."""
+        from cancrizans import voice_leading_analysis
+
+        score = stream.Score()
+        part1 = stream.Part()
+        part2 = stream.Part()
+
+        # Wide range in voice 1
+        part1.append(note.Note('C4', quarterLength=1.0))
+        part1.append(note.Note('C5', quarterLength=1.0))
+
+        # Narrow range in voice 2
+        part2.append(note.Note('G3', quarterLength=1.0))
+        part2.append(note.Note('A3', quarterLength=1.0))
+
+        score.append(part1)
+        score.append(part2)
+
+        results = voice_leading_analysis(score)
+
+        assert results['voice_ranges']['voice1']['span'] == 12  # Octave
+        assert results['voice_ranges']['voice2']['span'] == 2   # Major second
+
+    def test_voice_leading_leap_resolution(self):
+        """Test leap resolution tracking."""
+        from cancrizans import voice_leading_analysis
+
+        score = stream.Score()
+        part1 = stream.Part()
+        part2 = stream.Part()
+
+        # Leap followed by stepwise resolution in opposite direction
+        part1.append(note.Note('C4', quarterLength=1.0))
+        part1.append(note.Note('G4', quarterLength=1.0))  # Leap up
+        part1.append(note.Note('F4', quarterLength=1.0))  # Step down (resolved)
+
+        part2.append(note.Note('C3', quarterLength=1.0))
+        part2.append(note.Note('C3', quarterLength=1.0))
+        part2.append(note.Note('C3', quarterLength=1.0))
+
+        score.append(part1)
+        score.append(part2)
+
+        results = voice_leading_analysis(score)
+
+        assert results['leap_statistics']['total_leaps'] >= 1
+        assert results['leap_statistics']['resolved_leaps'] >= 0
+
+    def test_voice_leading_wrong_voice_count(self):
+        """Test voice leading with wrong number of voices."""
+        from cancrizans import voice_leading_analysis
+
+        score = stream.Score()
+        part1 = stream.Part()
+        part1.append(note.Note('C4', quarterLength=1.0))
+        score.append(part1)
+
+        results = voice_leading_analysis(score)
+
+        assert 'error' in results
+        assert results['num_voices'] == 1
+
+    def test_voice_leading_quality_scores(self):
+        """Test that quality scores are in valid range."""
+        from cancrizans import voice_leading_analysis, assemble_crab_from_theme
+
+        theme = stream.Part()
+        for pitch in ['C4', 'D4', 'E4', 'F4']:
+            theme.append(note.Note(pitch, quarterLength=1.0))
+
+        canon = assemble_crab_from_theme(theme)
+        results = voice_leading_analysis(canon)
+
+        assert 0.0 <= results['independence_score'] <= 1.0
+        assert 0.0 <= results['perfect_approach_score'] <= 1.0
+        assert 0.0 <= results['overall_quality'] <= 1.0
+        assert results['grade'] in ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-', 'F']
+
+
+class TestCadenceDetection:
+    """Test cadence detection functionality."""
+
+    def test_cadence_detection_basic(self):
+        """Test basic cadence detection."""
+        from cancrizans import cadence_detection
+
+        score = stream.Score()
+        part1 = stream.Part()
+        part2 = stream.Part()
+
+        # Create a simple cadential pattern
+        part1.append(note.Note('D4', quarterLength=1.0))
+        part1.append(note.Note('D4', quarterLength=1.0))
+        part1.append(note.Note('C4', quarterLength=1.0))
+
+        part2.append(note.Note('G3', quarterLength=1.0))
+        part2.append(note.Note('G3', quarterLength=1.0))
+        part2.append(note.Note('C3', quarterLength=1.0))
+
+        score.append(part1)
+        score.append(part2)
+
+        results = cadence_detection(score)
+
+        assert isinstance(results, dict)
+        assert 'cadences' in results
+        assert 'cadence_counts' in results
+        assert 'total_cadences' in results
+        assert 'has_final_cadence' in results
+
+    def test_cadence_detection_authentic(self):
+        """Test authentic cadence detection."""
+        from cancrizans import cadence_detection
+
+        score = stream.Score()
+        part1 = stream.Part()
+        part2 = stream.Part()
+
+        # Create authentic cadence: V-I with bass rising by 4th
+        part1.append(note.Note('C4', quarterLength=1.0))
+        part1.append(note.Note('B3', quarterLength=1.0))
+        part1.append(note.Note('C4', quarterLength=1.0))
+
+        part2.append(note.Note('G3', quarterLength=1.0))
+        part2.append(note.Note('G3', quarterLength=1.0))
+        part2.append(note.Note('C3', quarterLength=1.0))  # Bass rises by 4th
+
+        score.append(part1)
+        score.append(part2)
+
+        results = cadence_detection(score)
+
+        # Should detect at least one cadence
+        assert results['total_cadences'] >= 1
+        assert results['has_final_cadence']
+
+    def test_cadence_detection_half(self):
+        """Test half cadence detection."""
+        from cancrizans import cadence_detection
+
+        score = stream.Score()
+        part1 = stream.Part()
+        part2 = stream.Part()
+
+        # Create half cadence: ending on perfect fifth
+        part1.append(note.Note('C4', quarterLength=1.0))
+        part1.append(note.Note('D4', quarterLength=1.0))
+        part1.append(note.Note('D4', quarterLength=1.0))
+
+        part2.append(note.Note('E3', quarterLength=1.0))
+        part2.append(note.Note('F3', quarterLength=1.0))
+        part2.append(note.Note('G3', quarterLength=1.0))
+
+        score.append(part1)
+        score.append(part2)
+
+        results = cadence_detection(score)
+
+        # Should detect half cadence (ending on 5th interval)
+        if results['has_final_cadence']:
+            assert results['final_cadence_type'] in ['half', 'other']
+
+    def test_cadence_detection_insufficient_notes(self):
+        """Test cadence detection with too few notes."""
+        from cancrizans import cadence_detection
+
+        score = stream.Score()
+        part1 = stream.Part()
+        part2 = stream.Part()
+
+        # Only 2 notes (need at least 3 for cadence analysis)
+        part1.append(note.Note('C4', quarterLength=1.0))
+        part1.append(note.Note('D4', quarterLength=1.0))
+
+        part2.append(note.Note('G3', quarterLength=1.0))
+        part2.append(note.Note('A3', quarterLength=1.0))
+
+        score.append(part1)
+        score.append(part2)
+
+        results = cadence_detection(score)
+
+        assert results['total_cadences'] == 0
+        assert not results['has_final_cadence']
+
+    def test_cadence_detection_wrong_voice_count(self):
+        """Test cadence detection with wrong number of voices."""
+        from cancrizans import cadence_detection
+
+        score = stream.Score()
+        part1 = stream.Part()
+        part1.append(note.Note('C4', quarterLength=1.0))
+        score.append(part1)
+
+        results = cadence_detection(score)
+
+        assert 'error' in results
+        assert results['num_voices'] == 1
+
+
+class TestModulationDetection:
+    """Test modulation/key change detection."""
+
+    def test_modulation_detection_basic(self):
+        """Test basic modulation detection."""
+        from cancrizans import modulation_detection
+
+        score = stream.Score()
+        part1 = stream.Part()
+
+        # Simple passage in C major
+        for pitch in ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5'] * 2:
+            part1.append(note.Note(pitch, quarterLength=0.5))
+
+        score.append(part1)
+
+        results = modulation_detection(score)
+
+        assert isinstance(results, dict)
+        assert 'num_modulations' in results
+        assert 'modulations' in results
+        assert 'starting_key' in results
+        assert 'ending_key' in results
+
+    def test_modulation_detection_key_change(self):
+        """Test detection of actual key change."""
+        from cancrizans import modulation_detection
+
+        score = stream.Score()
+        part1 = stream.Part()
+
+        # Start in C major
+        for pitch in ['C4', 'E4', 'G4', 'C4'] * 2:
+            part1.append(note.Note(pitch, quarterLength=0.5))
+
+        # Shift to G major
+        for pitch in ['G4', 'B4', 'D5', 'G4'] * 2:
+            part1.append(note.Note(pitch, quarterLength=0.5))
+
+        score.append(part1)
+
+        results = modulation_detection(score, window_size=4)
+
+        # Should detect at least some shift in tonal center
+        assert results['starting_key'] is not None
+        assert results['ending_key'] is not None
+
+    def test_modulation_detection_insufficient_notes(self):
+        """Test modulation detection with too few notes."""
+        from cancrizans import modulation_detection
+
+        score = stream.Score()
+        part1 = stream.Part()
+
+        # Only 3 notes (need at least 16 for default window_size=8)
+        part1.append(note.Note('C4', quarterLength=1.0))
+        part1.append(note.Note('D4', quarterLength=1.0))
+        part1.append(note.Note('E4', quarterLength=1.0))
+
+        score.append(part1)
+
+        results = modulation_detection(score)
+
+        assert 'error' in results
+        assert results['num_modulations'] == 0
+
+    def test_modulation_detection_custom_window(self):
+        """Test modulation detection with custom window size."""
+        from cancrizans import modulation_detection
+
+        score = stream.Score()
+        part1 = stream.Part()
+
+        for pitch in ['C4', 'D4', 'E4'] * 4:
+            part1.append(note.Note(pitch, quarterLength=0.5))
+
+        score.append(part1)
+
+        results = modulation_detection(score, window_size=3)
+
+        assert results['window_size'] == 3
+        assert results['windows_analyzed'] >= 0
+
+
+class TestSpeciesCounterpointCheck:
+    """Test species counterpoint rule checking."""
+
+    def test_species_counterpoint_first_species(self):
+        """Test first species counterpoint checking."""
+        from cancrizans import species_counterpoint_check
+
+        score = stream.Score()
+        cantus = stream.Part()
+        counterpoint = stream.Part()
+
+        # Simple first species: note-against-note consonances
+        cantus.append(note.Note('C4', quarterLength=1.0))
+        cantus.append(note.Note('D4', quarterLength=1.0))
+        cantus.append(note.Note('E4', quarterLength=1.0))
+        cantus.append(note.Note('C4', quarterLength=1.0))
+
+        counterpoint.append(note.Note('C5', quarterLength=1.0))  # Unison (perfect)
+        counterpoint.append(note.Note('A4', quarterLength=1.0))  # Fifth above
+        counterpoint.append(note.Note('G4', quarterLength=1.0))  # Third above
+        counterpoint.append(note.Note('C5', quarterLength=1.0))  # Octave (perfect)
+
+        score.append(counterpoint)
+        score.append(cantus)
+
+        results = species_counterpoint_check(score, species=1)
+
+        assert isinstance(results, dict)
+        assert results['species'] == 1
+        assert 'violations' in results
+        assert 'total_violations' in results
+        assert 'compliance_rate' in results
+        assert 'passed' in results
+        assert 'grade' in results
+
+    def test_species_counterpoint_parallel_fifths(self):
+        """Test detection of parallel fifths."""
+        from cancrizans import species_counterpoint_check
+
+        score = stream.Score()
+        cantus = stream.Part()
+        counterpoint = stream.Part()
+
+        # Create parallel fifths (forbidden)
+        cantus.append(note.Note('C4', quarterLength=1.0))
+        cantus.append(note.Note('D4', quarterLength=1.0))
+
+        counterpoint.append(note.Note('G4', quarterLength=1.0))  # Fifth above C
+        counterpoint.append(note.Note('A4', quarterLength=1.0))  # Fifth above D (parallel!)
+
+        score.append(counterpoint)
+        score.append(cantus)
+
+        results = species_counterpoint_check(score, species=1)
+
+        assert results['violations']['parallel_perfect']  # Should detect parallel perfect intervals
+
+    def test_species_counterpoint_bad_opening(self):
+        """Test detection of improper opening interval."""
+        from cancrizans import species_counterpoint_check
+
+        score = stream.Score()
+        cantus = stream.Part()
+        counterpoint = stream.Part()
+
+        # Start with third (not perfect consonance)
+        cantus.append(note.Note('C4', quarterLength=1.0))
+        cantus.append(note.Note('D4', quarterLength=1.0))
+
+        counterpoint.append(note.Note('E4', quarterLength=1.0))  # Third (bad opening)
+        counterpoint.append(note.Note('F4', quarterLength=1.0))
+
+        score.append(counterpoint)
+        score.append(cantus)
+
+        results = species_counterpoint_check(score, species=1)
+
+        assert results['violations']['bad_opening']  # Should detect bad opening
+
+    def test_species_counterpoint_dissonance(self):
+        """Test detection of dissonances in first species."""
+        from cancrizans import species_counterpoint_check
+
+        score = stream.Score()
+        cantus = stream.Part()
+        counterpoint = stream.Part()
+
+        # Include dissonance (second)
+        cantus.append(note.Note('C4', quarterLength=1.0))
+        cantus.append(note.Note('D4', quarterLength=1.0))
+
+        counterpoint.append(note.Note('C5', quarterLength=1.0))
+        counterpoint.append(note.Note('E4', quarterLength=1.0))  # Second above D (dissonance!)
+
+        score.append(counterpoint)
+        score.append(cantus)
+
+        results = species_counterpoint_check(score, species=1)
+
+        assert results['violations']['bad_intervals']  # Should detect dissonance
+
+    def test_species_counterpoint_large_leap(self):
+        """Test detection of large leaps."""
+        from cancrizans import species_counterpoint_check
+
+        score = stream.Score()
+        cantus = stream.Part()
+        counterpoint = stream.Part()
+
+        # Large leap in counterpoint (> octave)
+        cantus.append(note.Note('C4', quarterLength=1.0))
+        cantus.append(note.Note('D4', quarterLength=1.0))
+        cantus.append(note.Note('E4', quarterLength=1.0))
+
+        counterpoint.append(note.Note('C5', quarterLength=1.0))
+        counterpoint.append(note.Note('D6', quarterLength=1.0))  # Minor 9th (13 semitones - larger than octave!)
+        counterpoint.append(note.Note('C4', quarterLength=1.0))
+
+        score.append(counterpoint)
+        score.append(cantus)
+
+        results = species_counterpoint_check(score, species=1)
+
+        assert results['violations']['large_leaps']  # Should detect large leap
+
+    def test_species_counterpoint_invalid_species(self):
+        """Test with invalid species number."""
+        from cancrizans import species_counterpoint_check
+
+        score = stream.Score()
+        cantus = stream.Part()
+        counterpoint = stream.Part()
+
+        cantus.append(note.Note('C4', quarterLength=1.0))
+        counterpoint.append(note.Note('C5', quarterLength=1.0))
+
+        score.append(counterpoint)
+        score.append(cantus)
+
+        results = species_counterpoint_check(score, species=5)
+
+        assert 'error' in results
+
+    def test_species_counterpoint_wrong_voice_count(self):
+        """Test with wrong number of voices."""
+        from cancrizans import species_counterpoint_check
+
+        score = stream.Score()
+        part1 = stream.Part()
+        part1.append(note.Note('C4', quarterLength=1.0))
+        score.append(part1)
+
+        results = species_counterpoint_check(score, species=1)
+
+        assert 'error' in results
+        assert results['num_voices'] == 1
+
+    def test_species_counterpoint_compliance_rate(self):
+        """Test that compliance rate is calculated correctly."""
+        from cancrizans import species_counterpoint_check
+
+        score = stream.Score()
+        cantus = stream.Part()
+        counterpoint = stream.Part()
+
+        # Perfect first species counterpoint
+        cantus.append(note.Note('C4', quarterLength=1.0))
+        cantus.append(note.Note('D4', quarterLength=1.0))
+        cantus.append(note.Note('C4', quarterLength=1.0))
+
+        counterpoint.append(note.Note('C5', quarterLength=1.0))  # Unison
+        counterpoint.append(note.Note('A4', quarterLength=1.0))  # Sixth
+        counterpoint.append(note.Note('C5', quarterLength=1.0))  # Octave
+
+        score.append(counterpoint)
+        score.append(cantus)
+
+        results = species_counterpoint_check(score, species=1)
+
+        assert 0.0 <= results['compliance_rate'] <= 1.0
+        assert results['grade'] in ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-', 'F']

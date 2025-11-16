@@ -1282,3 +1282,561 @@ def counterpoint_check(score: stream.Score) -> Dict[str, any]:
         'passed': quality_score > 0.7,
         'total_simultaneities': min(len(voice1_notes), len(voice2_notes))
     }
+
+
+def voice_leading_analysis(score: stream.Score) -> Dict[str, any]:
+    """
+    Comprehensive voice leading analysis for two-voice counterpoint.
+
+    Analyzes motion types, leap resolutions, approach to perfect intervals,
+    and overall voice independence.
+
+    Args:
+        score: A Score with two voices to analyze
+
+    Returns:
+        Dictionary with detailed voice leading metrics
+
+    Examples:
+        >>> results = voice_leading_analysis(two_voice_score)
+        >>> print(f"Contrary motion: {results['motion_types']['contrary']}")
+        >>> print(f"Leap resolutions: {results['leap_resolution_rate']}")
+    """
+    parts = list(score.parts)
+
+    if len(parts) != 2:
+        return {
+            'error': 'Voice leading analysis requires exactly 2 voices',
+            'num_voices': len(parts)
+        }
+
+    # Extract notes with offsets
+    voice1_notes = [(float(n.offset), n) for n in parts[0].flatten().notes]
+    voice2_notes = [(float(n.offset), n) for n in parts[1].flatten().notes]
+
+    voice1_notes.sort(key=lambda x: x[0])
+    voice2_notes.sort(key=lambda x: x[0])
+
+    # Motion type counters
+    motion_types = {
+        'parallel': 0,
+        'similar': 0,
+        'contrary': 0,
+        'oblique': 0
+    }
+
+    # Voice range tracking
+    voice1_range = {'min': 127, 'max': 0}
+    voice2_range = {'min': 127, 'max': 0}
+
+    # Leap tracking
+    voice1_leaps = []
+    voice2_leaps = []
+    resolved_leaps = 0
+    total_leaps = 0
+
+    # Approach to perfect intervals
+    perfect_approaches = {
+        'contrary': 0,
+        'similar': 0,
+        'direct': 0
+    }
+
+    # Track ranges for ALL notes in both voices
+    for offset, n in voice1_notes:
+        if isinstance(n, note.Note):
+            voice1_range['min'] = min(voice1_range['min'], n.pitch.midi)
+            voice1_range['max'] = max(voice1_range['max'], n.pitch.midi)
+
+    for offset, n in voice2_notes:
+        if isinstance(n, note.Note):
+            voice2_range['min'] = min(voice2_range['min'], n.pitch.midi)
+            voice2_range['max'] = max(voice2_range['max'], n.pitch.midi)
+
+    # Analyze motion between consecutive simultaneities
+    for i in range(min(len(voice1_notes), len(voice2_notes)) - 1):
+        offset1, note1 = voice1_notes[i]
+        offset2, note2 = voice2_notes[i]
+
+        if i + 1 < min(len(voice1_notes), len(voice2_notes)):
+            next_note1 = voice1_notes[i + 1][1]
+            next_note2 = voice2_notes[i + 1][1]
+
+            if all(isinstance(n, note.Note) for n in [note1, note2, next_note1, next_note2]):
+                # Calculate motion
+                v1_motion = next_note1.pitch.midi - note1.pitch.midi
+                v2_motion = next_note2.pitch.midi - note2.pitch.midi
+
+                # Classify motion type
+                if v1_motion == 0 and v2_motion == 0:
+                    pass  # No motion
+                elif v1_motion == 0 or v2_motion == 0:
+                    motion_types['oblique'] += 1
+                elif (v1_motion > 0 and v2_motion > 0) or (v1_motion < 0 and v2_motion < 0):
+                    if abs(v1_motion) == abs(v2_motion):
+                        motion_types['parallel'] += 1
+                    else:
+                        motion_types['similar'] += 1
+                else:
+                    motion_types['contrary'] += 1
+
+                # Check approach to perfect intervals
+                next_interval = abs(next_note1.pitch.midi - next_note2.pitch.midi) % 12
+                if next_interval in [0, 7]:  # Unison or perfect fifth
+                    if (v1_motion > 0 and v2_motion < 0) or (v1_motion < 0 and v2_motion > 0):
+                        perfect_approaches['contrary'] += 1
+                    elif (v1_motion > 0 and v2_motion > 0) or (v1_motion < 0 and v2_motion < 0):
+                        if abs(v1_motion) == abs(v2_motion):
+                            perfect_approaches['direct'] += 1
+                        else:
+                            perfect_approaches['similar'] += 1
+
+    # Analyze leaps and resolutions in each voice
+    for voice_notes, voice_leaps in [(voice1_notes, voice1_leaps), (voice2_notes, voice2_leaps)]:
+        for i in range(len(voice_notes) - 1):
+            _, note_a = voice_notes[i]
+            _, note_b = voice_notes[i + 1]
+
+            if isinstance(note_a, note.Note) and isinstance(note_b, note.Note):
+                leap = note_b.pitch.midi - note_a.pitch.midi
+                if abs(leap) > 4:  # Larger than a major third
+                    voice_leaps.append(i)
+                    total_leaps += 1
+
+                    # Check if leap is resolved by step in opposite direction
+                    if i + 2 < len(voice_notes):
+                        _, note_c = voice_notes[i + 2]
+                        if isinstance(note_c, note.Note):
+                            resolution = note_c.pitch.midi - note_b.pitch.midi
+                            if abs(resolution) <= 2 and (leap * resolution < 0):  # Step in opposite direction
+                                resolved_leaps += 1
+
+    # Calculate metrics
+    total_motion = sum(motion_types.values())
+    leap_resolution_rate = resolved_leaps / total_leaps if total_leaps > 0 else 1.0
+
+    # Voice independence score (prefer contrary motion, avoid parallel)
+    if total_motion > 0:
+        independence_score = (
+            motion_types['contrary'] * 1.0 +
+            motion_types['oblique'] * 0.8 +
+            motion_types['similar'] * 0.3 -
+            motion_types['parallel'] * 0.5
+        ) / total_motion
+        independence_score = max(0.0, min(1.0, independence_score))
+    else:
+        independence_score = 0.5
+
+    # Perfect interval approach score (prefer contrary motion)
+    total_perfect = sum(perfect_approaches.values())
+    if total_perfect > 0:
+        perfect_approach_score = (
+            perfect_approaches['contrary'] * 1.0 +
+            perfect_approaches['similar'] * 0.3 -
+            perfect_approaches['direct'] * 1.0
+        ) / total_perfect
+        perfect_approach_score = max(0.0, min(1.0, perfect_approach_score))
+    else:
+        perfect_approach_score = 1.0
+
+    # Overall voice leading quality
+    overall_quality = (
+        independence_score * 0.4 +
+        leap_resolution_rate * 0.3 +
+        perfect_approach_score * 0.3
+    )
+
+    return {
+        'motion_types': motion_types,
+        'motion_percentages': {
+            k: (v / total_motion * 100) if total_motion > 0 else 0
+            for k, v in motion_types.items()
+        },
+        'voice_ranges': {
+            'voice1': {
+                'min_midi': voice1_range['min'] if voice1_range['min'] != 127 else 0,
+                'max_midi': voice1_range['max'],
+                'span': voice1_range['max'] - voice1_range['min'] if voice1_range['min'] != 127 else 0
+            },
+            'voice2': {
+                'min_midi': voice2_range['min'] if voice2_range['min'] != 127 else 0,
+                'max_midi': voice2_range['max'],
+                'span': voice2_range['max'] - voice2_range['min'] if voice2_range['min'] != 127 else 0
+            }
+        },
+        'leap_statistics': {
+            'total_leaps': total_leaps,
+            'resolved_leaps': resolved_leaps,
+            'resolution_rate': leap_resolution_rate
+        },
+        'perfect_interval_approaches': perfect_approaches,
+        'independence_score': independence_score,
+        'perfect_approach_score': perfect_approach_score,
+        'overall_quality': overall_quality,
+        'grade': _get_quality_grade(overall_quality)
+    }
+
+
+def cadence_detection(score: stream.Score) -> Dict[str, any]:
+    """
+    Detect cadences in a two-voice score.
+
+    Identifies authentic, half, plagal, and deceptive cadences based on
+    intervallic motion and melodic patterns.
+
+    Args:
+        score: A Score to analyze for cadences
+
+    Returns:
+        Dictionary with detected cadences and their locations
+
+    Examples:
+        >>> results = cadence_detection(two_voice_score)
+        >>> print(f"Authentic cadences: {results['cadence_counts']['authentic']}")
+        >>> for loc, cad_type in results['cadences']:
+        ...     print(f"Cadence at {loc}: {cad_type}")
+    """
+    parts = list(score.parts)
+
+    if len(parts) < 2:
+        return {
+            'error': 'Cadence detection requires at least 2 voices',
+            'num_voices': len(parts)
+        }
+
+    # Use first two parts
+    voice1_notes = [(float(n.offset), n) for n in parts[0].flatten().notes]
+    voice2_notes = [(float(n.offset), n) for n in parts[1].flatten().notes]
+
+    voice1_notes.sort(key=lambda x: x[0])
+    voice2_notes.sort(key=lambda x: x[0])
+
+    cadences = []
+    cadence_counts = {
+        'authentic': 0,
+        'half': 0,
+        'plagal': 0,
+        'deceptive': 0,
+        'other': 0
+    }
+
+    # Analyze final few notes of phrases (looking for cadential patterns)
+    # Simple heuristic: check last 3-4 simultaneities
+    min_len = min(len(voice1_notes), len(voice2_notes))
+
+    if min_len >= 3:
+        # Check final cadence
+        final_idx = min_len - 1
+
+        # Get last 3 notes from each voice
+        v1_notes = [voice1_notes[final_idx - 2][1], voice1_notes[final_idx - 1][1], voice1_notes[final_idx][1]]
+        v2_notes = [voice2_notes[final_idx - 2][1], voice2_notes[final_idx - 1][1], voice2_notes[final_idx][1]]
+
+        if all(isinstance(n, note.Note) for n in v1_notes + v2_notes):
+            # Calculate intervals
+            final_interval = abs(v1_notes[2].pitch.midi - v2_notes[2].pitch.midi) % 12
+            penult_interval = abs(v1_notes[1].pitch.midi - v2_notes[1].pitch.midi) % 12
+
+            # Calculate bass motion (assuming voice2 is bass)
+            bass_motion = v2_notes[2].pitch.midi - v2_notes[1].pitch.midi
+
+            # Calculate upper voice motion
+            upper_motion = v1_notes[2].pitch.midi - v1_notes[1].pitch.midi
+
+            # Authentic cadence: V-I motion, ending on unison/octave
+            # Heuristic: bass rises by 4th or falls by 5th, upper voice resolves stepwise
+            if final_interval == 0 and abs(upper_motion) <= 2:
+                if abs(bass_motion) == 5 or abs(bass_motion) == 7:
+                    cadences.append((float(voice1_notes[final_idx][0]), 'authentic'))
+                    cadence_counts['authentic'] += 1
+                # Plagal cadence: IV-I motion (bass rises by step or falls by third)
+                elif abs(bass_motion) <= 4:
+                    cadences.append((float(voice1_notes[final_idx][0]), 'plagal'))
+                    cadence_counts['plagal'] += 1
+                else:
+                    cadences.append((float(voice1_notes[final_idx][0]), 'other'))
+                    cadence_counts['other'] += 1
+            # Half cadence: ending on fifth
+            elif final_interval == 7:
+                cadences.append((float(voice1_notes[final_idx][0]), 'half'))
+                cadence_counts['half'] += 1
+            # Deceptive cadence: expected resolution avoided
+            elif penult_interval == 7 and final_interval != 0:
+                cadences.append((float(voice1_notes[final_idx][0]), 'deceptive'))
+                cadence_counts['deceptive'] += 1
+            else:
+                cadences.append((float(voice1_notes[final_idx][0]), 'other'))
+                cadence_counts['other'] += 1
+
+    return {
+        'cadences': cadences,
+        'cadence_counts': cadence_counts,
+        'total_cadences': len(cadences),
+        'has_final_cadence': len(cadences) > 0,
+        'final_cadence_type': cadences[0][1] if cadences else None
+    }
+
+
+def modulation_detection(score: stream.Score, window_size: int = 8) -> Dict[str, any]:
+    """
+    Detect potential modulations (key changes) in a score.
+
+    Uses a sliding window analysis of pitch content to identify
+    shifts in tonal center.
+
+    Args:
+        score: A Score to analyze for modulations
+        window_size: Number of notes in analysis window (default: 8)
+
+    Returns:
+        Dictionary with detected modulations and key analysis
+
+    Examples:
+        >>> results = modulation_detection(score)
+        >>> print(f"Key changes detected: {results['num_modulations']}")
+        >>> print(f"Starting key: {results['starting_key']}")
+    """
+    # Get all notes from all parts
+    all_notes = []
+    for part in score.parts:
+        for n in part.flatten().notes:
+            if isinstance(n, note.Note):
+                all_notes.append((float(n.offset), n.pitch.midi % 12))
+            elif isinstance(n, chord.Chord):
+                for p in n.pitches:
+                    all_notes.append((float(n.offset), p.midi % 12))
+
+    all_notes.sort(key=lambda x: x[0])
+
+    if len(all_notes) < window_size * 2:
+        return {
+            'num_modulations': 0,
+            'modulations': [],
+            'starting_key': None,
+            'ending_key': None,
+            'error': 'Insufficient notes for modulation detection'
+        }
+
+    # Analyze pitch class distribution in sliding windows
+    windows = []
+    for i in range(0, len(all_notes) - window_size + 1, window_size // 2):
+        window_notes = all_notes[i:i + window_size]
+        pitch_classes = [pc for _, pc in window_notes]
+
+        # Count pitch class distribution
+        pc_counts = {pc: pitch_classes.count(pc) for pc in set(pitch_classes)}
+
+        # Simple key estimation: most common pitch class might be tonic
+        dominant_pc = max(pc_counts.items(), key=lambda x: x[1])[0]
+
+        windows.append({
+            'start_offset': window_notes[0][0],
+            'end_offset': window_notes[-1][0],
+            'dominant_pitch_class': dominant_pc,
+            'distribution': pc_counts
+        })
+
+    # Detect changes in dominant pitch class
+    modulations = []
+    for i in range(len(windows) - 1):
+        if windows[i]['dominant_pitch_class'] != windows[i + 1]['dominant_pitch_class']:
+            modulations.append({
+                'offset': windows[i + 1]['start_offset'],
+                'from_tonic': windows[i]['dominant_pitch_class'],
+                'to_tonic': windows[i + 1]['dominant_pitch_class']
+            })
+
+    return {
+        'num_modulations': len(modulations),
+        'modulations': modulations,
+        'starting_key': windows[0]['dominant_pitch_class'] if windows else None,
+        'ending_key': windows[-1]['dominant_pitch_class'] if windows else None,
+        'windows_analyzed': len(windows),
+        'window_size': window_size
+    }
+
+
+def species_counterpoint_check(score: stream.Score, species: int = 1) -> Dict[str, any]:
+    """
+    Check compliance with species counterpoint rules.
+
+    Validates two-voice counterpoint according to Fux's species rules:
+    - First species: note-against-note
+    - Second species: two-against-one
+    - Third species: four-against-one
+
+    Args:
+        score: A Score with two voices to check
+        species: Species number (1, 2, or 3) - default: 1
+
+    Returns:
+        Dictionary with compliance results and rule violations
+
+    Examples:
+        >>> results = species_counterpoint_check(score, species=1)
+        >>> print(f"Rule violations: {results['total_violations']}")
+        >>> print(f"Compliance: {results['compliance_rate']:.1%}")
+    """
+    parts = list(score.parts)
+
+    if len(parts) != 2:
+        return {
+            'error': 'Species counterpoint requires exactly 2 voices',
+            'num_voices': len(parts)
+        }
+
+    if species not in [1, 2, 3]:
+        return {'error': f'Invalid species: {species}. Must be 1, 2, or 3'}
+
+    # Extract notes
+    cantus_notes = [(float(n.offset), n, n.quarterLength) for n in parts[1].flatten().notes]
+    counterpoint_notes = [(float(n.offset), n, n.quarterLength) for n in parts[0].flatten().notes]
+
+    cantus_notes.sort(key=lambda x: x[0])
+    counterpoint_notes.sort(key=lambda x: x[0])
+
+    violations = {
+        'parallel_perfect': [],
+        'bad_intervals': [],
+        'bad_opening': [],
+        'bad_closing': [],
+        'large_leaps': [],
+        'unresolved_leaps': [],
+        'rhythm_violations': []
+    }
+
+    # First species rules
+    if species == 1:
+        # Check note-against-note rhythm
+        if len(cantus_notes) != len(counterpoint_notes):
+            violations['rhythm_violations'].append({
+                'rule': 'First species requires equal number of notes',
+                'cantus_count': len(cantus_notes),
+                'counterpoint_count': len(counterpoint_notes)
+            })
+
+        # Check opening (should be perfect consonance: unison, fifth, or octave)
+        if cantus_notes and counterpoint_notes:
+            if all(isinstance(n[1], note.Note) for n in [cantus_notes[0], counterpoint_notes[0]]):
+                opening_interval = abs(cantus_notes[0][1].pitch.midi - counterpoint_notes[0][1].pitch.midi) % 12
+                if opening_interval not in [0, 7]:
+                    violations['bad_opening'].append({
+                        'rule': 'Must begin with perfect consonance',
+                        'interval': opening_interval
+                    })
+
+            # Check closing (should be octave or unison)
+            if all(isinstance(n[1], note.Note) for n in [cantus_notes[-1], counterpoint_notes[-1]]):
+                closing_interval = abs(cantus_notes[-1][1].pitch.midi - counterpoint_notes[-1][1].pitch.midi) % 12
+                if closing_interval != 0:
+                    violations['bad_closing'].append({
+                        'rule': 'Must end with unison or octave',
+                        'interval': closing_interval
+                    })
+
+    # Check intervals (all species)
+    for i in range(min(len(cantus_notes), len(counterpoint_notes))):
+        cantus_note = cantus_notes[i][1]
+        cp_note = counterpoint_notes[i][1]
+
+        if isinstance(cantus_note, note.Note) and isinstance(cp_note, note.Note):
+            interval = abs(cantus_note.pitch.midi - cp_note.pitch.midi) % 12
+
+            # Dissonances (2nds, 7ths, tritones) are generally forbidden (except passing tones in higher species)
+            if species == 1 and interval in [1, 2, 6, 10, 11]:
+                violations['bad_intervals'].append({
+                    'location': i,
+                    'offset': cantus_notes[i][0],
+                    'interval': interval,
+                    'rule': 'Dissonance in first species'
+                })
+
+    # Check parallel perfect intervals (all species)
+    for i in range(min(len(cantus_notes), len(counterpoint_notes)) - 1):
+        if all(isinstance(cantus_notes[j][1], note.Note) and isinstance(counterpoint_notes[j][1], note.Note)
+               for j in [i, i + 1]):
+            interval1 = abs(cantus_notes[i][1].pitch.midi - counterpoint_notes[i][1].pitch.midi) % 12
+            interval2 = abs(cantus_notes[i + 1][1].pitch.midi - counterpoint_notes[i + 1][1].pitch.midi) % 12
+
+            # Parallel fifths or octaves
+            if interval1 in [0, 7] and interval1 == interval2:
+                violations['parallel_perfect'].append({
+                    'location': i,
+                    'offset': cantus_notes[i][0],
+                    'interval': interval1
+                })
+
+    # Check melodic intervals in counterpoint (all species)
+    for i in range(len(counterpoint_notes) - 1):
+        if all(isinstance(counterpoint_notes[j][1], note.Note) for j in [i, i + 1]):
+            leap = abs(counterpoint_notes[i + 1][1].pitch.midi - counterpoint_notes[i][1].pitch.midi)
+
+            # Leaps larger than octave forbidden
+            if leap > 12:
+                violations['large_leaps'].append({
+                    'location': i,
+                    'offset': counterpoint_notes[i][0],
+                    'leap': leap
+                })
+            # Leaps larger than third should be followed by stepwise motion in opposite direction
+            elif leap > 4:
+                if i + 2 < len(counterpoint_notes) and isinstance(counterpoint_notes[i + 2][1], note.Note):
+                    motion1 = counterpoint_notes[i + 1][1].pitch.midi - counterpoint_notes[i][1].pitch.midi
+                    motion2 = counterpoint_notes[i + 2][1].pitch.midi - counterpoint_notes[i + 1][1].pitch.midi
+
+                    # Check if resolved by step in opposite direction
+                    if not (abs(motion2) <= 2 and motion1 * motion2 < 0):
+                        violations['unresolved_leaps'].append({
+                            'location': i,
+                            'offset': counterpoint_notes[i][0],
+                            'leap': leap
+                        })
+
+    # Calculate compliance
+    total_violations = sum(len(v) for v in violations.values())
+    total_checks = (len(cantus_notes) + len(counterpoint_notes) +
+                   min(len(cantus_notes), len(counterpoint_notes)))
+
+    compliance_rate = 1.0 - (total_violations / total_checks) if total_checks > 0 else 0.0
+    compliance_rate = max(0.0, compliance_rate)
+
+    return {
+        'species': species,
+        'violations': violations,
+        'total_violations': total_violations,
+        'compliance_rate': compliance_rate,
+        'passed': compliance_rate > 0.8,
+        'grade': _get_quality_grade(compliance_rate),
+        'cantus_notes': len(cantus_notes),
+        'counterpoint_notes': len(counterpoint_notes)
+    }
+
+
+def _get_quality_grade(score: float) -> str:
+    """Convert quality score (0-1) to letter grade."""
+    if score >= 0.97:
+        return 'A+'
+    elif score >= 0.93:
+        return 'A'
+    elif score >= 0.90:
+        return 'A-'
+    elif score >= 0.87:
+        return 'B+'
+    elif score >= 0.83:
+        return 'B'
+    elif score >= 0.80:
+        return 'B-'
+    elif score >= 0.77:
+        return 'C+'
+    elif score >= 0.73:
+        return 'C'
+    elif score >= 0.70:
+        return 'C-'
+    elif score >= 0.67:
+        return 'D+'
+    elif score >= 0.63:
+        return 'D'
+    elif score >= 0.60:
+        return 'D-'
+    else:
+        return 'F'
