@@ -1840,3 +1840,293 @@ def _get_quality_grade(score: float) -> str:
         return 'D-'
     else:
         return 'F'
+
+
+# ============================================================================
+# Phase 9: Advanced Canon Types
+# ============================================================================
+
+
+def table_canon(
+    theme: stream.Stream,
+    num_voices: int = 4,
+    axis_pitch: Union[str, m21.pitch.Pitch] = 'C4'
+) -> stream.Score:
+    """
+    Create a table canon where each voice reads the same music rotated/transformed.
+
+    A table canon (also called "canon per tonos" or "crab canon on a table") allows
+    multiple performers to read the same notation from different orientations:
+    - Voice 1: Normal (0°)
+    - Voice 2: Inverted (pitch inversion)
+    - Voice 3: Retrograde (180° rotation)
+    - Voice 4: Retrograde inversion (180° + pitch inversion)
+
+    This creates a four-way symmetry where all voices can be read from a single
+    page placed on a table.
+
+    Args:
+        theme: The base musical theme
+        num_voices: Number of voices (2 or 4, default 4)
+        axis_pitch: Pitch axis for inversion (default C4)
+
+    Returns:
+        A Score with 2 or 4 voices in table canon arrangement
+
+    Example:
+        >>> from cancrizans import table_canon
+        >>> from music21 import stream, note
+        >>> theme = stream.Stream()
+        >>> theme.append(note.Note('C4', quarterLength=1.0))
+        >>> theme.append(note.Note('E4', quarterLength=1.0))
+        >>> theme.append(note.Note('G4', quarterLength=1.0))
+        >>> canon = table_canon(theme, num_voices=4)
+        >>> len(canon.parts)
+        4
+    """
+    if num_voices not in [2, 4]:
+        raise ValueError("num_voices must be 2 or 4")
+
+    score = stream.Score()
+
+    # Voice 1: Normal (original theme)
+    voice1 = stream.Part()
+    voice1.id = 'voice1_normal'
+    for el in theme.flatten().notesAndRests:
+        voice1.insert(el.offset, el)
+    score.append(voice1)
+
+    if num_voices >= 2:
+        # Voice 2: Inversion
+        voice2 = stream.Part()
+        voice2.id = 'voice2_inversion'
+        inverted = invert(theme, axis_pitch)
+        for el in inverted.flatten().notesAndRests:
+            voice2.insert(el.offset, el)
+        score.append(voice2)
+
+    if num_voices >= 4:
+        # Voice 3: Retrograde
+        voice3 = stream.Part()
+        voice3.id = 'voice3_retrograde'
+        retro = retrograde(theme)
+        for el in retro.flatten().notesAndRests:
+            voice3.insert(el.offset, el)
+        score.append(voice3)
+
+        # Voice 4: Retrograde + Inversion
+        voice4 = stream.Part()
+        voice4.id = 'voice4_retro_inversion'
+        retro_inv = invert(retrograde(theme), axis_pitch)
+        for el in retro_inv.flatten().notesAndRests:
+            voice4.insert(el.offset, el)
+        score.append(voice4)
+
+    return score
+
+
+def mensuration_canon(
+    theme: stream.Stream,
+    ratios: List[float] = [1.0, 2.0],
+    offset_quarters: float = 0.0
+) -> stream.Score:
+    """
+    Create a mensuration canon where voices play the same melody at different speeds.
+
+    A mensuration canon (also called "prolation canon") has multiple voices singing
+    the same melody simultaneously but at different tempi. This was common in
+    Renaissance music, where different mensuration signs indicated different speeds.
+
+    Args:
+        theme: The base musical theme
+        ratios: List of speed ratios (1.0 = original speed, 2.0 = twice as slow, etc.)
+        offset_quarters: Temporal offset between voice entrances in quarter notes
+
+    Returns:
+        A Score with voices at different speeds
+
+    Example:
+        >>> from cancrizans import mensuration_canon
+        >>> from music21 import stream, note
+        >>> theme = stream.Stream()
+        >>> for pitch in ['C4', 'D4', 'E4', 'F4']:
+        ...     theme.append(note.Note(pitch, quarterLength=1.0))
+        >>> canon = mensuration_canon(theme, ratios=[1.0, 2.0, 4.0])
+        >>> len(canon.parts)
+        3
+    """
+    score = stream.Score()
+
+    for i, ratio in enumerate(ratios):
+        part = stream.Part()
+        part.id = f'voice{i+1}_ratio_{ratio}'
+
+        # Apply augmentation (ratio > 1.0 makes it slower)
+        if ratio != 1.0:
+            transformed = augmentation(theme, ratio)
+        else:
+            # Create a copy even if ratio is 1.0 to avoid sharing note objects
+            transformed = stream.Stream()
+            for el in theme.flatten().notesAndRests:
+                new_el = el.__class__()
+                new_el.quarterLength = el.quarterLength
+                if isinstance(el, note.Note):
+                    new_el.pitch = el.pitch
+                elif isinstance(el, chord.Chord):
+                    new_el.pitches = el.pitches
+                transformed.insert(el.offset, new_el)
+
+        # Add with offset
+        # Voice 0 at 0, voice 1 at offset_quarters, voice 2 at 2*offset_quarters, etc.
+        current_offset = i * offset_quarters
+        for el in transformed.flatten().notesAndRests:
+            part.insert(el.offset + current_offset, el)
+
+        score.append(part)
+
+    return score
+
+
+def spiral_canon(
+    theme: stream.Stream,
+    num_iterations: int = 4,
+    transposition_interval: int = 2,
+    mode: str = 'ascending'
+) -> stream.Score:
+    """
+    Create a spiral (modulating) canon that transposes with each iteration.
+
+    A spiral canon repeatedly transposes the theme, creating a modulating effect
+    that "spirals" upward or downward through different keys. This was used by
+    Bach in some of the canons from The Musical Offering.
+
+    Args:
+        theme: The base musical theme
+        num_iterations: Number of times to repeat and transpose
+        transposition_interval: Semitones to transpose each iteration (default 2 = whole step)
+        mode: 'ascending' or 'descending' (direction of transposition)
+
+    Returns:
+        A Score with the spiraling canon
+
+    Example:
+        >>> from cancrizans import spiral_canon
+        >>> from music21 import stream, note
+        >>> theme = stream.Stream()
+        >>> theme.append(note.Note('C4', quarterLength=1.0))
+        >>> theme.append(note.Note('E4', quarterLength=1.0))
+        >>> canon = spiral_canon(theme, num_iterations=3, transposition_interval=2)
+        >>> len(canon.parts[0].flatten().notes)
+        6
+    """
+    if mode not in ['ascending', 'descending']:
+        raise ValueError("mode must be 'ascending' or 'descending'")
+
+    score = stream.Score()
+    part = stream.Part()
+    part.id = 'spiral_canon'
+
+    theme_duration = theme.duration.quarterLength
+
+    for i in range(num_iterations):
+        # Calculate transposition for this iteration
+        if mode == 'ascending':
+            semitones = i * transposition_interval
+        else:
+            semitones = -i * transposition_interval
+
+        # Transpose the theme using music21's built-in method
+        if semitones != 0:
+            # Use music21's transpose method
+            transposed = stream.Stream()
+            for el in theme.flatten().notesAndRests:
+                new_el = el.__class__()
+                new_el.quarterLength = el.quarterLength
+
+                if isinstance(el, note.Note):
+                    new_el.pitch = el.pitch.transpose(semitones)
+                elif isinstance(el, chord.Chord):
+                    new_el.pitches = [p.transpose(semitones) for p in el.pitches]
+                # Rests don't need pitch transposition
+
+                transposed.insert(el.offset, new_el)
+        else:
+            transposed = theme
+
+        # Add to the part at the appropriate offset
+        offset = i * theme_duration
+        for el in transposed.flatten().notesAndRests:
+            part.insert(el.offset + offset, el)
+
+    score.append(part)
+    return score
+
+
+def solve_puzzle_canon(
+    given_voice: stream.Stream,
+    canon_type: str = 'retrograde',
+    axis_pitch: Union[str, m21.pitch.Pitch] = 'C4',
+    offset_quarters: float = 0.0
+) -> stream.Score:
+    """
+    Solve a puzzle canon by deriving the missing voice(s) from a given voice.
+
+    Given one voice of a canon, this function generates the complementary voice(s)
+    based on the specified canon type. This is useful for "puzzle canons" where
+    performers must deduce how to read the notation.
+
+    Args:
+        given_voice: The known voice
+        canon_type: Type of canon to solve:
+            - 'retrograde': Crab canon (time reversal)
+            - 'inversion': Mirror canon (pitch inversion)
+            - 'retro_inversion': Combined retrograde + inversion
+            - 'augmentation': Mensuration canon at 2:1 ratio
+        axis_pitch: Pitch axis for inversion types (default C4)
+        offset_quarters: Temporal offset for the derived voice
+
+    Returns:
+        A Score with both the given voice and the solved voice
+
+    Example:
+        >>> from cancrizans import solve_puzzle_canon
+        >>> from music21 import stream, note
+        >>> voice = stream.Stream()
+        >>> voice.append(note.Note('C4', quarterLength=1.0))
+        >>> voice.append(note.Note('D4', quarterLength=1.0))
+        >>> canon = solve_puzzle_canon(voice, canon_type='retrograde')
+        >>> len(canon.parts)
+        2
+    """
+    valid_types = ['retrograde', 'inversion', 'retro_inversion', 'augmentation']
+    if canon_type not in valid_types:
+        raise ValueError(f"canon_type must be one of {valid_types}")
+
+    score = stream.Score()
+
+    # Add the given voice
+    voice1 = stream.Part()
+    voice1.id = 'given_voice'
+    for el in given_voice.flatten().notesAndRests:
+        voice1.insert(el.offset, el)
+    score.append(voice1)
+
+    # Solve for the complementary voice
+    voice2 = stream.Part()
+    voice2.id = f'solved_{canon_type}'
+
+    if canon_type == 'retrograde':
+        solved = retrograde(given_voice)
+    elif canon_type == 'inversion':
+        solved = invert(given_voice, axis_pitch)
+    elif canon_type == 'retro_inversion':
+        solved = invert(retrograde(given_voice), axis_pitch)
+    elif canon_type == 'augmentation':
+        solved = augmentation(given_voice, 2.0)
+
+    # Add with offset
+    for el in solved.flatten().notesAndRests:
+        voice2.insert(el.offset + offset_quarters, el)
+
+    score.append(voice2)
+    return score

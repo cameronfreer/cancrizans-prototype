@@ -1861,3 +1861,301 @@ class TestSpeciesCounterpointCheck:
 
         assert 0.0 <= results['compliance_rate'] <= 1.0
         assert results['grade'] in ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-', 'F']
+
+
+# ============================================================================
+# Phase 9: Advanced Canon Types Tests
+# ============================================================================
+
+
+class TestAdvancedCanonTypes:
+    """Tests for Phase 9: Advanced canon types (table, mensuration, spiral, puzzle)."""
+
+    def test_table_canon_four_voices(self):
+        """Test table canon with 4 voices."""
+        from cancrizans import table_canon
+
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+        theme.append(note.Note('E4', quarterLength=1.0))
+        theme.append(note.Note('G4', quarterLength=1.0))
+
+        canon = table_canon(theme, num_voices=4)
+
+        assert len(canon.parts) == 4
+        assert canon.parts[0].id == 'voice1_normal'
+        assert canon.parts[1].id == 'voice2_inversion'
+        assert canon.parts[2].id == 'voice3_retrograde'
+        assert canon.parts[3].id == 'voice4_retro_inversion'
+
+    def test_table_canon_two_voices(self):
+        """Test table canon with 2 voices only."""
+        from cancrizans import table_canon
+
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+        theme.append(note.Note('D4', quarterLength=1.0))
+
+        canon = table_canon(theme, num_voices=2)
+
+        assert len(canon.parts) == 2
+        assert canon.parts[0].id == 'voice1_normal'
+        assert canon.parts[1].id == 'voice2_inversion'
+
+    def test_table_canon_invalid_num_voices(self):
+        """Test table canon with invalid number of voices."""
+        from cancrizans import table_canon
+        import pytest
+
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+
+        with pytest.raises(ValueError, match="num_voices must be 2 or 4"):
+            table_canon(theme, num_voices=3)
+
+    def test_table_canon_axis_pitch(self):
+        """Test table canon with custom axis pitch."""
+        from cancrizans import table_canon
+
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+        theme.append(note.Note('E4', quarterLength=1.0))
+
+        canon = table_canon(theme, num_voices=2, axis_pitch='D4')
+
+        # Verify inversion happened around D4
+        voice2_notes = list(canon.parts[1].flatten().notes)
+        assert len(voice2_notes) == 2
+
+    def test_mensuration_canon_basic(self):
+        """Test basic mensuration canon with 2:1 ratio."""
+        from cancrizans import mensuration_canon
+
+        theme = stream.Stream()
+        for pitch in ['C4', 'D4', 'E4', 'F4']:
+            theme.append(note.Note(pitch, quarterLength=1.0))
+
+        canon = mensuration_canon(theme, ratios=[1.0, 2.0])
+
+        assert len(canon.parts) == 2
+        voice1_notes = list(canon.parts[0].flatten().notes)
+        voice2_notes = list(canon.parts[1].flatten().notes)
+
+        assert len(voice1_notes) == 4
+        assert len(voice2_notes) == 4
+
+        # Voice 2 should be twice as slow
+        assert voice2_notes[0].quarterLength == 2.0
+
+    def test_mensuration_canon_three_ratios(self):
+        """Test mensuration canon with three different ratios."""
+        from cancrizans import mensuration_canon
+
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+        theme.append(note.Note('D4', quarterLength=1.0))
+
+        canon = mensuration_canon(theme, ratios=[1.0, 2.0, 4.0])
+
+        assert len(canon.parts) == 3
+        voice1 = list(canon.parts[0].flatten().notes)
+        voice2 = list(canon.parts[1].flatten().notes)
+        voice3 = list(canon.parts[2].flatten().notes)
+
+        assert voice1[0].quarterLength == 1.0
+        assert voice2[0].quarterLength == 2.0
+        assert voice3[0].quarterLength == 4.0
+
+    def test_mensuration_canon_with_offset(self):
+        """Test mensuration canon with temporal offset."""
+        from cancrizans import mensuration_canon
+
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+
+        canon = mensuration_canon(theme, ratios=[1.0, 1.0], offset_quarters=2.0)
+
+        # Voice 2 should start 2 quarters later
+        assert len(canon.parts) == 2
+
+        # Access notes directly from parts without converting to list first
+        voice1_first_note = None
+        for n in canon.parts[0].flatten().notes:
+            voice1_first_note = n
+            break
+
+        voice2_first_note = None
+        for n in canon.parts[1].flatten().notes:
+            voice2_first_note = n
+            break
+
+        assert voice1_first_note is not None
+        assert voice2_first_note is not None
+        assert voice1_first_note.offset == 0.0
+        assert voice2_first_note.offset == 2.0
+
+    def test_spiral_canon_ascending(self):
+        """Test ascending spiral canon."""
+        from cancrizans import spiral_canon
+
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+        theme.append(note.Note('E4', quarterLength=1.0))
+
+        canon = spiral_canon(theme, num_iterations=3, transposition_interval=2, mode='ascending')
+
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 6  # 2 notes * 3 iterations
+
+        # Check transposition: iteration 0 (C4), iteration 1 (D4 = C4+2), iteration 2 (E4 = C4+4)
+        assert notes[0].pitch.midi == 60  # C4
+        assert notes[2].pitch.midi == 62  # D4 (first note of iteration 2)
+        assert notes[4].pitch.midi == 64  # E4 (first note of iteration 3)
+
+    def test_spiral_canon_descending(self):
+        """Test descending spiral canon."""
+        from cancrizans import spiral_canon
+
+        theme = stream.Stream()
+        theme.append(note.Note('C5', quarterLength=1.0))
+
+        canon = spiral_canon(theme, num_iterations=3, transposition_interval=2, mode='descending')
+
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 3
+
+        # Check transposition downward
+        assert notes[0].pitch.midi == 72  # C5
+        assert notes[1].pitch.midi == 70  # Bb4 (C5-2)
+        assert notes[2].pitch.midi == 68  # Ab4 (C5-4)
+
+    def test_spiral_canon_invalid_mode(self):
+        """Test spiral canon with invalid mode."""
+        from cancrizans import spiral_canon
+        import pytest
+
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=1.0))
+
+        with pytest.raises(ValueError, match="mode must be 'ascending' or 'descending'"):
+            spiral_canon(theme, num_iterations=2, mode='invalid')
+
+    def test_spiral_canon_timing(self):
+        """Test that spiral canon iterations are properly timed."""
+        from cancrizans import spiral_canon
+
+        theme = stream.Stream()
+        theme.append(note.Note('C4', quarterLength=2.0))  # 2 quarters duration
+
+        canon = spiral_canon(theme, num_iterations=3, transposition_interval=1)
+
+        notes = list(canon.parts[0].flatten().notes)
+
+        # Each iteration should start after the previous one completes
+        assert notes[0].offset == 0.0
+        assert notes[1].offset == 2.0
+        assert notes[2].offset == 4.0
+
+    def test_solve_puzzle_canon_retrograde(self):
+        """Test solving a retrograde puzzle canon."""
+        from cancrizans import solve_puzzle_canon
+
+        voice = stream.Stream()
+        voice.append(note.Note('C4', quarterLength=1.0))
+        voice.append(note.Note('D4', quarterLength=1.0))
+        voice.append(note.Note('E4', quarterLength=1.0))
+
+        canon = solve_puzzle_canon(voice, canon_type='retrograde')
+
+        assert len(canon.parts) == 2
+        assert canon.parts[0].id == 'given_voice'
+        assert canon.parts[1].id == 'solved_retrograde'
+
+        voice1_notes = list(canon.parts[0].flatten().notes)
+        voice2_notes = list(canon.parts[1].flatten().notes)
+
+        # Retrograde should have pitches in reverse order
+        assert voice1_notes[0].pitch.midi == 60  # C4
+        assert voice1_notes[2].pitch.midi == 64  # E4
+        assert voice2_notes[0].pitch.midi == 64  # E4 (first in retrograde)
+        assert voice2_notes[2].pitch.midi == 60  # C4 (last in retrograde)
+
+    def test_solve_puzzle_canon_inversion(self):
+        """Test solving an inversion puzzle canon."""
+        from cancrizans import solve_puzzle_canon
+
+        voice = stream.Stream()
+        voice.append(note.Note('C4', quarterLength=1.0))
+        voice.append(note.Note('E4', quarterLength=1.0))
+
+        canon = solve_puzzle_canon(voice, canon_type='inversion', axis_pitch='C4')
+
+        assert len(canon.parts) == 2
+        assert canon.parts[1].id == 'solved_inversion'
+
+        voice2_notes = list(canon.parts[1].flatten().notes)
+
+        # C4 inverted around C4 = C4, E4 inverted around C4 = Ab3
+        assert voice2_notes[0].pitch.midi == 60  # C4
+        assert voice2_notes[1].pitch.midi == 56  # Ab3
+
+    def test_solve_puzzle_canon_retro_inversion(self):
+        """Test solving a retrograde+inversion puzzle canon."""
+        from cancrizans import solve_puzzle_canon
+
+        voice = stream.Stream()
+        voice.append(note.Note('C4', quarterLength=1.0))
+        voice.append(note.Note('D4', quarterLength=1.0))
+
+        canon = solve_puzzle_canon(voice, canon_type='retro_inversion', axis_pitch='C4')
+
+        assert len(canon.parts) == 2
+        assert canon.parts[1].id == 'solved_retro_inversion'
+
+        # Should be both retrograded and inverted
+        voice2_notes = list(canon.parts[1].flatten().notes)
+        assert len(voice2_notes) == 2
+
+    def test_solve_puzzle_canon_augmentation(self):
+        """Test solving an augmentation (mensuration) puzzle canon."""
+        from cancrizans import solve_puzzle_canon
+
+        voice = stream.Stream()
+        voice.append(note.Note('C4', quarterLength=1.0))
+
+        canon = solve_puzzle_canon(voice, canon_type='augmentation')
+
+        assert len(canon.parts) == 2
+        assert canon.parts[1].id == 'solved_augmentation'
+
+        voice2_notes = list(canon.parts[1].flatten().notes)
+
+        # Should be twice as slow (2:1 ratio)
+        assert voice2_notes[0].quarterLength == 2.0
+
+    def test_solve_puzzle_canon_invalid_type(self):
+        """Test solve_puzzle_canon with invalid canon type."""
+        from cancrizans import solve_puzzle_canon
+        import pytest
+
+        voice = stream.Stream()
+        voice.append(note.Note('C4', quarterLength=1.0))
+
+        with pytest.raises(ValueError, match="canon_type must be one of"):
+            solve_puzzle_canon(voice, canon_type='invalid')
+
+    def test_solve_puzzle_canon_with_offset(self):
+        """Test puzzle canon solver with temporal offset."""
+        from cancrizans import solve_puzzle_canon
+
+        voice = stream.Stream()
+        voice.append(note.Note('C4', quarterLength=1.0))
+
+        canon = solve_puzzle_canon(voice, canon_type='retrograde', offset_quarters=2.0)
+
+        voice1_notes = list(canon.parts[0].flatten().notes)
+        voice2_notes = list(canon.parts[1].flatten().notes)
+
+        # Voice 2 should start 2 quarters later
+        assert voice1_notes[0].offset == 0.0
+        assert voice2_notes[0].offset == 2.0

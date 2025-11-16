@@ -6,7 +6,7 @@ palindromic musical structures, with a focus on Bach's Canon Cancrizans
 from The Musical Offering (BWV 1079).
 """
 
-__version__ = "0.25.0"
+__version__ = "0.26.0"
 
 from cancrizans.canon import (
     # Basic transformations
@@ -20,6 +20,11 @@ from cancrizans.canon import (
     stretto,
     canon_at_interval,
     proportional_canon,
+    # Advanced canon types (Phase 9)
+    table_canon,
+    mensuration_canon,
+    spiral_canon,
+    solve_puzzle_canon,
     # Verification and analysis
     is_time_palindrome,
     pairwise_symmetry_map,
@@ -91,6 +96,11 @@ __all__ = [
     "stretto",
     "canon_at_interval",
     "proportional_canon",
+    # Advanced canon types (Phase 9)
+    "table_canon",
+    "mensuration_canon",
+    "spiral_canon",
+    "solve_puzzle_canon",
     # Verification and analysis
     "is_time_palindrome",
     "pairwise_symmetry_map",
