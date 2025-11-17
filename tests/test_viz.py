@@ -8,7 +8,15 @@ from pathlib import Path
 from PIL import Image
 from music21 import stream, note, chord
 from cancrizans import assemble_crab_from_theme
-from cancrizans.viz import piano_roll, symmetry
+from cancrizans.viz import (
+    piano_roll,
+    symmetry,
+    animate_transformation,
+    visualize_3d_canon,
+    visualize_voice_graph,
+    export_analysis_figure,
+)
+from cancrizans import retrograde
 
 
 @pytest.fixture
@@ -356,3 +364,200 @@ class TestVisualizationIntegration:
 
             # Should handle non-note elements gracefully
             assert result.exists()
+
+
+class TestPhase14AdvancedVisualization:
+    """Test Phase 14 advanced visualization functions."""
+
+    def test_animate_transformation_creates_gif(self, simple_canon):
+        """Test that animate_transformation creates a GIF file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a transformation
+            theme = stream.Part()
+            theme.append(note.Note('C4', quarterLength=1.0))
+            theme.append(note.Note('D4', quarterLength=1.0))
+            theme.append(note.Note('E4', quarterLength=1.0))
+
+            theme_score = stream.Score()
+            theme_score.insert(0, theme)
+
+            retro_score = retrograde(theme_score)
+
+            output = Path(tmpdir) / 'animation.gif'
+            result = animate_transformation(theme_score, retro_score, output)
+
+            assert result == output
+            assert output.exists()
+            assert output.stat().st_size > 0
+
+            # Verify it's a valid GIF
+            img = Image.open(output)
+            assert img.format == 'GIF'
+
+    def test_animate_transformation_custom_frames(self, simple_canon):
+        """Test animate_transformation with custom frame count."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            theme = stream.Part()
+            theme.append(note.Note('C4', quarterLength=1.0))
+
+            theme_score = stream.Score()
+            theme_score.insert(0, theme)
+
+            retro_score = retrograde(theme_score)
+
+            output = Path(tmpdir) / 'animation.gif'
+            result = animate_transformation(
+                theme_score, retro_score, output,
+                num_frames=10, duration=1.0, dpi=50
+            )
+
+            assert result.exists()
+            img = Image.open(result)
+            assert img.format == 'GIF'
+
+    def test_visualize_3d_canon_creates_file(self, simple_canon):
+        """Test that visualize_3d_canon creates an output file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / '3d_canon.png'
+            result = visualize_3d_canon(simple_canon, output)
+
+            assert result == output
+            assert output.exists()
+            assert output.stat().st_size > 0
+
+            # Verify it's a valid image
+            img = Image.open(output)
+            assert img.format == 'PNG'
+
+    def test_visualize_3d_canon_custom_rotation(self, simple_canon):
+        """Test visualize_3d_canon with custom rotation angles."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / '3d_canon.png'
+            result = visualize_3d_canon(
+                simple_canon, output,
+                rotation=(45, 135), dpi=50
+            )
+
+            assert result.exists()
+            img = Image.open(result)
+            assert img.format == 'PNG'
+
+    def test_visualize_voice_graph_creates_file(self, simple_canon):
+        """Test that visualize_voice_graph creates an output file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'voice_graph.png'
+            result = visualize_voice_graph(simple_canon, output)
+
+            assert result == output
+            assert output.exists()
+            assert output.stat().st_size > 0
+
+            # Verify it's a valid image
+            img = Image.open(output)
+            assert img.format == 'PNG'
+
+    def test_visualize_voice_graph_custom_similarity(self, simple_canon):
+        """Test visualize_voice_graph with custom similarity threshold."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'voice_graph.png'
+            result = visualize_voice_graph(
+                simple_canon, output,
+                min_similarity=0.5, dpi=50
+            )
+
+            assert result.exists()
+            img = Image.open(result)
+            assert img.format == 'PNG'
+
+    def test_visualize_voice_graph_fallback(self, simple_canon):
+        """Test that voice_graph fallback works without networkx."""
+        # This test relies on the function's built-in fallback
+        # if networkx is not available
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'voice_graph.png'
+            result = visualize_voice_graph(simple_canon, output)
+
+            # Should work regardless of networkx availability
+            assert result.exists()
+
+    def test_export_analysis_figure_piano_roll(self, simple_canon):
+        """Test export_analysis_figure with piano_roll type."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_base = Path(tmpdir) / 'figure'
+            results = export_analysis_figure(
+                simple_canon, 'piano_roll', output_base,
+                formats=['png'], dpi=100
+            )
+
+            assert len(results) == 1
+            assert results[0].exists()
+            assert results[0].suffix == '.png'
+
+    def test_export_analysis_figure_multiple_formats(self, simple_canon):
+        """Test export_analysis_figure with multiple formats."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_base = Path(tmpdir) / 'figure'
+            results = export_analysis_figure(
+                simple_canon, 'symmetry', output_base,
+                formats=['png', 'pdf'], dpi=100
+            )
+
+            assert len(results) == 2
+            assert all(r.exists() for r in results)
+
+            # Check that we have both formats
+            suffixes = {r.suffix for r in results}
+            assert '.png' in suffixes
+            assert '.pdf' in suffixes
+
+    def test_export_analysis_figure_3d(self, simple_canon):
+        """Test export_analysis_figure with 3d type."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_base = Path(tmpdir) / 'figure'
+            results = export_analysis_figure(
+                simple_canon, '3d', output_base,
+                formats=['png'], dpi=50,
+                rotation=(20, 60)
+            )
+
+            assert len(results) == 1
+            assert results[0].exists()
+
+    def test_export_analysis_figure_graph(self, simple_canon):
+        """Test export_analysis_figure with graph type."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_base = Path(tmpdir) / 'figure'
+            results = export_analysis_figure(
+                simple_canon, 'graph', output_base,
+                formats=['png'], dpi=50,
+                min_similarity=0.5
+            )
+
+            assert len(results) == 1
+            assert results[0].exists()
+
+    def test_export_analysis_figure_default_formats(self, simple_canon):
+        """Test export_analysis_figure with default formats."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_base = Path(tmpdir) / 'figure'
+            results = export_analysis_figure(
+                simple_canon, 'piano_roll', output_base,
+                dpi=50
+            )
+
+            # Default is ['png', 'pdf']
+            assert len(results) == 2
+            suffixes = {r.suffix for r in results}
+            assert '.png' in suffixes
+            assert '.pdf' in suffixes
+
+    def test_export_analysis_figure_invalid_type(self, simple_canon):
+        """Test export_analysis_figure with invalid analysis type."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_base = Path(tmpdir) / 'figure'
+
+            with pytest.raises(ValueError, match="Unknown analysis_type"):
+                export_analysis_figure(
+                    simple_canon, 'invalid_type', output_base,
+                    formats=['png']
+                )
