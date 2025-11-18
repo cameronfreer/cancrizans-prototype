@@ -24,6 +24,7 @@ dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
     "mypy>=1.7.0",
+    "pillow>=10.0.0",
 ]
 audio = [
     "midi2audio>=0.1.1",
@@ -37,7 +38,7 @@ include = ["cancrizans*"]
 exclude = ["web*", "data*", "out*"]
 
 [tool.pytest.ini_options]
-testpaths = ["cancrizans/tests"]
+testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
