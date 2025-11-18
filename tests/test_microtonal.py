@@ -495,7 +495,7 @@ class TestTuningSystemEnum:
         """Test enum values exist"""
         assert TuningSystem.EQUAL_12.value == "12-tone equal temperament"
         assert TuningSystem.EQUAL_19.value == "19-tone equal temperament"
-        assert TuningSystem.JUST_INTONATION.value == "5-limit just intonation"
+        assert TuningSystem.JUST_INTONATION_5.value == "5-limit just intonation"
         assert TuningSystem.PYTHAGOREAN.value == "Pythagorean tuning"
         assert TuningSystem.BOHLEN_PIERCE.value == "Bohlen-Pierce scale"
 

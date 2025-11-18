@@ -12,6 +12,12 @@ from cancrizans.canon import is_time_palindrome, pairwise_symmetry_map, retrogra
 from cancrizans.io import to_midi, to_musicxml, to_wav_via_sf2, load_score
 from cancrizans.viz import piano_roll, symmetry
 from cancrizans.research import analyze_corpus, BatchAnalyzer, ResearchExporter
+from cancrizans.microtonal import (
+    TuningSystem, ScaleType, create_equal_temperament, create_just_intonation_scale,
+    create_pythagorean_scale, create_world_music_scale, create_meantone_scale,
+    create_werckmeister_iii, bohlen_pierce_scale, gamma_scale, alpha_scale, beta_scale,
+    export_scala_file, import_scala_file, compare_scales
+)
 
 
 def analyze_command(args: argparse.Namespace) -> int:
@@ -276,6 +282,192 @@ def research_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def scales_command(args: argparse.Namespace) -> int:
+    """Execute the scales subcommand."""
+
+    if args.list_tunings:
+        print("Available Tuning Systems:")
+        print("=" * 60)
+        for tuning in TuningSystem:
+            print(f"  {tuning.name:30s} - {tuning.value}")
+        return 0
+
+    if args.list_scales:
+        region = args.region.lower() if args.region else None
+
+        print("Available World Music Scales:")
+        print("=" * 60)
+
+        # Group by region
+        regions = {
+            'arabic': [],
+            'turkish': [],
+            'persian': [],
+            'indian': [],
+            'indonesian': [],
+            'japanese': [],
+            'chinese': [],
+            'thai': [],
+            'african': [],
+            'latin': [],
+        }
+
+        for scale_type in ScaleType:
+            value_lower = scale_type.value.lower()
+            if 'arabic' in value_lower:
+                regions['arabic'].append(scale_type)
+            elif 'turkish' in value_lower:
+                regions['turkish'].append(scale_type)
+            elif 'persian' in value_lower:
+                regions['persian'].append(scale_type)
+            elif 'hindustani' in value_lower or 'raga' in value_lower:
+                regions['indian'].append(scale_type)
+            elif 'javanese' in value_lower or 'pelog' in value_lower or 'slendro' in value_lower:
+                regions['indonesian'].append(scale_type)
+            elif 'japanese' in value_lower:
+                regions['japanese'].append(scale_type)
+            elif 'chinese' in value_lower:
+                regions['chinese'].append(scale_type)
+            elif 'thai' in value_lower:
+                regions['thai'].append(scale_type)
+            elif 'african' in value_lower or 'ethiopian' in value_lower:
+                regions['african'].append(scale_type)
+            elif 'escala' in value_lower or 'samba' in value_lower or 'brazilian' in value_lower:
+                regions['latin'].append(scale_type)
+
+        for region_name, scales in regions.items():
+            if region and region != region_name:
+                continue
+            if scales:
+                print(f"\n{region_name.capitalize()}:")
+                for scale in scales:
+                    print(f"  {scale.name:30s} - {scale.value}")
+
+        return 0
+
+    if args.export:
+        # Create and export a scale
+        if not args.scale_type and not args.tuning:
+            print("Error: Must specify --scale-type or --tuning to export")
+            return 1
+
+        scale = None
+
+        if args.tuning:
+            tuning = args.tuning.upper()
+            try:
+                if tuning == 'PYTHAGOREAN':
+                    scale = create_pythagorean_scale()
+                elif tuning == 'MEANTONE':
+                    scale = create_meantone_scale()
+                elif tuning == 'WERCKMEISTER_III':
+                    scale = create_werckmeister_iii()
+                elif tuning == 'BOHLEN_PIERCE':
+                    scale = bohlen_pierce_scale()
+                elif tuning == 'ALPHA':
+                    scale = alpha_scale()
+                elif tuning == 'BETA':
+                    scale = beta_scale()
+                elif tuning == 'GAMMA':
+                    scale = gamma_scale()
+                elif tuning.startswith('EQUAL_'):
+                    divisions = int(tuning.split('_')[1])
+                    scale = create_equal_temperament(divisions)
+                else:
+                    print(f"Error: Unknown tuning system: {tuning}")
+                    return 1
+            except Exception as e:
+                print(f"Error creating scale: {e}")
+                return 1
+
+        elif args.scale_type:
+            try:
+                scale_enum = ScaleType[args.scale_type.upper()]
+                scale = create_world_music_scale(scale_enum)
+            except KeyError:
+                print(f"Error: Unknown scale type: {args.scale_type}")
+                print("Use --list-scales to see available scales")
+                return 1
+            except Exception as e:
+                print(f"Error creating scale: {e}")
+                return 1
+
+        if scale:
+            output_path = Path(args.export)
+            export_scala_file(scale, str(output_path))
+            print(f"✓ Exported {scale.name} to: {output_path}")
+            print(f"  Scale degrees: {len(scale.intervals_cents)}")
+            print(f"  Intervals (cents): {', '.join(f'{c:.2f}' for c in scale.intervals_cents[:8])}" +
+                  ("..." if len(scale.intervals_cents) > 8 else ""))
+
+        return 0
+
+    if args.info:
+        # Show info about a tuning or scale
+        if args.tuning:
+            tuning_name = args.tuning.upper()
+            try:
+                tuning = TuningSystem[tuning_name]
+                print(f"Tuning System: {tuning.value}")
+                print("=" * 60)
+
+                # Create and display the scale
+                if tuning_name == 'PYTHAGOREAN':
+                    scale = create_pythagorean_scale()
+                elif tuning_name == 'MEANTONE':
+                    scale = create_meantone_scale()
+                elif tuning_name == 'WERCKMEISTER_III':
+                    scale = create_werckmeister_iii()
+                elif tuning_name == 'BOHLEN_PIERCE':
+                    scale = bohlen_pierce_scale()
+                elif tuning_name == 'ALPHA':
+                    scale = alpha_scale()
+                elif tuning_name == 'BETA':
+                    scale = beta_scale()
+                elif tuning_name == 'GAMMA':
+                    scale = gamma_scale()
+                else:
+                    print(f"Info not available for {tuning.value}")
+                    return 0
+
+                print(f"Degrees: {len(scale.intervals_cents)}")
+                print(f"\nIntervals (in cents from tonic):")
+                for i, cents in enumerate(scale.intervals_cents):
+                    print(f"  {i:2d}: {cents:8.3f} cents")
+
+            except KeyError:
+                print(f"Error: Unknown tuning: {tuning_name}")
+                print("Use --list-tunings to see available tuning systems")
+                return 1
+
+        elif args.scale_type:
+            try:
+                scale_enum = ScaleType[args.scale_type.upper()]
+                scale = create_world_music_scale(scale_enum)
+
+                print(f"Scale: {scale.name}")
+                print("=" * 60)
+                print(f"Degrees: {len(scale.intervals_cents)}")
+                print(f"\nIntervals (in cents from tonic):")
+                for i, cents in enumerate(scale.intervals_cents):
+                    print(f"  {i:2d}: {cents:8.3f} cents")
+
+            except KeyError:
+                print(f"Error: Unknown scale type: {args.scale_type}")
+                print("Use --list-scales to see available scales")
+                return 1
+
+        else:
+            print("Error: Must specify --tuning or --scale-type with --info")
+            return 1
+
+        return 0
+
+    # Default: show help
+    print("Use --list-tunings, --list-scales, --info, or --export")
+    return 1
+
+
 def main() -> int:
     """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(
@@ -457,6 +649,39 @@ def main() -> int:
         help="Show detailed recommendations"
     )
 
+    # Scales command
+    scales_parser = subparsers.add_parser(
+        "scales",
+        help="Explore microtonal scales and tuning systems"
+    )
+    scales_parser.add_argument(
+        "--list-tunings", action="store_true",
+        help="List all available tuning systems"
+    )
+    scales_parser.add_argument(
+        "--list-scales", action="store_true",
+        help="List all available world music scales"
+    )
+    scales_parser.add_argument(
+        "--region",
+        help="Filter scales by region (arabic, turkish, persian, indian, etc.)"
+    )
+    scales_parser.add_argument(
+        "--info", action="store_true",
+        help="Show detailed information about a scale or tuning"
+    )
+    scales_parser.add_argument(
+        "--tuning",
+        help="Tuning system name (e.g., PYTHAGOREAN, MEANTONE, WERCKMEISTER_III, EQUAL_19)"
+    )
+    scales_parser.add_argument(
+        "--scale-type",
+        help="World music scale type (e.g., MAQAM_RAST, RAGA_BHAIRAV, PELOG)"
+    )
+    scales_parser.add_argument(
+        "--export",
+        help="Export scale to Scala (.scl) file format"
+    )
 
     args = parser.parse_args()
 
@@ -477,6 +702,8 @@ def main() -> int:
             return generate_command(args)
         elif args.command == "validate":
             return validate_command(args)
+        elif args.command == "scales":
+            return scales_command(args)
         else:
             print(f"Unknown command: {args.command}")
             return 1
