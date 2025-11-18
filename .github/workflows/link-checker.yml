@@ -1,0 +1,275 @@
+name: Link Checker
+
+on:
+  schedule:
+    # Run weekly on Mondays at 8:00 UTC
+    - cron: '0 8 * * 1'
+  push:
+    branches: [main]
+    paths:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+    paths:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-links:
+    name: Check External Links
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install link checker
+        run: |
+          pip install linkchecker requests beautifulsoup4
+
+      - name: Check markdown links
+        id: link-check
+        continue-on-error: true
+        run: |
+          echo "### 🔗 Link Validation Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Find all markdown files
+          find . -name "*.md" -not -path "./node_modules/*" -not -path "./.git/*" > md_files.txt
+
+          # Check links in each file
+          python << 'EOF'
+          import re
+          import requests
+          from pathlib import Path
+          from urllib.parse import urlparse
+          import time
+
+          # Read markdown files
+          with open('md_files.txt') as f:
+              md_files = [line.strip() for line in f if line.strip()]
+
+          broken_links = []
+          checked_urls = {}
+
+          # Extract URLs from markdown
+          url_pattern = r'\[([^\]]+)\]\(([^\)]+)\)'
+
+          for md_file in md_files:
+              with open(md_file) as f:
+                  content = f.read()
+
+              matches = re.findall(url_pattern, content)
+
+              for text, url in matches:
+                  # Skip internal links and anchors
+                  if url.startswith('#') or url.startswith('/'):
+                      continue
+
+                  # Skip mailto and other protocols
+                  if not url.startswith('http'):
+                      continue
+
+                  # Check if already checked
+                  if url in checked_urls:
+                      continue
+
+                  # Rate limiting
+                  time.sleep(0.5)
+
+                  try:
+                      response = requests.head(url, timeout=10, allow_redirects=True)
+                      if response.status_code >= 400:
+                          broken_links.append((md_file, url, response.status_code))
+                          checked_urls[url] = False
+                      else:
+                          checked_urls[url] = True
+                  except Exception as e:
+                      broken_links.append((md_file, url, str(e)))
+                      checked_urls[url] = False
+
+          # Report results
+          print(f"**Total URLs checked:** {len(checked_urls)}")
+          print(f"**Working links:** {sum(1 for v in checked_urls.values() if v)}")
+          print(f"**Broken links:** {len(broken_links)}")
+          print()
+
+          if broken_links:
+              print("#### ❌ Broken Links")
+              print()
+              print("| File | URL | Status |")
+              print("|------|-----|--------|")
+              for file, url, status in broken_links[:20]:  # Limit to first 20
+                  file_short = file[:50]
+                  url_short = url[:60] + '...' if len(url) > 60 else url
+                  print(f"| {file_short} | {url_short} | {status} |")
+
+              if len(broken_links) > 20:
+                  print()
+                  print(f"*... and {len(broken_links) - 20} more*")
+          else:
+              print("✅ All links are working!")
+
+          # Exit with error if broken links found
+          if broken_links:
+              exit(1)
+          EOF
+
+      - name: Check for deprecated URLs
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### 🔍 URL Health Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check for common patterns that might indicate outdated links
+          grep -r "http://" --include="*.md" . 2>/dev/null | grep -v node_modules | wc -l > http_count.txt || echo "0" > http_count.txt
+          HTTP_COUNT=$(cat http_count.txt)
+
+          if [ "$HTTP_COUNT" -gt "0" ]; then
+            echo "⚠️ **Warning:** Found $HTTP_COUNT HTTP links (consider upgrading to HTTPS)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ All external links use HTTPS" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Create issue for broken links
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = '🔗 Broken Links Detected';
+            const body = `Broken links were found in the documentation during the weekly link check.
+
+            **Date:** ${new Date().toISOString().split('T')[0]}
+
+            Please review the [workflow run](${context.payload.repository.html_url}/actions/runs/${context.runId}) for details.
+
+            Links may be broken due to:
+            - External sites being down temporarily
+            - Pages being moved or deleted
+            - Typos in URLs
+            - HTTPS migration
+
+            Please update or remove broken links.`;
+
+            // Check if issue already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'documentation,broken-links'
+            });
+
+            if (issues.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['type: documentation', 'priority: low', 'broken-links']
+              });
+            }
+
+  check-api-endpoints:
+    name: Check API Endpoints
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check common API endpoints
+        run: |
+          echo "### 🌐 External Service Health" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check GitHub API
+          if curl -s -f -I https://api.github.com > /dev/null; then
+            echo "✅ GitHub API: Operational" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ GitHub API: Down" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Check PyPI
+          if curl -s -f -I https://pypi.org > /dev/null; then
+            echo "✅ PyPI: Operational" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ PyPI: Down" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Check npm registry
+          if curl -s -f -I https://registry.npmjs.org > /dev/null; then
+            echo "✅ npm Registry: Operational" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ npm Registry: Down" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Check Docker Hub
+          if curl -s -f -I https://hub.docker.com > /dev/null; then
+            echo "✅ Docker Hub: Operational" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Docker Hub: Down" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  validate-internal-links:
+    name: Validate Internal Links
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check internal file references
+        run: |
+          echo "### 📁 Internal Link Validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Find broken internal links
+          python << 'EOF'
+          import re
+          from pathlib import Path
+
+          md_files = list(Path('.').rglob('*.md'))
+          broken_internal = []
+
+          link_pattern = r'\[([^\]]+)\]\(([^\)]+)\)'
+
+          for md_file in md_files:
+              if 'node_modules' in str(md_file) or '.git' in str(md_file):
+                  continue
+
+              with open(md_file) as f:
+                  content = f.read()
+
+              matches = re.findall(link_pattern, content)
+
+              for text, link in matches:
+                  # Check internal file links
+                  if link.startswith('/') or (not link.startswith('http') and not link.startswith('#')):
+                      # Remove anchor
+                      file_path = link.split('#')[0]
+
+                      if file_path:  # Not just an anchor
+                          # Resolve relative path
+                          target = (md_file.parent / file_path).resolve()
+
+                          if not target.exists():
+                              broken_internal.append((str(md_file), link))
+
+          if broken_internal:
+              print("❌ **Broken internal links found:**")
+              print()
+              print("| Source | Target |")
+              print("|--------|--------|")
+              for source, target in broken_internal[:10]:
+                  print(f"| {source[:40]} | {target[:40]} |")
+          else:
+              print("✅ All internal links are valid")
+          EOF

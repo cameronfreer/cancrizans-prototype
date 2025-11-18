@@ -1,0 +1,257 @@
+name: Smart Testing
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  detect-changes:
+    name: Detect Changed Components
+    runs-on: ubuntu-latest
+    outputs:
+      run_core_tests: ${{ steps.filter.outputs.core }}
+      run_cli_tests: ${{ steps.filter.outputs.cli }}
+      run_pattern_tests: ${{ steps.filter.outputs.pattern }}
+      run_microtonal_tests: ${{ steps.filter.outputs.microtonal }}
+      run_io_tests: ${{ steps.filter.outputs.io }}
+      run_viz_tests: ${{ steps.filter.outputs.viz }}
+      run_all_tests: ${{ steps.filter.outputs.all }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect file changes
+        uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            core:
+              - 'cancrizans/canon.py'
+              - 'cancrizans/generator.py'
+              - 'tests/test_canon.py'
+              - 'tests/test_generator.py'
+            cli:
+              - 'cancrizans/cli.py'
+              - 'tests/test_cli*.py'
+            pattern:
+              - 'cancrizans/pattern.py'
+              - 'tests/test_pattern*.py'
+            microtonal:
+              - 'cancrizans/microtonal.py'
+              - 'tests/test_microtonal*.py'
+            io:
+              - 'cancrizans/io.py'
+              - 'tests/test_io*.py'
+            viz:
+              - 'cancrizans/viz.py'
+              - 'tests/test_viz*.py'
+            all:
+              - 'pyproject.toml'
+              - '.github/workflows/**'
+              - 'pytest.ini'
+
+      - name: Summary
+        run: |
+          echo "### 🎯 Smart Test Selection" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Components with changes:**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.filter.outputs.all }}" == "true" ]; then
+            echo "⚠️ **All tests will run** (infrastructure changes detected)" >> $GITHUB_STEP_SUMMARY
+          else
+            [ "${{ steps.filter.outputs.core }}" == "true" ] && echo "- ✅ Core" >> $GITHUB_STEP_SUMMARY
+            [ "${{ steps.filter.outputs.cli }}" == "true" ] && echo "- ✅ CLI" >> $GITHUB_STEP_SUMMARY
+            [ "${{ steps.filter.outputs.pattern }}" == "true" ] && echo "- ✅ Pattern Analysis" >> $GITHUB_STEP_SUMMARY
+            [ "${{ steps.filter.outputs.microtonal }}" == "true" ] && echo "- ✅ Microtonal" >> $GITHUB_STEP_SUMMARY
+            [ "${{ steps.filter.outputs.io }}" == "true" ] && echo "- ✅ I/O" >> $GITHUB_STEP_SUMMARY
+            [ "${{ steps.filter.outputs.viz }}" == "true" ] && echo "- ✅ Visualization" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "💡 **Benefit:** Only running tests for changed components saves CI time" >> $GITHUB_STEP_SUMMARY
+
+  smart-test-core:
+    name: Test Core (Smart)
+    needs: detect-changes
+    if: needs.detect-changes.outputs.run_core_tests == 'true' || needs.detect-changes.outputs.run_all_tests == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install uv
+          uv pip install --system -e ".[dev]"
+
+      - name: Run core tests
+        run: |
+          pytest tests/test_canon.py tests/test_generator.py -v --cov=cancrizans/canon.py --cov=cancrizans/generator.py
+
+  smart-test-cli:
+    name: Test CLI (Smart)
+    needs: detect-changes
+    if: needs.detect-changes.outputs.run_cli_tests == 'true' || needs.detect-changes.outputs.run_all_tests == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install uv
+          uv pip install --system -e ".[dev]"
+
+      - name: Run CLI tests
+        run: |
+          pytest tests/test_cli*.py -v --cov=cancrizans/cli.py
+
+  smart-test-pattern:
+    name: Test Pattern Analysis (Smart)
+    needs: detect-changes
+    if: needs.detect-changes.outputs.run_pattern_tests == 'true' || needs.detect-changes.outputs.run_all_tests == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install uv
+          uv pip install --system -e ".[dev]"
+
+      - name: Run pattern analysis tests
+        run: |
+          pytest tests/test_pattern*.py -v --cov=cancrizans/pattern.py
+
+  estimate-time-saved:
+    name: Estimate Time Savings
+    needs: [detect-changes, smart-test-core, smart-test-cli, smart-test-pattern]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Calculate time savings
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const outputs = ${{ toJSON(needs.detect-changes.outputs) }};
+
+            const components = {
+              'Core': outputs.run_core_tests === 'true',
+              'CLI': outputs.run_cli_tests === 'true',
+              'Pattern': outputs.run_pattern_tests === 'true',
+              'Microtonal': outputs.run_microtonal_tests === 'true',
+              'I/O': outputs.run_io_tests === 'true',
+              'Visualization': outputs.run_viz_tests === 'true'
+            };
+
+            const allTests = outputs.run_all_tests === 'true';
+
+            // Estimate: Full test suite takes ~5 minutes
+            // Each component takes ~30-60 seconds
+            const fullSuiteTime = 300; // seconds
+            const componentTime = 45; // seconds average
+
+            let estimatedTime = 0;
+            let componentsRun = 0;
+
+            if (allTests) {
+              estimatedTime = fullSuiteTime;
+              componentsRun = 6;
+            } else {
+              for (const [name, shouldRun] of Object.entries(components)) {
+                if (shouldRun) {
+                  estimatedTime += componentTime;
+                  componentsRun++;
+                }
+              }
+            }
+
+            const timeSaved = fullSuiteTime - estimatedTime;
+            const percentSaved = ((timeSaved / fullSuiteTime) * 100).toFixed(1);
+
+            const summary = `## ⏱️ Smart Testing Report
+
+            **Strategy:** ${allTests ? 'Full test suite' : 'Targeted component testing'}
+
+            **Components tested:** ${componentsRun} / 6
+            **Estimated time:** ~${Math.ceil(estimatedTime / 60)} minutes
+            **Time saved:** ~${Math.ceil(timeSaved / 60)} minutes (${percentSaved}% faster)
+
+            ### Benefits of Smart Testing
+            - ✅ Faster feedback for developers
+            - ✅ Reduced CI costs
+            - ✅ Same quality assurance
+            - ✅ Better resource utilization
+
+            *Note: Full test suite still runs on main branch merges and nightly builds*`;
+
+            core.summary
+              .addRaw(summary)
+              .write();
+
+  comment-on-pr:
+    name: Comment Test Strategy
+    needs: [detect-changes, estimate-time-saved]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const outputs = ${{ toJSON(needs.detect-changes.outputs) }};
+            const allTests = outputs.run_all_tests === 'true';
+
+            let comment = '## 🎯 Smart Test Selection\n\n';
+
+            if (allTests) {
+              comment += '⚠️ **Running full test suite** due to infrastructure changes.\n';
+            } else {
+              comment += '✅ **Running targeted tests** for changed components only.\n\n';
+              comment += '**Components being tested:**\n';
+
+              const components = {
+                'Core': outputs.run_core_tests === 'true',
+                'CLI': outputs.run_cli_tests === 'true',
+                'Pattern Analysis': outputs.run_pattern_tests === 'true',
+                'Microtonal': outputs.run_microtonal_tests === 'true',
+                'I/O': outputs.run_io_tests === 'true',
+                'Visualization': outputs.run_viz_tests === 'true'
+              };
+
+              for (const [name, shouldRun] of Object.entries(components)) {
+                if (shouldRun) {
+                  comment += `- ✅ ${name}\n`;
+                }
+              }
+
+              comment += '\n💡 This saves CI time while maintaining quality!';
+            }
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });

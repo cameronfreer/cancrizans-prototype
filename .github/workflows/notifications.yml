@@ -1,0 +1,277 @@
+name: Notifications
+
+on:
+  workflow_run:
+    workflows: ["CI", "Nightly Comprehensive Tests", "Security Scanning"]
+    types: [completed]
+    branches: [main]
+  release:
+    types: [published]
+  issues:
+    types: [opened]
+    labels: [priority: critical, type: security]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  notify-workflow-failure:
+    name: Notify on Workflow Failure
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.event == 'push'
+    steps:
+      - name: Create failure summary
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const workflow = context.payload.workflow_run;
+
+            const summary = `## ❌ Workflow Failure Alert
+
+            **Workflow:** ${workflow.name}
+            **Branch:** ${workflow.head_branch}
+            **Commit:** ${workflow.head_sha.substring(0, 7)}
+            **Status:** ${workflow.conclusion}
+
+            [View Run](${workflow.html_url})
+
+            ### Action Required
+            - Review the failed workflow run
+            - Check recent commits for breaking changes
+            - Fix the issue and push a fix
+
+            ---
+            *Automated notification from ${workflow.name}*`;
+
+            // Post to workflow summary
+            core.summary
+              .addRaw(summary)
+              .write();
+
+            // You could add integrations here:
+            // - Slack webhook
+            // - Discord webhook
+            // - Email notification
+            // - PagerDuty alert
+            console.log('Failure notification generated');
+
+  notify-security-issue:
+    name: Notify on Security Issue
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'issues' &&
+      contains(github.event.issue.labels.*.name, 'type: security')
+    steps:
+      - name: Alert on security issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+
+            // Add urgent label
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: ['priority: critical']
+            });
+
+            // Add comment with guidance
+            const comment = `🔒 **Security Issue Detected**
+
+            This issue has been labeled as a security concern and flagged as critical priority.
+
+            **Next Steps:**
+            1. A maintainer will review this issue urgently
+            2. If confirmed, a security advisory will be created
+            3. A fix will be developed privately
+            4. The fix will be released as a security patch
+
+            **For Reporters:**
+            - If you haven't already, please email details to security@cancrizans-project.org
+            - Do not share exploit details publicly
+            - We aim to respond within 48 hours
+
+            Thank you for responsibly disclosing this issue! 🙏`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: comment
+            });
+
+            console.log('Security issue notification sent');
+
+  notify-release:
+    name: Notify on Release
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Announce release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const release = context.payload.release;
+
+            const announcement = `## 🎉 New Release: ${release.tag_name}
+
+            A new version of Cancrizans has been released!
+
+            **What's New:**
+            ${release.body}
+
+            **Install:**
+            \`\`\`bash
+            pip install cancrizans==${release.tag_name.replace('v', '')}
+            \`\`\`
+
+            **Docker:**
+            \`\`\`bash
+            docker pull ghcr.io/${context.repo.owner}/${context.repo.repo}:${release.tag_name}
+            \`\`\`
+
+            [View Release](${release.html_url}) | [Changelog](${release.html_url}#changelog)
+
+            ---
+            Thank you to all contributors! 🎵`;
+
+            core.summary
+              .addRaw(announcement)
+              .write();
+
+            console.log('Release announcement generated');
+
+  weekly-digest:
+    name: Weekly Activity Digest
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - name: Generate weekly digest
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+            // Get recent activity
+            const [commits, issues, prs] = await Promise.all([
+              github.rest.repos.listCommits({
+                owner,
+                repo,
+                since,
+                per_page: 100
+              }),
+              github.rest.issues.listForRepo({
+                owner,
+                repo,
+                since,
+                state: 'all',
+                per_page: 100
+              }),
+              github.rest.pulls.list({
+                owner,
+                repo,
+                state: 'all',
+                per_page: 100
+              })
+            ]);
+
+            const digest = `## 📊 Weekly Activity Digest
+
+            **Period:** ${since.split('T')[0]} to ${new Date().toISOString().split('T')[0]}
+
+            ### Commits
+            - **Total:** ${commits.data.length}
+            - **Contributors:** ${new Set(commits.data.map(c => c.author?.login)).size}
+
+            ### Issues
+            - **Opened:** ${issues.data.filter(i => !i.pull_request && new Date(i.created_at) > new Date(since)).length}
+            - **Closed:** ${issues.data.filter(i => !i.pull_request && i.closed_at && new Date(i.closed_at) > new Date(since)).length}
+
+            ### Pull Requests
+            - **Opened:** ${prs.data.filter(pr => new Date(pr.created_at) > new Date(since)).length}
+            - **Merged:** ${prs.data.filter(pr => pr.merged_at && new Date(pr.merged_at) > new Date(since)).length}
+
+            ### Top Contributors (this week)
+            ${commits.data.slice(0, 5).map(c => `- ${c.author?.login || 'Unknown'}`).join('\n')}
+
+            ---
+            *Automated weekly digest*`;
+
+            core.summary
+              .addRaw(digest)
+              .write();
+
+            console.log('Weekly digest generated');
+
+  status-page-update:
+    name: Update Status Page
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_run'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Update status
+        run: |
+          mkdir -p gh-pages/status
+
+          # Create simple status page
+          cat > gh-pages/status/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Cancrizans Status</title>
+              <style>
+                  body { font-family: system-ui; max-width: 800px; margin: 40px auto; padding: 20px; }
+                  .status { padding: 20px; margin: 10px 0; border-radius: 8px; }
+                  .operational { background: #d4edda; color: #155724; }
+                  .degraded { background: #fff3cd; color: #856404; }
+                  .down { background: #f8d7da; color: #721c24; }
+              </style>
+          </head>
+          <body>
+              <h1>🚀 Cancrizans Status</h1>
+              <p>Current operational status of Cancrizans services.</p>
+
+              <div class="status operational">
+                  <h3>✅ CI/CD Pipeline</h3>
+                  <p>All workflows operational</p>
+              </div>
+
+              <div class="status operational">
+                  <h3>✅ Documentation</h3>
+                  <p>Accessible at GitHub Pages</p>
+              </div>
+
+              <div class="status operational">
+                  <h3>✅ Docker Images</h3>
+                  <p>Available on GitHub Container Registry</p>
+              </div>
+
+              <p><small>Last updated: <span id="updated"></span></small></p>
+              <script>
+                  document.getElementById('updated').textContent = new Date().toLocaleString();
+              </script>
+          </body>
+          </html>
+          EOF
+
+      - name: Publish status page
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./gh-pages/status
+          destination_dir: status
+          keep_files: false

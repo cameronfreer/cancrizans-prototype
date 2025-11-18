@@ -1,0 +1,159 @@
+name: Auto-Merge Dependabot
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+jobs:
+  auto-merge-dependabot:
+    name: Auto-Merge Dependabot PRs
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Fetch dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if safe to auto-merge
+        id: check
+        run: |
+          echo "Update type: ${{ steps.metadata.outputs.update-type }}"
+          echo "Package: ${{ steps.metadata.outputs.dependency-names }}"
+
+          # Auto-merge patch and minor updates for dev dependencies
+          if [[ "${{ steps.metadata.outputs.dependency-type }}" == "direct:development" ]] && \
+             [[ "${{ steps.metadata.outputs.update-type }}" =~ ^version-update:semver-(patch|minor)$ ]]; then
+            echo "auto_merge=true" >> $GITHUB_OUTPUT
+            echo "Safe to auto-merge: Development dependency, patch/minor update" >> $GITHUB_STEP_SUMMARY
+          # Auto-merge patch updates for production dependencies
+          elif [[ "${{ steps.metadata.outputs.dependency-type }}" == "direct:production" ]] && \
+               [[ "${{ steps.metadata.outputs.update-type }}" == "version-update:semver-patch" ]]; then
+            echo "auto_merge=true" >> $GITHUB_OUTPUT
+            echo "Safe to auto-merge: Production dependency, patch update" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "auto_merge=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Requires manual review: ${{ steps.metadata.outputs.update-type }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Wait for CI checks
+        if: steps.check.outputs.auto_merge == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // Wait for checks to complete (max 10 minutes)
+            const maxAttempts = 60;
+            const delayMs = 10000;
+
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+              // Get check runs
+              const { data: checkRuns } = await github.rest.checks.listForRef({
+                owner,
+                repo,
+                ref: pr.head.sha,
+              });
+
+              // Get status checks
+              const { data: statuses } = await github.rest.repos.getCombinedStatusForRef({
+                owner,
+                repo,
+                ref: pr.head.sha,
+              });
+
+              // Check if all checks are complete
+              const allChecksPassed = checkRuns.check_runs.every(check =>
+                check.status === 'completed' && check.conclusion === 'success'
+              );
+
+              const allStatusesPassed = statuses.state === 'success';
+
+              const checksInProgress = checkRuns.check_runs.some(check =>
+                check.status !== 'completed'
+              );
+
+              if (allChecksPassed && allStatusesPassed) {
+                console.log('✅ All checks passed!');
+                return;
+              }
+
+              if (!checksInProgress && !allChecksPassed) {
+                throw new Error('❌ Some checks failed');
+              }
+
+              console.log(`⏳ Waiting for checks... (attempt ${attempt + 1}/${maxAttempts})`);
+              await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+
+            throw new Error('⏱️ Timeout waiting for checks');
+
+      - name: Approve PR
+        if: steps.check.outputs.auto_merge == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              event: 'APPROVE',
+              body: '✅ Auto-approved by dependabot auto-merge workflow\n\nThis is a safe dependency update that has passed all checks.'
+            });
+
+      - name: Enable auto-merge
+        if: steps.check.outputs.auto_merge == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              merge_method: 'squash',
+              commit_title: `${{ steps.metadata.outputs.dependency-names }}: Bump to ${{ steps.metadata.outputs.new-version }}`,
+              commit_message: 'Auto-merged by dependabot auto-merge workflow'
+            });
+
+      - name: Comment on manual review needed
+        if: steps.check.outputs.auto_merge == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = `🔍 **Manual Review Required**
+
+            This Dependabot PR requires manual review because:
+            - **Update type:** ${{ steps.metadata.outputs.update-type }}
+            - **Dependency type:** ${{ steps.metadata.outputs.dependency-type }}
+
+            **Auto-merge policy:**
+            - ✅ Auto-merge: Development dependencies (patch/minor)
+            - ✅ Auto-merge: Production dependencies (patch only)
+            - ⚠️ Manual review: All major updates
+            - ⚠️ Manual review: Production minor updates
+
+            Please review the changes and merge manually if appropriate.`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: comment
+            });
+
+      - name: Summary
+        run: |
+          echo "### 🤖 Dependabot Auto-Merge" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Package:** ${{ steps.metadata.outputs.dependency-names }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Update type:** ${{ steps.metadata.outputs.update-type }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Auto-merged:** ${{ steps.check.outputs.auto_merge }}" >> $GITHUB_STEP_SUMMARY

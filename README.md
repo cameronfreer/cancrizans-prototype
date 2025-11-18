@@ -693,6 +693,38 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
   - CI/CD infrastructure metrics
   - JSON and markdown reports
 
+- **Cache Optimization** (`.github/workflows/cache-optimization.yml`)
+  - Daily cache warming for faster CI
+  - Multi-platform pip/uv cache pre-population
+  - Docker layer cache optimization
+  - Test cache warming (pytest, mypy, ruff)
+
+- **Link Checker** (`.github/workflows/link-checker.yml`)
+  - Weekly external link validation
+  - Broken link detection and reporting
+  - Internal file reference validation
+  - API endpoint health checks
+  - Automatic issue creation for broken links
+
+- **Auto-Merge** (`.github/workflows/auto-merge.yml`)
+  - Automatic Dependabot PR merging
+  - Smart policy (patch/minor dev deps, patch prod deps)
+  - CI check waiting and validation
+  - Auto-approval for safe updates
+
+- **Notifications** (`.github/workflows/notifications.yml`)
+  - Workflow failure alerts
+  - Security issue notifications
+  - Release announcements
+  - Weekly activity digests
+  - Status page updates on GitHub Pages
+
+- **Smart Testing** (`.github/workflows/smart-testing.yml`)
+  - Intelligent test selection based on changed files
+  - Component-based test matrix
+  - Time savings estimation and reporting
+  - PR comments with test strategy
+
 ### 📊 Analytics & Monitoring
 - **Test Analytics** (`.github/workflows/test-analytics.yml`)
   - Detailed test result analysis
@@ -730,7 +762,7 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
 - **80%+ code coverage** enforced with automated checks
 - **Zero security vulnerabilities** (daily scans with CodeQL, Safety, Bandit)
 - **18 performance benchmarks** with regression detection (<10% threshold)
-- **24 automated workflows** covering all aspects of development
+- **29 automated workflows** covering all aspects of development
 - **50+ GitHub labels** for organized issue/PR management
 - **10+ pre-commit hooks** for local code quality enforcement
 - **Nightly comprehensive tests** across 3 Python versions and 3 OS platforms
@@ -744,6 +776,11 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
 - **Automated issue management** with smart triaging
 - **Contributor recognition** with automatic acknowledgments
 - **Metrics collection** tracking code, git, and CI/CD statistics
+- **Cache optimization** with daily warming for faster builds
+- **Link validation** with weekly checks and auto-issue creation
+- **Auto-merge** for safe Dependabot updates
+- **Smart testing** saving CI time with targeted test selection
+- **Notification system** for failures, security, and releases
 - **Professional contribution infrastructure** (templates, guides, automation)
 
 All workflows include automated summaries in GitHub Actions for easy monitoring. See `.github/workflows/` for complete configurations.
