@@ -1,0 +1,126 @@
+name: Metrics Collection
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Run daily at 5:00 UTC
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  collect-metrics:
+    name: Collect Repository Metrics
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Collect code metrics
+        run: |
+          mkdir -p metrics
+
+          echo "### 📊 Repository Metrics" > metrics/report.md
+          echo "" >> metrics/report.md
+          echo "*Generated: $(date -u)*" >> metrics/report.md
+          echo "" >> metrics/report.md
+
+          # Code statistics
+          echo "## Code Statistics" >> metrics/report.md
+          echo "" >> metrics/report.md
+
+          TOTAL_PYTHON_LOC=$(find cancrizans -name '*.py' | xargs wc -l | tail -1 | awk '{print $1}')
+          TOTAL_TEST_LOC=$(find tests -name '*.py' | xargs wc -l | tail -1 | awk '{print $1}')
+          TOTAL_FILES=$(find cancrizans -name '*.py' | wc -l)
+          TEST_FILES=$(find tests -name 'test_*.py' | wc -l)
+
+          echo "- **Python LOC (source):** $TOTAL_PYTHON_LOC" >> metrics/report.md
+          echo "- **Python LOC (tests):** $TOTAL_TEST_LOC" >> metrics/report.md
+          echo "- **Source files:** $TOTAL_FILES" >> metrics/report.md
+          echo "- **Test files:** $TEST_FILES" >> metrics/report.md
+          echo "- **Test/Source ratio:** $(echo "scale=2; $TOTAL_TEST_LOC / $TOTAL_PYTHON_LOC" | bc)" >> metrics/report.md
+          echo "" >> metrics/report.md
+
+          # Git statistics
+          echo "## Git Statistics" >> metrics/report.md
+          echo "" >> metrics/report.md
+
+          TOTAL_COMMITS=$(git rev-list --all --count)
+          TOTAL_CONTRIBUTORS=$(git log --format='%aN' | sort -u | wc -l)
+          COMMITS_LAST_30=$(git log --since="30 days ago" --oneline | wc -l)
+          FIRST_COMMIT=$(git log --reverse --format='%ai' | head -1 | cut -d' ' -f1)
+          DAYS_SINCE_START=$(( ( $(date +%s) - $(date -d "$FIRST_COMMIT" +%s) ) / 86400 ))
+
+          echo "- **Total commits:** $TOTAL_COMMITS" >> metrics/report.md
+          echo "- **Contributors:** $TOTAL_CONTRIBUTORS" >> metrics/report.md
+          echo "- **Commits (last 30 days):** $COMMITS_LAST_30" >> metrics/report.md
+          echo "- **Project age:** $DAYS_SINCE_START days" >> metrics/report.md
+          echo "- **Avg commits/day:** $(echo "scale=2; $TOTAL_COMMITS / $DAYS_SINCE_START" | bc)" >> metrics/report.md
+          echo "" >> metrics/report.md
+
+          # Workflow statistics
+          echo "## CI/CD Statistics" >> metrics/report.md
+          echo "" >> metrics/report.md
+
+          WORKFLOW_COUNT=$(ls -1 .github/workflows/*.yml 2>/dev/null | wc -l)
+          LABEL_COUNT=$(grep -c '^- name:' .github/labels.yml 2>/dev/null || echo "0")
+
+          echo "- **GitHub Actions workflows:** $WORKFLOW_COUNT" >> metrics/report.md
+          echo "- **GitHub labels:** $LABEL_COUNT" >> metrics/report.md
+          echo "- **Pre-commit hooks:** $(grep -c 'id:' .pre-commit-config.yaml 2>/dev/null || echo "0")" >> metrics/report.md
+          echo "" >> metrics/report.md
+
+          # Documentation statistics
+          echo "## Documentation Statistics" >> metrics/report.md
+          echo "" >> metrics/report.md
+
+          MD_COUNT=$(find . -name '*.md' -not -path './node_modules/*' -not -path './.*/*' | wc -l)
+          NOTEBOOK_COUNT=$(find notebooks -name '*.ipynb' 2>/dev/null | wc -l)
+
+          echo "- **Markdown files:** $MD_COUNT" >> metrics/report.md
+          echo "- **Jupyter notebooks:** $NOTEBOOK_COUNT" >> metrics/report.md
+          echo "" >> metrics/report.md
+
+      - name: Generate JSON metrics
+        run: |
+          cat > metrics/metrics.json << EOF
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "code": {
+              "python_loc": $(find cancrizans -name '*.py' | xargs wc -l | tail -1 | awk '{print $1}'),
+              "test_loc": $(find tests -name '*.py' | xargs wc -l | tail -1 | awk '{print $1}'),
+              "source_files": $(find cancrizans -name '*.py' | wc -l),
+              "test_files": $(find tests -name 'test_*.py' | wc -l)
+            },
+            "git": {
+              "total_commits": $(git rev-list --all --count),
+              "contributors": $(git log --format='%aN' | sort -u | wc -l),
+              "commits_last_30_days": $(git log --since="30 days ago" --oneline | wc -l)
+            },
+            "ci_cd": {
+              "workflows": $(ls -1 .github/workflows/*.yml 2>/dev/null | wc -l),
+              "labels": $(grep -c '^- name:' .github/labels.yml 2>/dev/null || echo "0"),
+              "pre_commit_hooks": $(grep -c 'id:' .pre-commit-config.yaml 2>/dev/null || echo "0")
+            },
+            "docs": {
+              "markdown_files": $(find . -name '*.md' -not -path './node_modules/*' -not -path './.*/*' | wc -l),
+              "notebooks": $(find notebooks -name '*.ipynb' 2>/dev/null | wc -l)
+            }
+          }
+          EOF
+
+      - name: Upload metrics
+        uses: actions/upload-artifact@v4
+        with:
+          name: repository-metrics
+          path: metrics/
+          retention-days: 90
+
+      - name: Summary
+        run: |
+          cat metrics/report.md >> $GITHUB_STEP_SUMMARY

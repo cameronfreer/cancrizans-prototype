@@ -1,0 +1,307 @@
+name: Issue Management
+
+on:
+  issues:
+    types: [opened, labeled, milestoned]
+  issue_comment:
+    types: [created]
+  schedule:
+    # Run daily at 6:00 UTC
+    - cron: '0 6 * * *'
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  triage-new-issues:
+    name: Triage New Issues
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issues' && github.event.action == 'opened'
+    steps:
+      - name: Auto-label based on title/body
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const title = issue.title.toLowerCase();
+            const body = (issue.body || '').toLowerCase();
+            const labels = [];
+
+            // Auto-label based on keywords
+            if (title.includes('bug') || body.includes('bug')) {
+              labels.push('type: bug');
+            }
+            if (title.includes('feature') || title.includes('enhancement')) {
+              labels.push('type: feature');
+            }
+            if (title.includes('doc') || title.includes('documentation')) {
+              labels.push('type: documentation');
+            }
+            if (title.includes('test')) {
+              labels.push('type: test');
+            }
+            if (title.includes('security')) {
+              labels.push('type: security', 'priority: high');
+            }
+            if (title.includes('performance') || title.includes('slow')) {
+              labels.push('type: performance');
+            }
+
+            // Component labels
+            if (body.includes('cli') || title.includes('cli')) {
+              labels.push('component: cli');
+            }
+            if (body.includes('docker')) {
+              labels.push('component: docker');
+            }
+            if (body.includes('web') || body.includes('frontend')) {
+              labels.push('component: web');
+            }
+            if (body.includes('pattern') || body.includes('analysis')) {
+              labels.push('component: pattern-analysis');
+            }
+            if (body.includes('microtonal') || body.includes('tuning')) {
+              labels.push('component: microtonal');
+            }
+
+            // Check if it's a question
+            if (title.includes('how to') || title.includes('question') || title.endsWith('?')) {
+              labels.push('question');
+            }
+
+            // Apply labels
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: labels
+              });
+            }
+
+      - name: Add welcome comment for new issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+
+            // Check if user has opened issues before
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              creator: issue.user.login,
+              state: 'all'
+            });
+
+            if (issues.data.length === 1) {
+              // First issue from this user
+              const comment = `👋 Thanks for opening your first issue, @${issue.user.login}!
+
+              A maintainer will review your issue and respond as soon as possible.
+
+              In the meantime:
+              - Make sure you've provided all necessary information
+              - Check if there are similar issues already opened
+              - Join our [Discussions](../../discussions) for questions
+
+              We appreciate your contribution! 🎵`;
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: comment
+              });
+            }
+
+  check-issue-activity:
+    name: Check Issue Activity
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - name: Check for issues needing attention
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+
+            // Find issues with no response for 7 days
+            const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+            const issues = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              state: 'open',
+              labels: 'status: needs review',
+              sort: 'updated',
+              direction: 'asc',
+              per_page: 100
+            });
+
+            for (const issue of issues.data) {
+              const updated = new Date(issue.updated_at);
+
+              if (updated < sevenDaysAgo) {
+                // Issue hasn't been updated in 7 days
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: issue.number,
+                  body: `👋 This issue has been waiting for a response for 7 days.
+
+                  **@${issue.user.login}**, is this still an issue? If so, please provide any additional information that might help us resolve it.
+
+                  If we don't hear back within 7 days, this issue will be marked as stale.`
+                });
+
+                // Add reminder label
+                await github.rest.issues.addLabels({
+                  owner,
+                  repo,
+                  issue_number: issue.number,
+                  labels: ['needs-feedback']
+                });
+              }
+            }
+
+  close-answered-questions:
+    name: Close Answered Questions
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issue_comment'
+    steps:
+      - name: Check if question was answered
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const comment = context.payload.comment;
+
+            // Check if this is a question
+            if (!issue.labels.some(l => l.name === 'question')) {
+              return;
+            }
+
+            // Check if the comment contains phrases indicating resolution
+            const resolvedPhrases = [
+              'thank you',
+              'thanks',
+              'that worked',
+              'that fixed it',
+              'solved',
+              'resolved',
+              'this helped'
+            ];
+
+            const commentBody = comment.body.toLowerCase();
+            const isResolved = resolvedPhrases.some(phrase => commentBody.includes(phrase));
+
+            if (isResolved && comment.user.login === issue.user.login) {
+              // Original poster indicated the question was answered
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `Glad we could help! Closing this as answered. Feel free to open a new issue if you have more questions. 😊`
+              });
+
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed',
+                state_reason: 'completed'
+              });
+            }
+
+  assign-milestones:
+    name: Auto-assign Milestones
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issues' && github.event.action == 'labeled'
+    steps:
+      - name: Assign to milestone based on priority
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const label = context.payload.label;
+
+            // Get all milestones
+            const milestones = await github.rest.issues.listMilestones({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open'
+            });
+
+            if (milestones.data.length === 0) return;
+
+            let targetMilestone = null;
+
+            // Assign based on priority
+            if (label.name === 'priority: critical') {
+              // Assign to nearest milestone
+              targetMilestone = milestones.data[0];
+            } else if (label.name === 'priority: high') {
+              // Assign to nearest or next milestone
+              targetMilestone = milestones.data[0];
+            }
+
+            // Only assign if not already in a milestone
+            if (targetMilestone && !issue.milestone) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                milestone: targetMilestone.number
+              });
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `📌 Added to milestone: **${targetMilestone.title}**`
+              });
+            }
+
+  duplicate-detection:
+    name: Detect Duplicate Issues
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issues' && github.event.action == 'opened'
+    steps:
+      - name: Check for similar issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const title = issue.title.toLowerCase();
+
+            // Search for similar issues
+            const searchQuery = title.split(' ').slice(0, 5).join(' ');
+
+            const { data: searchResults } = await github.rest.search.issuesAndPullRequests({
+              q: `repo:${context.repo.owner}/${context.repo.repo} is:issue ${searchQuery}`,
+              per_page: 5
+            });
+
+            // Filter out current issue and find potential duplicates
+            const potentialDuplicates = searchResults.items
+              .filter(i => i.number !== issue.number)
+              .slice(0, 3);
+
+            if (potentialDuplicates.length > 0) {
+              let comment = `🔍 We found some potentially related issues:\n\n`;
+
+              for (const dup of potentialDuplicates) {
+                const state = dup.state === 'open' ? '🟢' : '⚫';
+                comment += `${state} #${dup.number} - ${dup.title}\n`;
+              }
+
+              comment += `\nPlease check if any of these address your issue before we proceed.`;
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: comment
+              });
+            }

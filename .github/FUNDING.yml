@@ -1,0 +1,26 @@
+# Sponsor configuration
+# See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+
+# GitHub Sponsors
+github: # Add your GitHub username here if you have GitHub Sponsors enabled
+  # - username
+
+# Open Collective
+open_collective: # Add your Open Collective username here
+  # - cancrizans
+
+# Ko-fi
+ko_fi: # Add your Ko-fi username here
+  # - cancrizans
+
+# Patreon
+patreon: # Add your Patreon username here
+  # - cancrizans
+
+# Custom URLs
+custom:
+  # - https://www.buymeacoffee.com/cancrizans
+  # - https://paypal.me/cancrizans
+
+# Note: Uncomment and add your usernames/URLs to enable sponsor buttons
+# This helps support the development and maintenance of Cancrizans

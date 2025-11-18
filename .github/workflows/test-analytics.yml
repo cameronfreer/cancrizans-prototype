@@ -1,0 +1,335 @@
+name: Test Analytics
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run daily at 3:00 UTC
+    - cron: '0 3 * * *'
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  collect-test-data:
+    name: Collect Test Data
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          uv pip install --system -e ".[dev]"
+          pip install pytest-json-report pytest-html pytest-benchmark
+
+      - name: Run tests with detailed reporting
+        run: |
+          pytest tests/ \
+            --json-report \
+            --json-report-file=test-report.json \
+            --html=test-report.html \
+            --self-contained-html \
+            --junitxml=junit.xml \
+            --cov=cancrizans \
+            --cov-report=json \
+            --cov-report=html \
+            --durations=0 \
+            -v
+
+      - name: Analyze test results
+        if: always()
+        run: |
+          echo "### 📊 Test Analytics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Parse test results
+          python << 'EOF' >> $GITHUB_STEP_SUMMARY
+          import json
+          from pathlib import Path
+          from datetime import datetime
+
+          # Load test report
+          with open('test-report.json') as f:
+              report = json.load(f)
+
+          # Summary statistics
+          summary = report.get('summary', {})
+          print(f"**Total Tests:** {summary.get('total', 0)}")
+          print(f"**Passed:** ✅ {summary.get('passed', 0)}")
+          print(f"**Failed:** ❌ {summary.get('failed', 0)}")
+          print(f"**Skipped:** ⏭️ {summary.get('skipped', 0)}")
+          print(f"**Duration:** {summary.get('duration', 0):.2f}s")
+          print("")
+
+          # Test categories
+          tests_by_file = {}
+          for test in report.get('tests', []):
+              file_name = test.get('nodeid', '').split('::')[0]
+              if file_name not in tests_by_file:
+                  tests_by_file[file_name] = {'passed': 0, 'failed': 0, 'skipped': 0}
+
+              outcome = test.get('outcome', 'unknown')
+              if outcome in tests_by_file[file_name]:
+                  tests_by_file[file_name][outcome] += 1
+
+          # Top slowest tests
+          print("#### ⏱️ Slowest Tests (Top 10)")
+          print("")
+          print("| Test | Duration |")
+          print("|------|----------|")
+
+          slowest = sorted(
+              report.get('tests', []),
+              key=lambda x: x.get('call', {}).get('duration', 0),
+              reverse=True
+          )[:10]
+
+          for test in slowest:
+              name = test.get('nodeid', '').split('::')[-1][:50]
+              duration = test.get('call', {}).get('duration', 0)
+              print(f"| {name} | {duration:.3f}s |")
+
+          print("")
+
+          # Failed tests details
+          failed_tests = [t for t in report.get('tests', []) if t.get('outcome') == 'failed']
+          if failed_tests:
+              print("#### ❌ Failed Tests")
+              print("")
+              for test in failed_tests:
+                  name = test.get('nodeid', '')
+                  print(f"**{name}**")
+                  longrepr = test.get('call', {}).get('longrepr', '')
+                  if longrepr:
+                      print("```")
+                      print(longrepr[:500])
+                      print("```")
+                  print("")
+          EOF
+
+      - name: Analyze test coverage trends
+        if: always()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### 📈 Coverage Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          python << 'EOF' >> $GITHUB_STEP_SUMMARY
+          import json
+
+          with open('coverage.json') as f:
+              cov = json.load(f)
+
+          total_cov = cov['totals']['percent_covered']
+          print(f"**Overall Coverage:** {total_cov:.2f}%")
+          print("")
+
+          # Find files with low coverage
+          print("**Files with < 80% Coverage:**")
+          print("")
+          print("| File | Coverage | Missing Lines |")
+          print("|------|----------|---------------|")
+
+          for file, data in sorted(cov['files'].items(), key=lambda x: x[1]['summary']['percent_covered']):
+              if file.startswith('cancrizans/'):
+                  coverage = data['summary']['percent_covered']
+                  if coverage < 80:
+                      missing = len(data.get('missing_lines', []))
+                      emoji = "🔴" if coverage < 60 else "🟠" if coverage < 70 else "🟡"
+                      print(f"| {emoji} {file} | {coverage:.1f}% | {missing} |")
+          EOF
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-analytics-${{ github.run_number }}
+          path: |
+            test-report.json
+            test-report.html
+            junit.xml
+            coverage.json
+            htmlcov/
+          retention-days: 90
+
+      - name: Publish test results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always()
+        with:
+          files: junit.xml
+          check_name: Test Results
+          comment_mode: off
+
+  test-flakiness:
+    name: Detect Flaky Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          uv pip install --system -e ".[dev]"
+          pip install pytest-rerunfailures
+
+      - name: Run tests multiple times to detect flakiness
+        run: |
+          echo "### 🔄 Flaky Test Detection" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Running test suite 5 times to detect flaky tests..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Run tests 5 times and collect results
+          for i in {1..5}; do
+            echo "Run $i:" >> test-runs.txt
+            pytest tests/ -v --tb=no --reruns 0 >> test-runs.txt 2>&1 || true
+            echo "---" >> test-runs.txt
+          done
+
+          # Analyze for flakiness
+          python << 'EOF'
+          import re
+          from collections import defaultdict
+
+          with open('test-runs.txt') as f:
+              content = f.read()
+
+          # Extract test results
+          test_results = defaultdict(list)
+          current_run = 0
+
+          for line in content.split('\n'):
+              if line.startswith('Run '):
+                  current_run += 1
+              elif ' PASSED' in line or ' FAILED' in line:
+                  match = re.search(r'(tests/[^\s]+)\s+(PASSED|FAILED)', line)
+                  if match:
+                      test_name, result = match.groups()
+                      test_results[test_name].append(result)
+
+          # Find flaky tests
+          flaky_tests = []
+          for test, results in test_results.items():
+              if len(set(results)) > 1:  # Different results across runs
+                  flaky_tests.append((test, results))
+
+          if flaky_tests:
+              print(f"⚠️ **Found {len(flaky_tests)} flaky test(s):**\n")
+              for test, results in flaky_tests:
+                  passed = results.count('PASSED')
+                  failed = results.count('FAILED')
+                  print(f"- `{test}` - Passed {passed}/5, Failed {failed}/5")
+          else:
+              print("✅ No flaky tests detected!")
+          EOF
+
+      - name: Create issue for flaky tests
+        if: always()
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            const fs = require('fs');
+
+            // Check if flaky tests were found
+            const output = fs.readFileSync('test-runs.txt', 'utf8');
+
+            // Simple check - in production, parse the results properly
+            if (output.includes('FAILED') && output.includes('PASSED')) {
+              // Create or update issue about flaky tests
+              const title = '🔄 Flaky Tests Detected';
+              const body = `Flaky tests were detected in the nightly run.
+
+              **Date:** ${new Date().toISOString()}
+
+              Please investigate and fix these tests to ensure reliability.
+
+              See the [workflow run](${context.payload.repository.html_url}/actions/runs/${context.runId}) for details.`;
+
+              const issues = await github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                labels: 'flaky-tests'
+              });
+
+              if (issues.data.length === 0) {
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: title,
+                  body: body,
+                  labels: ['type: test', 'priority: medium', 'flaky-tests']
+                });
+              }
+            }
+
+  mutation-testing:
+    name: Mutation Testing
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install mutmut
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          uv pip install --system -e ".[dev]"
+
+      - name: Run mutation testing (sample)
+        continue-on-error: true
+        run: |
+          echo "### 🧬 Mutation Testing" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Testing test suite quality by introducing mutations..." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Run mutation testing on a sample module (full run would take too long)
+          mutmut run --paths-to-mutate=cancrizans/canon.py --tests-dir=tests/ || true
+
+          # Generate report
+          mutmut results > mutation-results.txt || true
+
+          echo "#### Results" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat mutation-results.txt | head -50 >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload mutation report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutation-testing-report
+          path: mutation-results.txt
+          retention-days: 30

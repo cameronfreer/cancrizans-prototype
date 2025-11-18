@@ -1,0 +1,296 @@
+name: Performance Tracking
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run daily at 4:00 UTC
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  track-performance:
+    name: Track Performance Metrics
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          uv pip install --system -e ".[dev]"
+          pip install matplotlib pandas
+
+      - name: Run benchmarks
+        run: |
+          python benchmarks/benchmark_suite.py
+
+      - name: Download historical data
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Update performance history
+        run: |
+          mkdir -p gh-pages/performance
+
+          python << 'EOF'
+          import json
+          import os
+          from pathlib import Path
+          from datetime import datetime
+
+          # Load current results
+          current_file = Path('benchmarks/results/benchmark_results.json')
+          with open(current_file) as f:
+              current = json.load(f)
+
+          # Load historical data
+          history_file = Path('gh-pages/performance/history.json')
+          if history_file.exists():
+              with open(history_file) as f:
+                  history = json.load(f)
+          else:
+              history = []
+
+          # Add current results to history
+          entry = {
+              'timestamp': current['timestamp'],
+              'commit': os.getenv('GITHUB_SHA', 'unknown')[:8],
+              'benchmarks': current['benchmarks']
+          }
+          history.append(entry)
+
+          # Keep last 100 entries
+          history = history[-100:]
+
+          # Save updated history
+          history_file.parent.mkdir(parents=True, exist_ok=True)
+          with open(history_file, 'w') as f:
+              json.dump(history, f, indent=2)
+
+          print(f"Updated performance history with {len(history)} entries")
+          EOF
+
+      - name: Generate performance charts
+        run: |
+          python << 'EOF'
+          import json
+          import matplotlib.pyplot as plt
+          import pandas as pd
+          from pathlib import Path
+          from datetime import datetime
+
+          # Load history
+          history_file = Path('gh-pages/performance/history.json')
+          if not history_file.exists():
+              print("No history file yet")
+              exit(0)
+
+          with open(history_file) as f:
+              history = json.load(f)
+
+          if len(history) < 2:
+              print("Not enough data points yet")
+              exit(0)
+
+          # Extract data
+          benchmark_names = [b['name'] for b in history[0]['benchmarks']]
+
+          # Create charts for key benchmarks
+          key_benchmarks = [
+              'Generate small scale canon (8 notes)',
+              'Detect motifs (polyphonic)',
+              'Check palindrome symmetry (small)',
+          ]
+
+          fig, axes = plt.subplots(len(key_benchmarks), 1, figsize=(12, 4 * len(key_benchmarks)))
+          if len(key_benchmarks) == 1:
+              axes = [axes]
+
+          for idx, benchmark_name in enumerate(key_benchmarks):
+              times = []
+              dates = []
+
+              for entry in history:
+                  date = datetime.fromisoformat(entry['timestamp'])
+                  dates.append(date)
+
+                  # Find this benchmark
+                  for b in entry['benchmarks']:
+                      if b['name'] == benchmark_name:
+                          times.append(b['avg_duration'] * 1000)  # Convert to ms
+                          break
+
+              ax = axes[idx]
+              ax.plot(dates, times, marker='o', linestyle='-', linewidth=2)
+              ax.set_title(f'{benchmark_name}', fontsize=12, fontweight='bold')
+              ax.set_xlabel('Date')
+              ax.set_ylabel('Duration (ms)')
+              ax.grid(True, alpha=0.3)
+              ax.tick_params(axis='x', rotation=45)
+
+          plt.tight_layout()
+          plt.savefig('gh-pages/performance/performance-trends.png', dpi=150, bbox_inches='tight')
+          print("Generated performance trend chart")
+
+          # Generate summary table
+          latest = history[-1]
+          if len(history) > 1:
+              previous = history[-2]
+
+              print("\n### Performance Comparison")
+              print("\n| Benchmark | Current (ms) | Previous (ms) | Change |")
+              print("|-----------|--------------|---------------|--------|")
+
+              for curr_b in latest['benchmarks']:
+                  name = curr_b['name']
+                  curr_time = curr_b['avg_duration'] * 1000
+
+                  # Find previous
+                  prev_b = next((b for b in previous['benchmarks'] if b['name'] == name), None)
+                  if prev_b:
+                      prev_time = prev_b['avg_duration'] * 1000
+                      change_pct = ((curr_time - prev_time) / prev_time) * 100
+
+                      emoji = "✅" if abs(change_pct) < 5 else "🚀" if change_pct < 0 else "⚠️"
+                      print(f"| {name[:40]} | {curr_time:.3f} | {prev_time:.3f} | {emoji} {change_pct:+.1f}% |")
+          EOF
+
+      - name: Generate performance report
+        run: |
+          cat > gh-pages/performance/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Cancrizans Performance Tracking</title>
+              <style>
+                  body {
+                      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                      max-width: 1200px;
+                      margin: 0 auto;
+                      padding: 20px;
+                      background: #f5f5f5;
+                  }
+                  h1 { color: #333; }
+                  .chart { background: white; padding: 20px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                  img { max-width: 100%; height: auto; }
+                  table { width: 100%; border-collapse: collapse; background: white; }
+                  th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+                  th { background: #667eea; color: white; }
+              </style>
+          </head>
+          <body>
+              <h1>🚀 Performance Tracking Dashboard</h1>
+              <p>Automated performance tracking for Cancrizans benchmarks.</p>
+
+              <div class="chart">
+                  <h2>Performance Trends</h2>
+                  <img src="performance-trends.png" alt="Performance Trends">
+              </div>
+
+              <div class="chart">
+                  <h2>Historical Data</h2>
+                  <p><a href="history.json">Download JSON data</a></p>
+              </div>
+
+              <p><em>Last updated: <span id="timestamp"></span></em></p>
+              <script>
+                  document.getElementById('timestamp').textContent = new Date().toLocaleString();
+              </script>
+          </body>
+          </html>
+          EOF
+
+      - name: Publish to GitHub Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./gh-pages/performance
+          destination_dir: performance
+          keep_files: false
+
+      - name: Comment on PR with performance diff
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            const fs = require('fs');
+
+            // Load current and historical results
+            const current = JSON.parse(fs.readFileSync('benchmarks/results/benchmark_results.json', 'utf8'));
+
+            let previousPath = 'gh-pages/performance/history.json';
+            if (!fs.existsSync(previousPath)) {
+              console.log('No historical data available yet');
+              return;
+            }
+
+            const history = JSON.parse(fs.readFileSync(previousPath, 'utf8'));
+            if (history.length === 0) return;
+
+            const previous = history[history.length - 1];
+
+            let comment = '## ⚡ Performance Impact\n\n';
+            comment += '| Benchmark | Current | Baseline | Change |\n';
+            comment += '|-----------|---------|----------|--------|\n';
+
+            let hasRegression = false;
+            for (const currBench of current.benchmarks) {
+              const prevBench = previous.benchmarks.find(b => b.name === currBench.name);
+              if (!prevBench) continue;
+
+              const currTime = (currBench.avg_duration * 1000).toFixed(3);
+              const prevTime = (prevBench.avg_duration * 1000).toFixed(3);
+              const changePct = ((currBench.avg_duration - prevBench.avg_duration) / prevBench.avg_duration * 100);
+
+              let emoji = '✅';
+              if (Math.abs(changePct) < 5) emoji = '✅';
+              else if (changePct < 0) emoji = '🚀';
+              else if (changePct > 10) { emoji = '⚠️'; hasRegression = true; }
+              else emoji = '⚠️';
+
+              comment += `| ${currBench.name.substring(0, 40)} | ${currTime}ms | ${prevTime}ms | ${emoji} ${changePct > 0 ? '+' : ''}${changePct.toFixed(1)}% |\n`;
+            }
+
+            if (hasRegression) {
+              comment += '\n⚠️ **Performance regression detected** (>10% slower)\n';
+            }
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### 📊 Performance Tracking Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Performance data has been collected and tracked." >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "📈 **Dashboard:** https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/performance/" >> $GITHUB_STEP_SUMMARY
+          fi
