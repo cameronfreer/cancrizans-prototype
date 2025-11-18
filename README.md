@@ -625,6 +625,17 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
   - Automatic issue creation if >5 problems detected
   - PR comments for license issues
 
+- **Container Security Scanning** (`.github/workflows/container-security.yml`)
+  - **Multi-tool container image security analysis** (weekly + on Dockerfile changes)
+  - Trivy vulnerability scanner for container images
+  - Hadolint Dockerfile best practices linting
+  - Secret detection in container layers
+  - Image size analysis and optimization recommendations
+  - Categorized vulnerability reports (Critical/High/Medium/Low)
+  - PR comments for critical/high vulnerabilities
+  - Fails on critical vulnerabilities
+  - 90-day security report retention
+
 ### ⚡ Performance Monitoring
 - **Benchmark Suite** (`.github/workflows/benchmark.yml`)
   - 20+ performance benchmarks
@@ -671,6 +682,16 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
   - TODO/FIXME comment tracking
   - Code example syntax validation
   - PR comments for documentation issues
+
+- **API Documentation Publishing** (`.github/workflows/api-docs-publish.yml`)
+  - **Automated API documentation generation and publishing**
+  - Sphinx API documentation with autodoc
+  - pdoc3 alternative documentation generation
+  - Documentation coverage reporting (modules/classes/functions)
+  - Multi-format documentation index page
+  - Publishes to api-docs branch and GitHub Pages
+  - Lists undocumented items for improvement
+  - 90-day documentation artifact retention
 
 - **Documentation Deployment** (`.github/workflows/docs-deploy.yml`)
   - Automatic Sphinx documentation generation
@@ -737,6 +758,26 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
   - License compatibility checks
   - Dependency tree analysis
   - Installation size tracking
+
+- **Mutation Testing** (`.github/workflows/mutation-testing.yml`)
+  - **Weekly test quality assessment** with mutmut
+  - Evaluates test suite effectiveness by introducing code mutations
+  - Tracks killed/survived/timeout/suspicious mutants
+  - Mutation score calculation (% of mutants caught by tests)
+  - Identifies gaps in test coverage
+  - Lists survived mutants for test improvement
+  - Creates issues for mutation score <60%
+  - Historical baseline tracking
+  - 120-minute timeout for comprehensive analysis
+
+- **Cross-Platform Validation** (`.github/workflows/cross-platform-validation.yml`)
+  - **Bi-weekly multi-platform testing** (Tuesdays and Fridays)
+  - Tests 11 platform combinations (Ubuntu/macOS/Windows × Python 3.11/3.12/3.13)
+  - Includes ARM64 (macOS) and x86 (Windows) architecture testing
+  - Platform-specific MIDI, file path, and CLI testing
+  - Dependency availability checks per platform
+  - Aggregated cross-platform test results
+  - PR comments with platform validation status
 
 ### 🤖 Automation
 - **Dependabot** (`.github/dependabot.yml`)
@@ -998,7 +1039,7 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
 - **80%+ code coverage** enforced with automated checks
 - **Zero security vulnerabilities** (daily scans with CodeQL, pip-audit, Bandit)
 - **18 performance benchmarks** with regression detection (<10% threshold)
-- **54 automated workflows** covering all aspects of development
+- **58 automated workflows** covering all aspects of development
 - **50+ GitHub labels** for organized issue/PR management
 - **10+ pre-commit hooks** for local code quality enforcement
 - **Reusable composite action** for Python environment setup

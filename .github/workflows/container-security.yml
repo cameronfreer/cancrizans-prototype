@@ -1,0 +1,283 @@
+name: Container Security Scanning
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Dockerfile*'
+      - 'docker-compose*.yml'
+      - '.dockerignore'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'Dockerfile*'
+      - 'docker-compose*.yml'
+  schedule:
+    # Weekly on Mondays at 05:00 UTC
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  scan-container:
+    name: Scan Container Images
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build container image
+        if: hashFiles('Dockerfile') != ''
+        run: |
+          docker build -t cancrizans:test .
+
+      - name: Run Trivy vulnerability scanner
+        if: hashFiles('Dockerfile') != ''
+        continue-on-error: true
+        run: |
+          # Install Trivy
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install trivy
+
+          mkdir -p security-reports
+
+          # Scan image
+          trivy image \
+            --format json \
+            --output security-reports/trivy-report.json \
+            cancrizans:test
+
+          # Also generate table format
+          trivy image \
+            --format table \
+            --output security-reports/trivy-report.txt \
+            cancrizans:test
+
+      - name: Analyze Trivy results
+        if: hashFiles('security-reports/trivy-report.json') != ''
+        run: |
+          echo "### 🐳 Container Security Scan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          python << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import json
+          from pathlib import Path
+          from collections import defaultdict
+
+          report_file = Path('security-reports/trivy-report.json')
+          if not report_file.exists():
+              print("No Trivy report found")
+              exit(0)
+
+          with open(report_file) as f:
+              report = json.load(f)
+
+          # Count vulnerabilities by severity
+          by_severity = defaultdict(int)
+          total_vulns = 0
+
+          for result in report.get('Results', []):
+              for vuln in result.get('Vulnerabilities', []):
+                  severity = vuln.get('Severity', 'UNKNOWN')
+                  by_severity[severity] += 1
+                  total_vulns += 1
+
+          print(f"**Total Vulnerabilities: {total_vulns}**\n")
+
+          if total_vulns > 0:
+              print("| Severity | Count |")
+              print("|----------|-------|")
+              for severity in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN']:
+                  count = by_severity.get(severity, 0)
+                  if count > 0:
+                      emoji = '🔴' if severity == 'CRITICAL' else '🟠' if severity == 'HIGH' else '🟡' if severity == 'MEDIUM' else 'ℹ️'
+                      print(f"| {emoji} {severity} | {count} |")
+
+              # Show critical/high vulnerabilities
+              critical_high = []
+              for result in report.get('Results', []):
+                  for vuln in result.get('Vulnerabilities', []):
+                      if vuln.get('Severity') in ['CRITICAL', 'HIGH']:
+                          critical_high.append({
+                              'pkg': vuln.get('PkgName', 'Unknown'),
+                              'version': vuln.get('InstalledVersion', 'N/A'),
+                              'vuln_id': vuln.get('VulnerabilityID', 'N/A'),
+                              'severity': vuln.get('Severity', 'UNKNOWN'),
+                              'fixed': vuln.get('FixedVersion', 'Not available')
+                          })
+
+              if critical_high:
+                  print(f"\n### 🚨 Critical/High Vulnerabilities\n")
+                  print("| Package | Version | CVE | Severity | Fix |")
+                  print("|---------|---------|-----|----------|-----|")
+                  for v in critical_high[:10]:
+                      print(f"| {v['pkg']} | {v['version']} | {v['vuln_id']} | {v['severity']} | {v['fixed']} |")
+
+                  if len(critical_high) > 10:
+                      print(f"\n...and {len(critical_high) - 10} more")
+          else:
+              print("✅ No vulnerabilities detected")
+          PYEOF
+
+      - name: Scan Dockerfile with Hadolint
+        if: hashFiles('Dockerfile') != ''
+        continue-on-error: true
+        run: |
+          docker run --rm -i hadolint/hadolint < Dockerfile > security-reports/hadolint.txt 2>&1 || true
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📝 Dockerfile Best Practices (Hadolint)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -s security-reports/hadolint.txt ]; then
+            ISSUE_COUNT=$(wc -l < security-reports/hadolint.txt)
+            echo "**$ISSUE_COUNT issue(s) found:**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat security-reports/hadolint.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ No Dockerfile issues detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check for secrets in container
+        if: hashFiles('Dockerfile') != ''
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔑 Secret Detection in Image" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Export image layers and scan for secrets
+          docker save cancrizans:test -o /tmp/image.tar
+
+          python << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import tarfile
+          import re
+          from pathlib import Path
+
+          patterns = {
+              'Private Key': r'-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----',
+              'AWS Key': r'AKIA[0-9A-Z]{16}',
+              'API Key': r'(?i)(api[_-]?key|apikey)\s*[:=]\s*["\']([a-zA-Z0-9]{20,})["\']',
+              'Password': r'(?i)(password|passwd)\s*[:=]\s*["\']([^"\']{8,})["\']'
+          }
+
+          findings = []
+
+          try:
+              with tarfile.open('/tmp/image.tar', 'r') as tar:
+                  for member in tar.getmembers():
+                      if member.isfile() and member.size < 10*1024*1024:  # Skip large files
+                          try:
+                              content = tar.extractfile(member).read().decode('utf-8', errors='ignore')
+                              for secret_type, pattern in patterns.items():
+                                  if re.search(pattern, content):
+                                      findings.append(f"{member.name}: Possible {secret_type}")
+                          except:
+                              pass
+          except Exception as e:
+              print(f"Error scanning image: {e}")
+
+          if findings:
+              print(f"**⚠️ {len(findings)} potential secret(s) found:**\n")
+              for finding in findings[:10]:
+                  print(f"- {finding}")
+          else:
+              print("✅ No secrets detected in container image")
+          PYEOF
+
+      - name: Check image size
+        if: hashFiles('Dockerfile') != ''
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Image Size Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          SIZE=$(docker images cancrizans:test --format "{{.Size}}")
+          echo "**Image size:** $SIZE" >> $GITHUB_STEP_SUMMARY
+
+          # Get layer information
+          docker history cancrizans:test --no-trunc --format "table {{.CreatedBy}}\t{{.Size}}" | head -10 >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload security reports
+        if: hashFiles('security-reports/*') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-security-${{ github.run_number }}
+          path: security-reports/
+          retention-days: 90
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && hashFiles('security-reports/trivy-report.json') != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            if (!fs.existsSync('security-reports/trivy-report.json')) {
+              return;
+            }
+
+            const report = JSON.parse(fs.readFileSync('security-reports/trivy-report.json', 'utf8'));
+
+            let criticalCount = 0;
+            let highCount = 0;
+
+            for (const result of report.Results || []) {
+              for (const vuln of result.Vulnerabilities || []) {
+                if (vuln.Severity === 'CRITICAL') criticalCount++;
+                if (vuln.Severity === 'HIGH') highCount++;
+              }
+            }
+
+            if (criticalCount > 0 || highCount > 0) {
+              const comment = `## 🐳 Container Security Alert
+
+              **Critical:** ${criticalCount}
+              **High:** ${highCount}
+
+              Please review the [security scan results](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) and address critical/high vulnerabilities before merging.
+              `;
+
+              github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }
+
+      - name: Fail on critical vulnerabilities
+        if: hashFiles('security-reports/trivy-report.json') != ''
+        run: |
+          python << 'PYEOF'
+          import json
+          import sys
+          from pathlib import Path
+
+          report_file = Path('security-reports/trivy-report.json')
+          if not report_file.exists():
+              sys.exit(0)
+
+          with open(report_file) as f:
+              report = json.load(f)
+
+          critical_count = 0
+          for result in report.get('Results', []):
+              for vuln in result.get('Vulnerabilities', []):
+                  if vuln.get('Severity') == 'CRITICAL':
+                      critical_count += 1
+
+          if critical_count > 0:
+              print(f"::error::{critical_count} critical vulnerability(ies) detected in container image")
+              sys.exit(1)
+          PYEOF

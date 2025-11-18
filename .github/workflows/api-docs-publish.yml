@@ -1,0 +1,288 @@
+name: API Documentation Publishing
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'cancrizans/**/*.py'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-publish:
+    name: Build and Publish API Documentation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Install documentation tools
+        run: |
+          pip install \
+            sphinx \
+            sphinx-rtd-theme \
+            sphinx-autodoc-typehints \
+            myst-parser \
+            sphinx-copybutton \
+            sphinxcontrib-mermaid \
+            pdoc3
+
+      - name: Generate API documentation with Sphinx
+        run: |
+          mkdir -p docs/_build/html
+
+          # Auto-generate API documentation
+          sphinx-apidoc -f -o docs/api cancrizans/
+
+          # Build Sphinx documentation
+          cd docs
+          sphinx-build -W --keep-going -b html . _build/html
+          cd ..
+
+          echo "### 📚 Sphinx Documentation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Sphinx documentation built successfully" >> $GITHUB_STEP_SUMMARY
+
+      - name: Generate alternative API docs with pdoc
+        continue-on-error: true
+        run: |
+          mkdir -p docs/_build/pdoc
+
+          pdoc --html --output-dir docs/_build/pdoc --config show_source_code=True cancrizans
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📖 pdoc Documentation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ pdoc documentation generated" >> $GITHUB_STEP_SUMMARY
+
+      - name: Generate documentation coverage report
+        run: |
+          python << 'PYEOF'
+          import ast
+          from pathlib import Path
+          from collections import defaultdict
+
+          stats = defaultdict(lambda: {'total': 0, 'documented': 0, 'files': []})
+
+          def has_docstring(node):
+              """Check if a node has a docstring."""
+              return (ast.get_docstring(node) is not None and
+                      len(ast.get_docstring(node).strip()) > 0)
+
+          for py_file in Path('cancrizans').rglob('*.py'):
+              if '__pycache__' in str(py_file):
+                  continue
+
+              try:
+                  tree = ast.parse(py_file.read_text())
+
+                  # Module docstring
+                  if has_docstring(tree):
+                      stats['modules']['documented'] += 1
+                  stats['modules']['total'] += 1
+
+                  for node in ast.walk(tree):
+                      # Functions
+                      if isinstance(node, ast.FunctionDef):
+                          if not node.name.startswith('_'):
+                              stats['functions']['total'] += 1
+                              if has_docstring(node):
+                                  stats['functions']['documented'] += 1
+                              else:
+                                  stats['functions']['files'].append(f"{py_file}:{node.lineno} - {node.name}()")
+
+                      # Classes
+                      elif isinstance(node, ast.ClassDef):
+                          if not node.name.startswith('_'):
+                              stats['classes']['total'] += 1
+                              if has_docstring(node):
+                                  stats['classes']['documented'] += 1
+                              else:
+                                  stats['classes']['files'].append(f"{py_file}:{node.lineno} - {node.name}")
+
+              except Exception as e:
+                  print(f"Error parsing {py_file}: {e}")
+
+          # Generate coverage report
+          print("\n### 📊 Documentation Coverage\n")
+          print("| Type | Documented | Total | Coverage |")
+          print("|------|------------|-------|----------|")
+
+          total_items = 0
+          total_documented = 0
+
+          for category in ['modules', 'classes', 'functions']:
+              if stats[category]['total'] > 0:
+                  coverage = (stats[category]['documented'] / stats[category]['total']) * 100
+                  print(f"| {category.capitalize()} | {stats[category]['documented']} | {stats[category]['total']} | {coverage:.1f}% |")
+                  total_items += stats[category]['total']
+                  total_documented += stats[category]['documented']
+
+          if total_items > 0:
+              overall = (total_documented / total_items) * 100
+              print(f"| **Overall** | **{total_documented}** | **{total_items}** | **{overall:.1f}%** |")
+
+          # Undocumented items
+          if stats['functions']['files']:
+              print(f"\n### ⚠️ Undocumented Functions (Sample)\n")
+              for item in stats['functions']['files'][:10]:
+                  print(f"- {item}")
+
+          if stats['classes']['files']:
+              print(f"\n### ⚠️ Undocumented Classes (Sample)\n")
+              for item in stats['classes']['files'][:10]:
+                  print(f"- {item}")
+
+          # Save coverage data
+          import json
+          with open('docs/_build/doc_coverage.json', 'w') as f:
+              json.dump({
+                  'modules': stats['modules'],
+                  'classes': {'total': stats['classes']['total'], 'documented': stats['classes']['documented']},
+                  'functions': {'total': stats['functions']['total'], 'documented': stats['functions']['documented']},
+                  'overall_coverage': overall if total_items > 0 else 0
+              }, f, indent=2)
+          PYEOF
+
+      - name: Post coverage to summary
+        run: |
+          if [ -f docs/_build/doc_coverage.json ]; then
+            python << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import json
+
+          with open('docs/_build/doc_coverage.json') as f:
+              data = json.load(f)
+
+          print("\n### 📊 Documentation Coverage\n")
+          print("| Type | Documented | Total | Coverage |")
+          print("|------|------------|-------|----------|")
+
+          for category in ['modules', 'classes', 'functions']:
+              if category in data and data[category]['total'] > 0:
+                  doc = data[category]['documented']
+                  total = data[category]['total']
+                  cov = (doc / total) * 100
+                  print(f"| {category.capitalize()} | {doc} | {total} | {cov:.1f}% |")
+
+          overall = data.get('overall_coverage', 0)
+          print(f"\n**Overall Coverage: {overall:.1f}%**")
+
+          if overall >= 80:
+              print("\n✅ Excellent documentation coverage!")
+          elif overall >= 60:
+              print("\n✅ Good documentation coverage")
+          else:
+              print("\n⚠️ Documentation coverage could be improved")
+          PYEOF
+          fi
+
+      - name: Create documentation index
+        run: |
+          cat > docs/_build/html/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Cancrizans API Documentation</title>
+              <style>
+                  body {
+                      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                      max-width: 800px;
+                      margin: 50px auto;
+                      padding: 20px;
+                      line-height: 1.6;
+                  }
+                  h1 { color: #2c3e50; }
+                  .card {
+                      border: 1px solid #ddd;
+                      border-radius: 8px;
+                      padding: 20px;
+                      margin: 20px 0;
+                      transition: box-shadow 0.3s;
+                  }
+                  .card:hover {
+                      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+                  }
+                  a {
+                      color: #3498db;
+                      text-decoration: none;
+                  }
+                  a:hover {
+                      text-decoration: underline;
+                  }
+              </style>
+          </head>
+          <body>
+              <h1>🦀 Cancrizans API Documentation</h1>
+              <p>Welcome to the Cancrizans API documentation. Choose your preferred documentation format:</p>
+
+              <div class="card">
+                  <h2>📚 Sphinx Documentation</h2>
+                  <p>Comprehensive API reference with detailed module documentation</p>
+                  <a href="sphinx/">Browse Sphinx Docs →</a>
+              </div>
+
+              <div class="card">
+                  <h2>📖 pdoc Documentation</h2>
+                  <p>Auto-generated API documentation with source code</p>
+                  <a href="pdoc/cancrizans/">Browse pdoc Docs →</a>
+              </div>
+
+              <div class="card">
+                  <h2>🔗 Quick Links</h2>
+                  <ul>
+                      <li><a href="https://github.com/cancrizans-project/cancrizans-prototype">GitHub Repository</a></li>
+                      <li><a href="https://github.com/cancrizans-project/cancrizans-prototype/blob/main/README.md">README</a></li>
+                      <li><a href="https://github.com/cancrizans-project/cancrizans-prototype/blob/main/EXAMPLES.md">Examples</a></li>
+                  </ul>
+              </div>
+          </body>
+          </html>
+          EOF
+
+      - name: Upload documentation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-documentation-${{ github.run_number }}
+          path: docs/_build/
+          retention-days: 90
+
+      - name: Commit documentation to repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Move docs to api-docs branch
+          git checkout --orphan api-docs || git checkout api-docs
+          git rm -rf . || true
+
+          cp -r docs/_build/html/* .
+          cp -r docs/_build/pdoc .
+
+          git add .
+          git commit -m "docs: Update API documentation [skip ci]" || echo "No changes to commit"
+          git push origin api-docs --force
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Documentation Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Documentation has been published to the \`api-docs\` branch" >> $GITHUB_STEP_SUMMARY
+
+      - name: Deploy to GitHub Pages
+        if: github.repository == 'cancrizans-project/cancrizans-prototype'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs/_build/html
+          publish_branch: gh-pages
+          force_orphan: true

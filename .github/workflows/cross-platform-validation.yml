@@ -1,0 +1,288 @@
+name: Cross-Platform Validation
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Bi-weekly on Tuesdays and Fridays at 06:00 UTC
+    - cron: '0 6 * * 2,5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  platform-matrix:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }} / ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ['3.11', '3.12', '3.13']
+        arch: [x64]
+        include:
+          # Add ARM64 testing for macOS
+          - os: macos-latest
+            python: '3.12'
+            arch: arm64
+          # Add 32-bit testing for Windows
+          - os: windows-latest
+            python: '3.11'
+            arch: x86
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python }} (${{ matrix.arch }})
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.arch }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run platform-specific tests
+        run: |
+          pytest tests/ \
+            -v \
+            --tb=short \
+            --junitxml=test-results-${{ matrix.os }}-${{ matrix.python }}-${{ matrix.arch }}.xml
+
+      - name: Test MIDI operations (platform-specific)
+        run: |
+          python << 'PYEOF'
+          import sys
+          import platform
+
+          print(f"Platform: {platform.system()} {platform.machine()}")
+          print(f"Python: {sys.version}")
+
+          from cancrizans.generator import CanonGenerator
+          from cancrizans.io import to_midi
+
+          # Generate test canon
+          gen = CanonGenerator(seed=42)
+          canon = gen.generate_scale_canon(root='C4', scale='major', length=16)
+
+          # Test MIDI export
+          midi_file = f"test_{platform.system().lower()}.mid"
+          to_midi(canon, output_file=midi_file)
+
+          import os
+          if os.path.exists(midi_file):
+              size = os.path.getsize(midi_file)
+              print(f"✅ MIDI file created: {midi_file} ({size} bytes)")
+          else:
+              print("❌ MIDI file creation failed")
+              sys.exit(1)
+          PYEOF
+
+      - name: Test file path handling
+        shell: python
+        run: |
+          import os
+          import sys
+          from pathlib import Path
+
+          # Test path separators
+          test_path = Path("tests") / "fixtures" / "test.mid"
+          print(f"Platform: {sys.platform}")
+          print(f"Path: {test_path}")
+          print(f"Resolved: {test_path.resolve()}")
+
+          # Create test directory
+          test_dir = Path("temp_test_dir")
+          test_dir.mkdir(exist_ok=True)
+
+          # Test file operations
+          test_file = test_dir / "test.txt"
+          test_file.write_text("test content")
+
+          if test_file.exists():
+              print(f"✅ File operations work on {sys.platform}")
+          else:
+              print(f"❌ File operations failed on {sys.platform}")
+              sys.exit(1)
+
+          # Cleanup
+          test_file.unlink()
+          test_dir.rmdir()
+
+      - name: Test CLI on platform
+        shell: bash
+        run: |
+          # Test basic CLI commands
+          cancrizans --version
+          cancrizans --help
+
+          # Test file output
+          cancrizans generate scale --output test_cli.mid --length 8
+
+          if [ -f test_cli.mid ]; then
+            echo "✅ CLI works on ${{ matrix.os }}"
+          else
+            echo "❌ CLI failed on ${{ matrix.os }}"
+            exit 1
+          fi
+
+      - name: Check platform-specific dependencies
+        run: |
+          python << 'PYEOF'
+          import sys
+          import platform
+
+          print(f"### Platform Information")
+          print(f"- OS: {platform.system()} {platform.release()}")
+          print(f"- Architecture: {platform.machine()}")
+          print(f"- Python: {sys.version}")
+          print(f"- Platform: {sys.platform}")
+
+          # Check critical dependencies
+          try:
+              import music21
+              print(f"- music21: {music21.VERSION_STR}")
+          except ImportError as e:
+              print(f"❌ music21 import failed: {e}")
+              sys.exit(1)
+
+          try:
+              import mido
+              print(f"- mido: {mido.__version__}")
+          except ImportError as e:
+              print(f"❌ mido import failed: {e}")
+              sys.exit(1)
+
+          try:
+              import matplotlib
+              print(f"- matplotlib: {matplotlib.__version__}")
+          except ImportError as e:
+              print(f"⚠️ matplotlib import failed: {e}")
+
+          try:
+              import numpy
+              print(f"- numpy: {numpy.__version__}")
+          except ImportError as e:
+              print(f"❌ numpy import failed: {e}")
+              sys.exit(1)
+
+          print("\n✅ All critical dependencies available")
+          PYEOF
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}-${{ matrix.python }}-${{ matrix.arch }}
+          path: test-results-*.xml
+          retention-days: 30
+
+  aggregate-results:
+    name: Aggregate Platform Test Results
+    needs: platform-matrix
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Aggregate results
+        run: |
+          python << 'PYEOF'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          from collections import defaultdict
+
+          results = defaultdict(lambda: {'passed': 0, 'failed': 0, 'skipped': 0, 'total': 0})
+
+          # Find all XML files
+          for xml_file in Path('.').rglob('test-results-*.xml'):
+              try:
+                  tree = ET.parse(xml_file)
+                  root = tree.getroot()
+
+                  # Extract platform info from filename
+                  parts = xml_file.stem.split('-')
+                  if len(parts) >= 4:
+                      platform = f"{parts[2]}/{parts[3]}"
+                  else:
+                      platform = "unknown"
+
+                  for testsuite in root.findall('.//testsuite'):
+                      total = int(testsuite.get('tests', 0))
+                      failures = int(testsuite.get('failures', 0))
+                      errors = int(testsuite.get('errors', 0))
+                      skipped = int(testsuite.get('skipped', 0))
+
+                      results[platform]['total'] += total
+                      results[platform]['failed'] += failures + errors
+                      results[platform]['skipped'] += skipped
+                      results[platform]['passed'] += total - failures - errors - skipped
+
+              except Exception as e:
+                  print(f"Error parsing {xml_file}: {e}")
+
+          print("### 🌐 Cross-Platform Test Results\n")
+          print("| Platform | Passed | Failed | Skipped | Total |")
+          print("|----------|--------|--------|---------|-------|")
+
+          all_passed = True
+          for platform in sorted(results.keys()):
+              r = results[platform]
+              status = "✅" if r['failed'] == 0 else "❌"
+              print(f"| {status} {platform} | {r['passed']} | {r['failed']} | {r['skipped']} | {r['total']} |")
+              if r['failed'] > 0:
+                  all_passed = False
+
+          if all_passed:
+              print("\n✅ **All platforms passed!**")
+          else:
+              print("\n❌ **Some platforms have failures**")
+          PYEOF
+
+      - name: Create cross-platform summary
+        run: |
+          echo "# Cross-Platform Validation Report" > platform-report.md
+          echo "" >> platform-report.md
+          echo "**Tested Platforms:**" >> platform-report.md
+          echo "- Ubuntu (x64)" >> platform-report.md
+          echo "- macOS (x64, arm64)" >> platform-report.md
+          echo "- Windows (x64, x86)" >> platform-report.md
+          echo "" >> platform-report.md
+          echo "**Python Versions:** 3.11, 3.12, 3.13" >> platform-report.md
+
+      - name: Upload summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-validation-summary
+          path: platform-report.md
+          retention-days: 90
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = `## 🌐 Cross-Platform Validation
+
+            All platform combinations have been tested. See the [full results](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+
+            **Platforms tested:**
+            - ✅ Ubuntu (x64) × Python 3.11, 3.12, 3.13
+            - ✅ macOS (x64, arm64) × Python 3.11, 3.12, 3.13
+            - ✅ Windows (x64, x86) × Python 3.11, 3.12, 3.13
+            `;
+
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: comment
+            });

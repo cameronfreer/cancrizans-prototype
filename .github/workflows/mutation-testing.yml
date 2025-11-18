@@ -1,0 +1,320 @@
+name: Mutation Testing
+
+on:
+  schedule:
+    # Weekly on Wednesdays at 03:00 UTC
+    - cron: '0 3 * * 3'
+  workflow_dispatch:
+    inputs:
+      target_module:
+        description: 'Specific module to test (optional)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  mutation-test:
+    name: Run Mutation Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Install mutation testing tools
+        run: |
+          pip install mutmut pytest-cov
+
+      - name: Run mutation tests
+        id: mutmut
+        continue-on-error: true
+        run: |
+          mkdir -p mutation-results
+
+          # Determine target
+          TARGET="${{ github.event.inputs.target_module }}"
+          if [ -z "$TARGET" ]; then
+            TARGET="cancrizans/"
+          fi
+
+          echo "Running mutation tests on: $TARGET"
+
+          # Run mutmut
+          mutmut run \
+            --paths-to-mutate=$TARGET \
+            --tests-dir=tests/ \
+            --runner="python -m pytest -x --tb=short" \
+            --use-coverage \
+            --no-progress \
+            2>&1 | tee mutation-results/mutmut_output.txt || true
+
+          # Generate results
+          mutmut results > mutation-results/results.txt 2>&1 || true
+          mutmut show > mutation-results/details.txt 2>&1 || echo "No details available" > mutation-results/details.txt
+
+      - name: Analyze mutation results
+        id: analyze
+        run: |
+          python << 'PYEOF'
+          import re
+          import json
+          from pathlib import Path
+          import subprocess
+
+          results = {
+              'killed': 0,
+              'survived': 0,
+              'timeout': 0,
+              'suspicious': 0,
+              'skipped': 0,
+              'total': 0
+          }
+
+          # Parse mutmut results
+          results_file = Path('mutation-results/results.txt')
+          if results_file.exists():
+              content = results_file.read_text()
+
+              # Extract counts
+              killed = re.search(r'Killed:\s*(\d+)', content)
+              survived = re.search(r'Survived:\s*(\d+)', content)
+              timeout = re.search(r'Timeout:\s*(\d+)', content)
+              suspicious = re.search(r'Suspicious:\s*(\d+)', content)
+              skipped = re.search(r'Skipped:\s*(\d+)', content)
+
+              if killed:
+                  results['killed'] = int(killed.group(1))
+              if survived:
+                  results['survived'] = int(survived.group(1))
+              if timeout:
+                  results['timeout'] = int(timeout.group(1))
+              if suspicious:
+                  results['suspicious'] = int(suspicious.group(1))
+              if skipped:
+                  results['skipped'] = int(skipped.group(1))
+
+              results['total'] = sum(results.values())
+
+          # Calculate mutation score
+          if results['total'] > 0:
+              mutation_score = (results['killed'] / results['total']) * 100
+          else:
+              mutation_score = 0.0
+
+          print(f"### 🧬 Mutation Testing Results\n")
+          print(f"**Mutation Score: {mutation_score:.1f}%**\n")
+          print(f"| Status | Count | Percentage |")
+          print(f"|--------|-------|------------|")
+
+          for status, count in results.items():
+              if status != 'total' and count > 0:
+                  pct = (count / results['total'] * 100) if results['total'] > 0 else 0
+                  print(f"| {status.capitalize()} | {count} | {pct:.1f}% |")
+
+          print(f"| **Total** | **{results['total']}** | **100.0%** |")
+
+          # Save for GitHub output
+          with open('mutation-results/summary.json', 'w') as f:
+              json.dump({
+                  **results,
+                  'mutation_score': mutation_score
+              }, f, indent=2)
+
+          # Surviving mutants are test quality issues
+          if results['survived'] > 0:
+              print(f"\n⚠️ **{results['survived']} mutant(s) survived** - indicates missing or weak tests")
+
+          if mutation_score >= 80:
+              print(f"\n✅ **Excellent test quality** (mutation score ≥80%)")
+          elif mutation_score >= 60:
+              print(f"\n✅ **Good test quality** (mutation score ≥60%)")
+          elif mutation_score >= 40:
+              print(f"\n⚠️ **Moderate test quality** (mutation score 40-60%)")
+          else:
+              print(f"\n❌ **Poor test quality** (mutation score <40%)")
+          PYEOF
+
+      - name: Post to step summary
+        run: |
+          if [ -f mutation-results/results.txt ]; then
+            python << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import json
+          from pathlib import Path
+
+          summary_file = Path('mutation-results/summary.json')
+          if not summary_file.exists():
+              print("No mutation results available")
+              exit(0)
+
+          with open(summary_file) as f:
+              data = json.load(f)
+
+          mutation_score = data.get('mutation_score', 0)
+          total = data.get('total', 0)
+          killed = data.get('killed', 0)
+          survived = data.get('survived', 0)
+
+          print(f"### 🧬 Mutation Testing Results\n")
+          print(f"**Mutation Score: {mutation_score:.1f}%**\n")
+          print(f"| Status | Count | Percentage |")
+          print(f"|--------|-------|------------|")
+
+          for status in ['killed', 'survived', 'timeout', 'suspicious', 'skipped']:
+              count = data.get(status, 0)
+              if count > 0:
+                  pct = (count / total * 100) if total > 0 else 0
+                  emoji = '✅' if status == 'killed' else '⚠️' if status == 'survived' else 'ℹ️'
+                  print(f"| {emoji} {status.capitalize()} | {count} | {pct:.1f}% |")
+
+          print(f"| **Total** | **{total}** | **100.0%** |")
+
+          if survived > 0:
+              print(f"\n### ⚠️ Surviving Mutants\n")
+              print(f"{survived} mutant(s) survived, indicating gaps in test coverage.\n")
+              print("**Recommendation:** Review and strengthen tests for better mutation coverage.")
+
+          # Quality assessment
+          if mutation_score >= 80:
+              print(f"\n### ✅ Assessment: Excellent Test Quality")
+              print("Your test suite effectively catches code mutations.")
+          elif mutation_score >= 60:
+              print(f"\n### ✅ Assessment: Good Test Quality")
+              print("Tests are generally effective but could be improved.")
+          elif mutation_score >= 40:
+              print(f"\n### ⚠️ Assessment: Moderate Test Quality")
+              print("Consider adding more comprehensive tests.")
+          else:
+              print(f"\n### ❌ Assessment: Poor Test Quality")
+              print("Test suite needs significant improvement to catch code defects.")
+          PYEOF
+          fi
+
+      - name: List survived mutants
+        if: hashFiles('mutation-results/results.txt') != ''
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 Survived Mutants (Sample)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Show first few survived mutants
+          mutmut results 2>/dev/null | grep "Survived" | head -10 >> $GITHUB_STEP_SUMMARY || true
+
+      - name: Upload mutation results
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-testing-results-${{ github.run_number }}
+          path: mutation-results/
+          retention-days: 90
+
+      - name: Save baseline
+        if: github.event_name == 'schedule'
+        run: |
+          if [ -f mutation-results/summary.json ]; then
+            mkdir -p mutation-results/history
+            cp mutation-results/summary.json mutation-results/history/$(date +%Y-%m-%d).json
+
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+
+            if [ -n "$(git status --porcelain mutation-results/)" ]; then
+              git add mutation-results/history/
+              git commit -m "chore: Update mutation testing baseline [skip ci]"
+              git push
+            fi
+          fi
+
+      - name: Create issue for low mutation score
+        if: github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            if (!fs.existsSync('mutation-results/summary.json')) {
+              return;
+            }
+
+            const data = JSON.parse(fs.readFileSync('mutation-results/summary.json', 'utf8'));
+            const score = data.mutation_score || 0;
+
+            // Create issue if score < 60%
+            if (score < 60) {
+              const body = `## 🧬 Low Mutation Testing Score
+
+              **Current Mutation Score: ${score.toFixed(1)}%**
+              **Target: ≥60%**
+
+              ### Summary
+
+              - **Killed:** ${data.killed}
+              - **Survived:** ${data.survived}
+              - **Timeout:** ${data.timeout}
+              - **Suspicious:** ${data.suspicious}
+              - **Total Mutants:** ${data.total}
+
+              ### What This Means
+
+              Mutation testing evaluates test quality by introducing small code changes (mutations) and checking if tests catch them. A low mutation score indicates that tests may not adequately validate the code's behavior.
+
+              ### Recommended Actions
+
+              1. Review survived mutants: \`mutmut show\`
+              2. Add tests for uncovered scenarios
+              3. Strengthen assertion in existing tests
+              4. Focus on edge cases and boundary conditions
+
+              [View Detailed Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+              `;
+
+              // Check for existing issue
+              const issues = await github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                labels: 'mutation-testing,quality'
+              });
+
+              if (issues.data.length === 0) {
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: '🧬 Low Mutation Testing Score',
+                  body: body,
+                  labels: ['mutation-testing', 'quality', 'testing', 'automated']
+                });
+              }
+            }
+
+      - name: Check mutation score threshold
+        run: |
+          python << 'PYEOF'
+          import json
+          import sys
+          from pathlib import Path
+
+          summary_file = Path('mutation-results/summary.json')
+          if not summary_file.exists():
+              print("::warning::No mutation results available")
+              sys.exit(0)
+
+          with open(summary_file) as f:
+              data = json.load(f)
+
+          score = data.get('mutation_score', 0)
+          survived = data.get('survived', 0)
+
+          # Warning if score < 60%
+          if score < 60:
+              print(f"::warning::Mutation score ({score:.1f}%) is below recommended threshold (60%)")
+
+          # Note about survivors
+          if survived > 0:
+              print(f"::notice::{survived} mutant(s) survived - consider strengthening tests")
+          PYEOF
