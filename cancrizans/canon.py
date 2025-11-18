@@ -4380,7 +4380,8 @@ def analyze_microtonal_intervals(
             'average_cents': 0.0,
             'just_ratios': [],
             'complexity_score': 0.0,
-            'tuning_deviation': 0.0
+            'tuning_deviation': 0.0,
+            'total_intervals': 0
         }
 
     # Calculate intervals in cents
@@ -4526,12 +4527,43 @@ def generate_world_music_canon(
         current_degree = (current_degree + step) % len(scale.intervals_cents)
 
     # Create canon using the generated theme
-    return create_microtonal_canon(
-        theme,
-        scale.tuning_system,
-        canon_type=canon_type,
-        tonic_midi=scale.tonic_midi
-    )
+    # World music scales don't have a specific tuning_system,
+    # so we create the canon directly without calling create_microtonal_canon
+
+    # Apply canon transformation
+    if canon_type == 'retrograde':
+        transformed = retrograde(theme)
+    elif canon_type == 'inversion':
+        transformed = invert(theme)
+    elif canon_type == 'augmentation':
+        transformed = augmentation(theme)
+    elif canon_type == 'stretto':
+        transformed_score = stretto(theme, theme, time_delay=2.0)
+        if len(transformed_score.parts) > 1:
+            transformed = transformed_score.parts[1]
+        else:
+            transformed = theme
+    else:
+        transformed = retrograde(theme)
+
+    # Create score with both voices
+    canon = stream.Score()
+    canon.metadata = m21.metadata.Metadata()
+    canon.metadata.title = f"{scale_type.value} {canon_type.title()} Canon"
+
+    # Add original theme
+    theme_part = stream.Part(id='theme')
+    for element in theme.flatten().notesAndRests:
+        theme_part.append(element)
+    canon.append(theme_part)
+
+    # Add transformed canon voice
+    canon_part = stream.Part(id=f'{canon_type}_world_music')
+    for element in transformed.flatten().notesAndRests:
+        canon_part.append(element)
+    canon.append(canon_part)
+
+    return canon
 
 
 def cross_cultural_canon_analysis(
@@ -4565,11 +4597,11 @@ def cross_cultural_canon_analysis(
             microtonal.ScaleType.MAQAM_HIJAZ,
             microtonal.ScaleType.MAQAM_BAYATI,
             microtonal.ScaleType.RAGA_BHAIRAV,
-            microtonal.ScaleType.RAGA_KAFI,
+            microtonal.ScaleType.RAGA_BHAIRAVI,
             microtonal.ScaleType.PELOG,
             microtonal.ScaleType.SLENDRO,
-            microtonal.ScaleType.IN_SCALE,
-            microtonal.ScaleType.YO_SCALE,
+            microtonal.ScaleType.IN,
+            microtonal.ScaleType.YO,
         ]
 
     results: Dict[str, Any] = {}

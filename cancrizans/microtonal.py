@@ -2134,7 +2134,12 @@ def create_tuning_system_scale(
 
     # Just intonation
     elif tuning_system == TuningSystem.JUST_INTONATION_5:
-        return create_just_intonation_5_limit(tonic_midi)
+        # 5-limit just intonation
+        ratios = [
+            (1, 1), (16, 15), (9, 8), (6, 5), (5, 4), (4, 3),
+            (45, 32), (3, 2), (8, 5), (5, 3), (16, 9), (15, 8),
+        ]
+        return create_just_intonation_scale(ratios)
     elif tuning_system == TuningSystem.JUST_INTONATION_7:
         return create_just_intonation_7_limit(tonic_midi)
     elif tuning_system == TuningSystem.JUST_INTONATION_11:
@@ -2144,7 +2149,14 @@ def create_tuning_system_scale(
 
     # Historical temperaments
     elif tuning_system == TuningSystem.PYTHAGOREAN:
-        return create_pythagorean_scale(tonic_midi)
+        scale = create_pythagorean_scale()
+        # Update tonic
+        return MicrotonalScale(
+            name=scale.name,
+            intervals_cents=scale.intervals_cents,
+            tonic_midi=tonic_midi,
+            tuning_system=scale.tuning_system
+        )
     elif tuning_system == TuningSystem.MEANTONE:
         return create_meantone_scale(0.25, tonic_midi)
     elif tuning_system == TuningSystem.WERCKMEISTER_III:
@@ -2152,9 +2164,9 @@ def create_tuning_system_scale(
     elif tuning_system == TuningSystem.KIRNBERGER_III:
         return create_kirnberger_iii(tonic_midi)
     elif tuning_system == TuningSystem.VALOTTI:
-        return create_valotti(tonic_midi)
+        return create_valotti_temperament(tonic_midi)
     elif tuning_system == TuningSystem.YOUNG:
-        return create_young(tonic_midi)
+        return create_young_temperament(tonic_midi)
     elif tuning_system == TuningSystem.WERCKMEISTER_I:
         return create_werckmeister_i(tonic_midi)
     elif tuning_system == TuningSystem.WERCKMEISTER_II:
@@ -2172,9 +2184,9 @@ def create_tuning_system_scale(
     elif tuning_system == TuningSystem.NEIDHARDT_III:
         return create_neidhardt_iii(tonic_midi)
     elif tuning_system == TuningSystem.RAMEAU:
-        return create_rameau(tonic_midi)
+        return create_rameau_temperament(tonic_midi)
     elif tuning_system == TuningSystem.KELLNER:
-        return create_kellner(tonic_midi)
+        return create_kellner_temperament(tonic_midi)
 
     # Wendy Carlos scales
     elif tuning_system == TuningSystem.ALPHA:

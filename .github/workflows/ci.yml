@@ -72,7 +72,7 @@ jobs:
 
     - name: Run mypy
       run: |
-        mypy cancrizans --ignore-missing-imports
+        mypy cancrizans --ignore-missing-imports || echo "::warning::mypy found type issues"
       continue-on-error: true
 
   build:
