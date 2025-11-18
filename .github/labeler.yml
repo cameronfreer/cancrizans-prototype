@@ -1,0 +1,82 @@
+# Auto-labeling configuration for pull requests
+# Labels are applied based on which files are changed
+
+# Core functionality labels
+'core':
+  - changed-files:
+    - any-glob-to-any-file: 'cancrizans/canon.py'
+    - any-glob-to-any-file: 'cancrizans/generator.py'
+
+'pattern-analysis':
+  - changed-files:
+    - any-glob-to-any-file: 'cancrizans/pattern.py'
+    - any-glob-to-any-file: 'cancrizans/analysis.py'
+
+'microtonal':
+  - changed-files:
+    - any-glob-to-any-file: 'cancrizans/microtonal.py'
+    - any-glob-to-any-file: 'cancrizans/tuning.py'
+
+'cli':
+  - changed-files:
+    - any-glob-to-any-file: 'cancrizans/cli.py'
+
+'io':
+  - changed-files:
+    - any-glob-to-any-file: 'cancrizans/io.py'
+
+'visualization':
+  - changed-files:
+    - any-glob-to-any-file: 'cancrizans/viz.py'
+
+# Testing labels
+'tests':
+  - changed-files:
+    - any-glob-to-any-file: 'tests/**/*.py'
+    - any-glob-to-any-file: 'pytest.ini'
+    - any-glob-to-any-file: '.coveragerc'
+
+'benchmarks':
+  - changed-files:
+    - any-glob-to-any-file: 'benchmarks/**/*'
+
+# Documentation labels
+'documentation':
+  - changed-files:
+    - any-glob-to-any-file: '**/*.md'
+    - any-glob-to-any-file: 'docs/**/*'
+
+'notebooks':
+  - changed-files:
+    - any-glob-to-any-file: 'notebooks/**/*.ipynb'
+
+# Infrastructure labels
+'ci/cd':
+  - changed-files:
+    - any-glob-to-any-file: '.github/workflows/**'
+    - any-glob-to-any-file: '.github/actions/**'
+
+'dependencies':
+  - changed-files:
+    - any-glob-to-any-file: 'pyproject.toml'
+    - any-glob-to-any-file: 'requirements*.txt'
+    - any-glob-to-any-file: 'setup.py'
+    - any-glob-to-any-file: 'setup.cfg'
+
+'github':
+  - changed-files:
+    - any-glob-to-any-file: '.github/**/*'
+    - any-glob-to-any-file: '!.github/workflows/**'
+
+# Code quality labels
+'code-quality':
+  - changed-files:
+    - any-glob-to-any-file: '.ruff.toml'
+    - any-glob-to-any-file: 'mypy.ini'
+    - any-glob-to-any-file: '.pylintrc'
+
+'security':
+  - changed-files:
+    - any-glob-to-any-file: 'SECURITY.md'
+    - any-glob-to-any-file: '.github/workflows/security-scan.yml'
+    - any-glob-to-any-file: '.github/workflows/codeql.yml'

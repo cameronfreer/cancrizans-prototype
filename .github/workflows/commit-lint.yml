@@ -1,0 +1,102 @@
+name: Commit Message Lint
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  commitlint:
+    name: Lint Commit Messages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check commit messages
+        run: |
+          echo "### 📝 Commit Message Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Get all commits in this PR
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          # Check each commit message
+          git log --format="%H %s" $BASE_SHA..$HEAD_SHA | while read sha message; do
+            echo "Checking commit: $sha"
+            echo "Message: $message"
+
+            # Basic checks
+            ISSUES=""
+
+            # Check 1: Minimum length (> 10 characters)
+            if [ ${#message} -lt 10 ]; then
+              ISSUES="$ISSUES\n  - ⚠️ Message too short (< 10 characters)"
+            fi
+
+            # Check 2: Maximum length for first line (< 100 characters)
+            if [ ${#message} -gt 100 ]; then
+              ISSUES="$ISSUES\n  - ⚠️ First line too long (> 100 characters)"
+            fi
+
+            # Check 3: Starts with capital letter
+            if ! echo "$message" | grep -q '^[A-Z]'; then
+              ISSUES="$ISSUES\n  - ⚠️ Should start with capital letter"
+            fi
+
+            # Check 4: Avoid common bad patterns
+            if echo "$message" | grep -qi '^wip\|^fixup\|^squash'; then
+              ISSUES="$ISSUES\n  - ⚠️ Contains WIP/fixup/squash - should be squashed"
+            fi
+
+            # Check 5: Discourage vague messages
+            if echo "$message" | grep -qi '^fix\|^update\|^change' && [ ${#message} -lt 20 ]; then
+              ISSUES="$ISSUES\n  - 💡 Message is vague - consider being more descriptive"
+            fi
+
+            # Report results
+            if [ -n "$ISSUES" ]; then
+              echo "❌ **Commit ${sha:0:7}**: \`$message\`" >> $GITHUB_STEP_SUMMARY
+              echo -e "$ISSUES" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ **Commit ${sha:0:7}**: \`$message\`" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+      - name: Commit message guidelines
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Commit Message Guidelines" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Good commit messages should:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Do:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Start with a capital letter" >> $GITHUB_STEP_SUMMARY
+          echo "- Use imperative mood (\"Add feature\" not \"Added feature\")" >> $GITHUB_STEP_SUMMARY
+          echo "- Be concise but descriptive (10-72 characters for first line)" >> $GITHUB_STEP_SUMMARY
+          echo "- Focus on *what* and *why*, not *how*" >> $GITHUB_STEP_SUMMARY
+          echo "- Reference issue numbers when applicable (#123)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "❌ **Don't:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Use vague messages like \"fix\", \"update\", \"change\"" >> $GITHUB_STEP_SUMMARY
+          echo "- Leave WIP, fixup, or squash commits in PR" >> $GITHUB_STEP_SUMMARY
+          echo "- Write overly long first lines (> 100 chars)" >> $GITHUB_STEP_SUMMARY
+          echo "- Include code in commit subject" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Examples:**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Good: \`Add fugue analysis with subject detection\`" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Good: \`Fix motif detection for single-voice scores\`" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Good: \`Update documentation for pattern analysis API\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "❌ Bad: \`fix\`" >> $GITHUB_STEP_SUMMARY
+          echo "❌ Bad: \`wip\`" >> $GITHUB_STEP_SUMMARY
+          echo "❌ Bad: \`updated stuff\`" >> $GITHUB_STEP_SUMMARY

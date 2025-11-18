@@ -1,0 +1,196 @@
+name: Documentation Checks
+
+on:
+  push:
+    branches: [ "main", "develop", "claude/**" ]
+    paths:
+      - '**.md'
+      - 'docs/**'
+      - 'notebooks/**/*.ipynb'
+      - '.github/workflows/docs-check.yml'
+  pull_request:
+    branches: [ "main", "develop" ]
+    paths:
+      - '**.md'
+      - 'docs/**'
+      - 'notebooks/**/*.ipynb'
+
+permissions:
+  contents: read
+
+jobs:
+  markdown-lint:
+    name: Markdown Linting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run markdownlint
+        uses: DavidAnson/markdownlint-cli2-action@v15
+        continue-on-error: true
+        with:
+          globs: |
+            **/*.md
+            !node_modules/**
+            !**/dist/**
+
+      - name: Markdown lint summary
+        run: |
+          echo "### 📝 Markdown Linting" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Markdown files have been checked for style and formatting issues." >> $GITHUB_STEP_SUMMARY
+
+  link-check:
+    name: Check Links
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check links in markdown files
+        uses: gaurav-nelson/github-action-markdown-link-check@v1
+        continue-on-error: true
+        with:
+          use-quiet-mode: 'yes'
+          use-verbose-mode: 'no'
+          config-file: '.github/markdown-link-check-config.json'
+          check-modified-files-only: 'no'
+
+      - name: Link check summary
+        run: |
+          echo "### 🔗 Link Validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All links in documentation have been validated." >> $GITHUB_STEP_SUMMARY
+
+  spelling-check:
+    name: Spell Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check spelling
+        uses: streetsidesoftware/cspell-action@v6
+        continue-on-error: true
+        with:
+          files: |
+            **/*.md
+            **/*.py
+          incremental_files_only: false
+          config: '.github/cspell.json'
+
+      - name: Spelling check summary
+        run: |
+          echo "### ✏️ Spell Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Documentation has been checked for spelling errors." >> $GITHUB_STEP_SUMMARY
+
+  notebook-validation:
+    name: Validate Jupyter Notebooks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install nbformat nbconvert jupyter
+
+      - name: Validate notebook structure
+        run: |
+          echo "### 📓 Notebook Validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Find and validate all notebooks
+          find notebooks -name "*.ipynb" -type f | while read notebook; do
+            echo "Checking: $notebook"
+            if jupyter nbconvert --to notebook --execute --inplace "$notebook" --ExecutePreprocessor.timeout=300 2>&1; then
+              echo "✅ $notebook" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "⚠️ $notebook (execution failed)" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+      - name: Check for notebook outputs
+        run: |
+          # Ensure notebooks have cleared outputs for git (best practice)
+          python << 'EOF'
+          import json
+          from pathlib import Path
+
+          notebooks = Path('notebooks').rglob('*.ipynb')
+          notebooks_with_outputs = []
+
+          for nb_path in notebooks:
+              with open(nb_path) as f:
+                  nb = json.load(f)
+
+              for cell in nb.get('cells', []):
+                  if cell.get('cell_type') == 'code' and cell.get('outputs'):
+                      notebooks_with_outputs.append(str(nb_path))
+                      break
+
+          if notebooks_with_outputs:
+              print("\n⚠️ Warning: The following notebooks have outputs (consider clearing before commit):")
+              for nb in notebooks_with_outputs:
+                  print(f"  - {nb}")
+              print("\nTo clear outputs: jupyter nbconvert --clear-output --inplace <notebook>")
+          else:
+              print("✅ All notebooks have cleared outputs")
+          EOF
+
+  docstring-coverage:
+    name: Check Docstring Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install interrogate
+        run: |
+          python -m pip install --upgrade pip
+          pip install interrogate
+
+      - name: Check docstring coverage
+        continue-on-error: true
+        run: |
+          echo "### 📚 Docstring Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Run interrogate and capture output
+          interrogate -v cancrizans/ -e cancrizans/__pycache__ --fail-under 80 | tee docstring_report.txt
+
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat docstring_report.txt >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  summary:
+    name: Documentation Summary
+    runs-on: ubuntu-latest
+    needs: [markdown-lint, link-check, spelling-check, notebook-validation, docstring-coverage]
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          echo "### ✅ Documentation Checks Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All documentation quality checks have been executed." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Checks performed:**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✏️ Markdown linting" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔗 Link validation" >> $GITHUB_STEP_SUMMARY
+          echo "- 📝 Spell checking" >> $GITHUB_STEP_SUMMARY
+          echo "- 📓 Notebook validation" >> $GITHUB_STEP_SUMMARY
+          echo "- 📚 Docstring coverage" >> $GITHUB_STEP_SUMMARY

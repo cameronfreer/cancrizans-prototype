@@ -1,0 +1,42 @@
+# Auto-assign configuration for pull requests
+
+# Reviewers to be assigned to PRs
+# Note: This will only work if there are actual team members configured
+# For now, this is a template that can be customized
+
+# Number of reviewers to assign
+addReviewers: true
+numberOfReviewers: 0  # Set to 0 to disable until maintainers are configured
+
+# Assignees to be added to PRs
+addAssignees: author  # Automatically assign the PR author
+
+# Skip these keywords in PR title
+skipKeywords:
+  - wip
+  - WIP
+  - draft
+  - Draft
+  - DO NOT MERGE
+  - do not merge
+
+# Reviewers pool (empty for now - will be populated when team is established)
+reviewers: []
+  # - maintainer1
+  # - maintainer2
+
+# Use assignees as reviewers if reviewers are not configured
+useAssigneeAsReviewer: false
+
+# Run only when PR is ready for review (not draft)
+runOnDraft: false
+
+# Filtered labels (only assign when PR has these labels)
+# Leave empty to run on all PRs
+filterLabels:
+  include: []
+    # - ready-for-review
+  exclude:
+    - wip
+    - blocked
+    - do-not-merge
