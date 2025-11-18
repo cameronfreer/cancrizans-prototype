@@ -5,10 +5,27 @@ Generate palindromic canons using various compositional rules and algorithms.
 """
 
 import random
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Union
 from fractions import Fraction
 from music21 import note, stream, pitch
 from cancrizans.bach_crab import assemble_crab_from_theme
+from cancrizans.microtonal_utils import (
+    recommend_scale_for_style,
+    quantize_to_scale,
+    find_modulation_path,
+    create_scale_catalog
+)
+try:
+    from cancrizans.microtonal import (
+        MicrotonalScale,
+        TuningSystem,
+        ScaleType,
+        create_tuning_system_scale,
+        create_world_music_scale
+    )
+    MICROTONAL_AVAILABLE = True
+except ImportError:
+    MICROTONAL_AVAILABLE = False
 
 
 class CanonGenerator:
@@ -659,6 +676,173 @@ class CanonGenerator:
 
             current_pitch = pitch.Pitch(midi=new_midi)
             theme.append(note.Note(current_pitch, quarterLength=1.0))
+
+        return assemble_crab_from_theme(theme)
+
+    def generate_microtonal_canon(
+        self,
+        style: str = 'baroque',
+        root: str = 'C4',
+        length: int = 16,
+        tuning_system: Optional[Union[TuningSystem, str]] = None,
+        world_scale: Optional[Union[ScaleType, str]] = None,
+        modulation: bool = False,
+        duration: float = 1.0
+    ) -> stream.Score:
+        """Generate a canon using microtonal scales and tuning systems.
+
+        Args:
+            style: Musical style for scale recommendation:
+                'baroque', 'classical', 'bach' - Historical temperaments
+                'arabic', 'middle eastern', 'maqam' - Arabic maqamat
+                'indian', 'raga', 'hindustani' - Indian ragas
+                'gamelan', 'indonesian', 'javanese' - Gamelan scales
+                'experimental', 'contemporary', 'avant-garde' - Xenharmonic
+                'jazz', 'blues', 'folk' - Just intonation
+            root: Root note (e.g., 'C4', 'D#5')
+            length: Number of notes to generate
+            tuning_system: Optional specific tuning system to use (overrides style)
+            world_scale: Optional specific world music scale (overrides style)
+            modulation: If True, modulate between related scales
+            duration: Note duration in quarter notes
+
+        Returns:
+            Complete palindromic canon with microtonal pitches
+
+        Examples:
+            >>> # Generate baroque canon in Werckmeister III
+            >>> canon = generator.generate_microtonal_canon('baroque', 'D4', 16)
+
+            >>> # Generate Arabic maqam canon
+            >>> canon = generator.generate_microtonal_canon('arabic', 'E4', 12)
+
+            >>> # Generate with specific tuning system
+            >>> from cancrizans.microtonal import TuningSystem
+            >>> canon = generator.generate_microtonal_canon(
+            ...     'experimental',
+            ...     'C4',
+            ...     20,
+            ...     tuning_system=TuningSystem.BOHLEN_PIERCE
+            ... )
+
+            >>> # Generate modulating canon
+            >>> canon = generator.generate_microtonal_canon(
+            ...     'indian',
+            ...     'G4',
+            ...     24,
+            ...     modulation=True
+            ... )
+        """
+        if not MICROTONAL_AVAILABLE:
+            raise ImportError(
+                "Microtonal features require the microtonal module. "
+                "Please install required dependencies."
+            )
+
+        theme = stream.Part()
+        root_pitch = pitch.Pitch(root)
+        base_midi = root_pitch.midi
+
+        # Get scale recommendation or use specific scale
+        if tuning_system:
+            # Use specific tuning system
+            if isinstance(tuning_system, str):
+                tuning_system = TuningSystem[tuning_system.upper()]
+            scale = create_tuning_system_scale(tuning_system, tonic_midi=base_midi)
+        elif world_scale:
+            # Use specific world music scale
+            if isinstance(world_scale, str):
+                world_scale = ScaleType[world_scale.upper()]
+            scale = create_world_music_scale(world_scale, tonic_midi=base_midi)
+        else:
+            # Get recommendation based on style
+            recommendations = recommend_scale_for_style(style)
+            if not recommendations:
+                raise ValueError(f"No scale recommendations found for style '{style}'")
+
+            top_rec = recommendations[0]
+            if top_rec.tuning_system:
+                scale = create_tuning_system_scale(
+                    top_rec.tuning_system,
+                    tonic_midi=base_midi
+                )
+            elif top_rec.world_scale_type:
+                scale = create_world_music_scale(
+                    top_rec.world_scale_type,
+                    tonic_midi=base_midi
+                )
+            else:
+                # Fallback to 12-TET
+                scale = create_tuning_system_scale(
+                    TuningSystem.EQUAL_12,
+                    tonic_midi=base_midi
+                )
+
+        # Prepare modulation if requested
+        scales_to_use = [scale]
+        if modulation:
+            # Find a related scale for modulation
+            recommendations = recommend_scale_for_style(style)
+            if len(recommendations) > 1:
+                second_rec = recommendations[1]
+                if second_rec.tuning_system:
+                    target_scale = create_tuning_system_scale(
+                        second_rec.tuning_system,
+                        tonic_midi=base_midi
+                    )
+                elif second_rec.world_scale_type:
+                    target_scale = create_world_music_scale(
+                        second_rec.world_scale_type,
+                        tonic_midi=base_midi
+                    )
+                else:
+                    target_scale = scale
+
+                # Find modulation path
+                mod_path = find_modulation_path(scale, target_scale, max_steps=3)
+                scales_to_use = mod_path
+
+        # Generate melody using scale(s)
+        notes_per_scale = max(1, length // len(scales_to_use))
+
+        for scale_idx, current_scale in enumerate(scales_to_use):
+            # Determine how many notes to generate with this scale
+            if scale_idx == len(scales_to_use) - 1:
+                # Last scale gets remaining notes
+                num_notes = length - (scale_idx * notes_per_scale)
+            else:
+                num_notes = notes_per_scale
+
+            # Generate notes within this scale
+            scale_intervals = current_scale.intervals_cents
+            if not scale_intervals:
+                scale_intervals = [0]  # Fallback to root
+
+            for i in range(num_notes):
+                # Choose a scale degree (cycle through scale)
+                degree_idx = i % len(scale_intervals)
+                interval_cents = scale_intervals[degree_idx]
+
+                # Convert to absolute pitch in cents from C0
+                octave_offset = (i // len(scale_intervals)) * 1200  # Each octave = 1200 cents
+                pitch_cents = interval_cents + octave_offset
+
+                # Quantize to nearest scale degree
+                microtonal_pitch = quantize_to_scale(
+                    pitch_cents,
+                    current_scale,
+                    allow_octave_shift=True
+                )
+
+                # Convert to music21 note
+                # Use MIDI note with microtone adjustment
+                n = note.Note(midi=microtonal_pitch.midi_note, quarterLength=duration)
+
+                # Apply microtonal pitch bend if available
+                if hasattr(n, 'microtone'):
+                    n.microtone = microtonal_pitch.cent_deviation
+
+                theme.append(n)
 
         return assemble_crab_from_theme(theme)
 

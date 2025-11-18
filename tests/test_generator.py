@@ -494,3 +494,222 @@ class TestGeneratorEdgeCases:
 
         notes = list(canon.parts[0].flatten().notes)
         assert len(notes) == 1
+
+
+class TestMicrotonalCanon:
+    """Test microtonal canon generation."""
+
+    def test_microtonal_baroque_style(self):
+        """Test baroque style microtonal canon."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_microtonal_canon('baroque', 'D4', 16)
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 16
+
+    def test_microtonal_arabic_style(self):
+        """Test Arabic maqam style canon."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_microtonal_canon('arabic', 'E4', 12)
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 12
+
+    def test_microtonal_indian_style(self):
+        """Test Indian raga style canon."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_microtonal_canon('indian', 'C4', 14)
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 14
+
+    def test_microtonal_gamelan_style(self):
+        """Test gamelan style canon."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_microtonal_canon('gamelan', 'G4', 10)
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 10
+
+    def test_microtonal_experimental_style(self):
+        """Test experimental/xenharmonic canon."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_microtonal_canon('experimental', 'A4', 18)
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 18
+
+    def test_microtonal_jazz_style(self):
+        """Test jazz/just intonation canon."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_microtonal_canon('jazz', 'F4', 12)
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 12
+
+    def test_microtonal_with_specific_tuning_system(self):
+        """Test with specific tuning system override."""
+        from cancrizans.microtonal import TuningSystem
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_microtonal_canon(
+            'baroque',
+            'C4',
+            16,
+            tuning_system=TuningSystem.WERCKMEISTER_III
+        )
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 16
+
+    def test_microtonal_with_specific_world_scale(self):
+        """Test with specific world music scale."""
+        from cancrizans.microtonal import ScaleType
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_microtonal_canon(
+            'arabic',
+            'D4',
+            12,
+            world_scale=ScaleType.MAQAM_HIJAZ
+        )
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 12
+
+    def test_microtonal_with_string_tuning_system(self):
+        """Test with tuning system specified as string."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_microtonal_canon(
+            'baroque',
+            'C4',
+            16,
+            tuning_system='EQUAL_19'
+        )
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 16
+
+    def test_microtonal_with_string_world_scale(self):
+        """Test with world scale specified as string."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_microtonal_canon(
+            'indian',
+            'G4',
+            14,
+            world_scale='RAGA_BHAIRAV'
+        )
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 14
+
+    def test_microtonal_with_modulation(self):
+        """Test microtonal canon with modulation."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_microtonal_canon(
+            'baroque',
+            'D4',
+            24,
+            modulation=True
+        )
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 24
+
+    def test_microtonal_with_custom_duration(self):
+        """Test microtonal canon with custom note duration."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_microtonal_canon(
+            'baroque',
+            'C4',
+            8,
+            duration=2.0
+        )
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 8
+        # Check that notes have the specified duration
+        assert notes[0].quarterLength == 2.0
+
+    def test_microtonal_various_lengths(self):
+        """Test microtonal canon with various lengths."""
+        gen = CanonGenerator(seed=42)
+
+        for length in [4, 8, 16, 32]:
+            canon = gen.generate_microtonal_canon('baroque', 'C4', length)
+            notes = list(canon.parts[0].flatten().notes)
+            assert len(notes) == length
+
+    def test_microtonal_various_roots(self):
+        """Test microtonal canon with various root notes."""
+        gen = CanonGenerator(seed=42)
+
+        for root in ['C4', 'D4', 'E4', 'F#4', 'G4', 'A4', 'Bb4']:
+            canon = gen.generate_microtonal_canon('baroque', root, 12)
+            assert isinstance(canon, stream.Score)
+            notes = list(canon.parts[0].flatten().notes)
+            assert len(notes) == 12
+
+    def test_microtonal_bohlen_pierce(self):
+        """Test with Bohlen-Pierce non-octave scale."""
+        from cancrizans.microtonal import TuningSystem
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_microtonal_canon(
+            'experimental',
+            'C4',
+            13,
+            tuning_system=TuningSystem.BOHLEN_PIERCE
+        )
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 13
+
+    def test_microtonal_all_styles(self):
+        """Test that all documented styles work."""
+        gen = CanonGenerator(seed=42)
+
+        styles = [
+            'baroque', 'classical', 'bach',
+            'arabic', 'middle eastern', 'maqam',
+            'indian', 'raga', 'hindustani',
+            'gamelan', 'indonesian', 'javanese',
+            'experimental', 'contemporary', 'avant-garde',
+            'jazz', 'blues', 'folk'
+        ]
+
+        for style in styles:
+            canon = gen.generate_microtonal_canon(style, 'C4', 8)
+            assert isinstance(canon, stream.Score)
+            notes = list(canon.parts[0].flatten().notes)
+            assert len(notes) == 8
+
+    def test_microtonal_modulation_with_various_styles(self):
+        """Test modulation works with different styles."""
+        gen = CanonGenerator(seed=42)
+
+        styles = ['baroque', 'arabic', 'indian', 'experimental']
+
+        for style in styles:
+            canon = gen.generate_microtonal_canon(
+                style,
+                'C4',
+                20,
+                modulation=True
+            )
+            assert isinstance(canon, stream.Score)
+            notes = list(canon.parts[0].flatten().notes)
+            assert len(notes) == 20
