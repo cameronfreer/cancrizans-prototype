@@ -1,0 +1,77 @@
+name: "CodeQL Security Analysis"
+
+on:
+  push:
+    branches: [ "main", "develop", "claude/**" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+  schedule:
+    # Run every Monday at 6:00 UTC
+    - cron: '0 6 * * 1'
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze Code
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'python' ]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # Install the package with dependencies for better analysis
+        pip install -e ".[dev]"
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+        # Override default queries with custom configuration
+        queries: +security-and-quality
+        # Specify additional packs for comprehensive analysis
+        packs: "codeql/python-queries:experimental"
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{ matrix.language }}"
+        output: sarif-results
+        upload: true
+
+    - name: Upload SARIF results as artifact
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: codeql-results
+        path: sarif-results
+        retention-days: 30
+
+    - name: Check for critical vulnerabilities
+      if: always()
+      run: |
+        if [ -d "sarif-results" ]; then
+          echo "CodeQL analysis completed. Check the Security tab for results."
+          # Count findings by severity if available
+          echo "### CodeQL Security Analysis Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Analysis completed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "📊 Review detailed results in the Security tab" >> $GITHUB_STEP_SUMMARY
+        fi

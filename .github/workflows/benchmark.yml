@@ -1,0 +1,195 @@
+name: Performance Benchmarks
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+  workflow_dispatch:
+  schedule:
+    # Run weekly on Sundays at 3:00 UTC
+    - cron: '0 3 * * 0'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  benchmark:
+    name: Run Performance Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          uv pip install --system -e ".[dev]"
+
+      - name: Run benchmarks
+        id: benchmark
+        run: |
+          echo "### ⚡ Performance Benchmarks" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Run the benchmark suite
+          python benchmarks/benchmark_suite.py | tee benchmark_output.txt
+
+          # Extract and format results for summary
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat benchmark_output.txt >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            benchmarks/results/benchmark_results.json
+            benchmark_output.txt
+          retention-days: 90
+
+      - name: Download previous benchmark results
+        uses: dawidd6/action-download-artifact@v3
+        continue-on-error: true
+        with:
+          workflow: benchmark.yml
+          name: benchmark-results
+          path: previous-results/
+          if_no_artifact_found: warn
+
+      - name: Compare with previous results
+        id: compare
+        continue-on-error: true
+        run: |
+          if [ -f previous-results/benchmark_results.json ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 📊 Performance Comparison" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # Simple comparison script
+            python << 'EOF'
+          import json
+          from pathlib import Path
+
+          current = json.loads(Path('benchmarks/results/benchmark_results.json').read_text())
+          previous = json.loads(Path('previous-results/benchmark_results.json').read_text())
+
+          print("| Benchmark | Current (ms) | Previous (ms) | Change |")
+          print("|-----------|--------------|---------------|--------|")
+
+          current_benchmarks = {b['name']: b for b in current['benchmarks']}
+          previous_benchmarks = {b['name']: b for b in previous['benchmarks']}
+
+          for name, curr in current_benchmarks.items():
+              if name in previous_benchmarks:
+                  prev = previous_benchmarks[name]
+                  curr_time = curr['avg_duration'] * 1000
+                  prev_time = prev['avg_duration'] * 1000
+                  change_pct = ((curr_time - prev_time) / prev_time) * 100
+
+                  # Format change with emoji
+                  if abs(change_pct) < 5:
+                      emoji = "✅"
+                  elif change_pct < 0:
+                      emoji = "🚀"
+                  else:
+                      emoji = "⚠️"
+
+                  print(f"| {name[:40]} | {curr_time:.3f} | {prev_time:.3f} | {emoji} {change_pct:+.1f}% |")
+              else:
+                  curr_time = curr['avg_duration'] * 1000
+                  print(f"| {name[:40]} | {curr_time:.3f} | N/A | 🆕 New |")
+          EOF
+
+            python << 'EOF' >> $GITHUB_STEP_SUMMARY
+          import json
+          from pathlib import Path
+
+          current = json.loads(Path('benchmarks/results/benchmark_results.json').read_text())
+          previous = json.loads(Path('previous-results/benchmark_results.json').read_text())
+
+          print("| Benchmark | Current (ms) | Previous (ms) | Change |")
+          print("|-----------|--------------|---------------|--------|")
+
+          current_benchmarks = {b['name']: b for b in current['benchmarks']}
+          previous_benchmarks = {b['name']: b for b in previous['benchmarks']}
+
+          regressions = []
+          improvements = []
+
+          for name, curr in current_benchmarks.items():
+              if name in previous_benchmarks:
+                  prev = previous_benchmarks[name]
+                  curr_time = curr['avg_duration'] * 1000
+                  prev_time = prev['avg_duration'] * 1000
+                  change_pct = ((curr_time - prev_time) / prev_time) * 100
+
+                  # Format change with emoji
+                  if abs(change_pct) < 5:
+                      emoji = "✅"
+                  elif change_pct < 0:
+                      emoji = "🚀"
+                      improvements.append((name, change_pct))
+                  else:
+                      emoji = "⚠️"
+                      if change_pct > 10:
+                          regressions.append((name, change_pct))
+
+                  print(f"| {name[:40]} | {curr_time:.3f} | {prev_time:.3f} | {emoji} {change_pct:+.1f}% |")
+              else:
+                  curr_time = curr['avg_duration'] * 1000
+                  print(f"| {name[:40]} | {curr_time:.3f} | N/A | 🆕 New |")
+
+          print("")
+
+          if regressions:
+              print("### ⚠️ Performance Regressions Detected")
+              print("")
+              for name, pct in regressions:
+                  print(f"- **{name}**: {pct:+.1f}% slower")
+              print("")
+
+          if improvements:
+              print("### 🚀 Performance Improvements")
+              print("")
+              for name, pct in improvements:
+                  print(f"- **{name}**: {abs(pct):.1f}% faster")
+          EOF
+          else
+            echo "No previous results found for comparison" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            const fs = require('fs');
+
+            let comment = '## ⚡ Performance Benchmark Results\n\n';
+            comment += fs.readFileSync('benchmark_output.txt', 'utf8');
+
+            if (fs.existsSync('previous-results/benchmark_results.json')) {
+              comment += '\n\n*Comparison with previous results available in workflow summary*\n';
+            }
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
