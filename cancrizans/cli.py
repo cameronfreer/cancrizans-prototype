@@ -744,6 +744,67 @@ def main() -> int:
         help="Output directory for generated files (default: out/)"
     )
 
+    # Pattern analysis command
+    pattern_parser = subparsers.add_parser(
+        "analyze-patterns",
+        help="Analyze musical patterns (motifs, sequences, imitation)"
+    )
+    pattern_parser.add_argument(
+        "input",
+        help="Path to MIDI/MusicXML file to analyze"
+    )
+    pattern_parser.add_argument(
+        "--output", "-o",
+        help="Output JSON file for analysis results"
+    )
+    pattern_parser.add_argument(
+        "--min-length",
+        type=int,
+        default=3,
+        help="Minimum motif length (default: 3)"
+    )
+    pattern_parser.add_argument(
+        "--min-occurrences",
+        type=int,
+        default=2,
+        help="Minimum motif occurrences (default: 2)"
+    )
+    pattern_parser.add_argument(
+        "--detect-fugue",
+        action="store_true",
+        help="Analyze fugue structure (subject, answer, episodes)"
+    )
+    pattern_parser.add_argument(
+        "--voice-independence",
+        action="store_true",
+        help="Calculate voice independence metrics"
+    )
+    pattern_parser.add_argument(
+        "--complexity",
+        action="store_true",
+        help="Calculate pattern complexity"
+    )
+    pattern_parser.add_argument(
+        "--sequences",
+        action="store_true",
+        help="Identify melodic sequences"
+    )
+    pattern_parser.add_argument(
+        "--imitation",
+        action="store_true",
+        help="Detect imitation points between voices"
+    )
+    pattern_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Run all pattern analysis functions"
+    )
+    pattern_parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Verbose output with details"
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -767,6 +828,8 @@ def main() -> int:
             return scales_command(args)
         elif args.command == "microtonal-canon":
             return microtonal_canon_command(args)
+        elif args.command == "analyze-patterns":
+            return analyze_patterns_command(args)
         else:
             print(f"Unknown command: {args.command}")
             return 1
@@ -776,6 +839,233 @@ def main() -> int:
         import traceback
         traceback.print_exc()
         return 1
+
+
+def analyze_patterns_command(args: argparse.Namespace) -> int:
+    """Execute the analyze-patterns subcommand."""
+    import json
+    from cancrizans import (
+        detect_motifs,
+        identify_melodic_sequences,
+        detect_imitation_points,
+        analyze_thematic_development,
+        find_contour_similarities,
+        analyze_fugue_structure,
+        calculate_voice_independence,
+        calculate_pattern_complexity
+    )
+
+    input_path = Path(args.input)
+
+    if not input_path.exists():
+        print(f"Error: File not found: {input_path}")
+        return 1
+
+    print(f"Analyzing patterns in: {input_path}")
+    print("=" * 70)
+
+    # Load the score
+    score = load_score(input_path)
+
+    results = {
+        'file': str(input_path),
+        'parts': len(score.parts) if hasattr(score, 'parts') else 1
+    }
+
+    # Detect motifs (always run unless only specific analyses requested)
+    run_all = args.all or not any([
+        args.detect_fugue, args.voice_independence,
+        args.complexity, args.sequences, args.imitation
+    ])
+
+    if run_all or True:  # Always detect motifs
+        print("\n🎵 Detecting Motifs...")
+        print("-" * 70)
+        motifs = detect_motifs(
+            score,
+            min_length=args.min_length,
+            min_occurrences=args.min_occurrences
+        )
+
+        print(f"Found {len(motifs)} recurring motifs")
+
+        if motifs and args.verbose:
+            for i, motif in enumerate(motifs[:5], 1):
+                print(f"\n  Motif {i}:")
+                print(f"    Intervals: {motif.intervals}")
+                print(f"    Rhythms: {motif.rhythms}")
+                print(f"    Occurrences: {len(motif.occurrences)} times")
+                print(f"    Positions: {motif.occurrences}")
+
+        results['motifs'] = {
+            'count': len(motifs),
+            'details': [
+                {
+                    'intervals': m.intervals,
+                    'rhythms': m.rhythms,
+                    'occurrences': m.occurrences,
+                    'length': m.length
+                } for m in motifs[:10]  # Top 10 motifs
+            ]
+        }
+
+    # Melodic sequences
+    if run_all or args.sequences:
+        print("\n📈 Identifying Melodic Sequences...")
+        print("-" * 70)
+        sequences = identify_melodic_sequences(score)
+
+        print(f"Found {len(sequences)} sequential patterns")
+
+        if sequences and args.verbose:
+            for i, seq in enumerate(sequences[:3], 1):
+                print(f"\n  Sequence {i}:")
+                print(f"    Type: {seq['type']}")
+                print(f"    Pattern: {seq['pattern']}")
+                print(f"    Transpositions: {seq['transpositions']}")
+                print(f"    Repetitions: {seq['repetitions']}")
+
+        results['sequences'] = {
+            'count': len(sequences),
+            'details': sequences[:5]  # Top 5 sequences
+        }
+
+    # Imitation points
+    if (run_all or args.imitation) and hasattr(score, 'parts') and len(score.parts) >= 2:
+        print("\n🔄 Detecting Imitation Points...")
+        print("-" * 70)
+        imitations = detect_imitation_points(score)
+
+        print(f"Found {len(imitations)} imitation points")
+
+        if imitations and args.verbose:
+            for i, im in enumerate(imitations[:5], 1):
+                print(f"\n  Imitation {i}:")
+                print(f"    Leader voice: {im['leader_voice']}")
+                print(f"    Follower voice: {im['follower_voice']}")
+                print(f"    Delay: {im['delay']:.2f} quarter notes")
+                print(f"    Similarity: {im['similarity']:.2f}")
+                print(f"    Type: {im['type']}")
+
+        results['imitations'] = {
+            'count': len(imitations),
+            'details': imitations[:10]  # Top 10 imitations
+        }
+
+    # Fugue structure
+    if args.detect_fugue and hasattr(score, 'parts') and len(score.parts) >= 2:
+        print("\n🎼 Analyzing Fugue Structure...")
+        print("-" * 70)
+        fugue_analysis = analyze_fugue_structure(score)
+
+        if fugue_analysis['subject']:
+            print(f"Subject detected:")
+            print(f"  Intervals: {fugue_analysis['subject']['intervals']}")
+            print(f"  Length: {fugue_analysis['subject']['length']} notes")
+
+        print(f"\nAnswers: {len(fugue_analysis['answers'])}")
+        if fugue_analysis['answers'] and args.verbose:
+            for ans in fugue_analysis['answers']:
+                print(f"  Voice {ans['voice']}, offset {ans['offset']:.2f}, "
+                      f"type: {ans['type']}, similarity: {ans['similarity']:.2f}")
+
+        print(f"Counter-subjects: {len(fugue_analysis['counter_subjects'])}")
+        print(f"Episodes: {len(fugue_analysis['episodes'])}")
+        print(f"Stretto sections: {len(fugue_analysis['stretto_sections'])}")
+        print(f"Exposition ends at: {fugue_analysis['exposition_end']:.2f}")
+
+        results['fugue'] = {
+            'subject': fugue_analysis['subject'],
+            'answer_count': len(fugue_analysis['answers']),
+            'counter_subject_count': len(fugue_analysis['counter_subjects']),
+            'episode_count': len(fugue_analysis['episodes']),
+            'stretto_count': len(fugue_analysis['stretto_sections']),
+            'exposition_end': fugue_analysis['exposition_end']
+        }
+
+    # Voice independence
+    if args.voice_independence and hasattr(score, 'parts') and len(score.parts) >= 2:
+        print("\n👥 Calculating Voice Independence...")
+        print("-" * 70)
+        independence = calculate_voice_independence(score)
+
+        print(f"Number of voices: {independence['num_voices']}")
+        print(f"Rhythmic independence: {independence['rhythmic_independence']:.3f}")
+        print(f"Melodic independence: {independence['melodic_independence']:.3f}")
+        print(f"Contour independence: {independence['contour_independence']:.3f}")
+        print(f"Harmonic density: {independence['harmonic_density']:.2f} voices")
+        print(f"Voice crossings: {independence['voice_crossing_count']}")
+
+        if args.verbose:
+            print(f"\nPer-voice activity:")
+            for i, activity in enumerate(independence['per_voice_activity'], 1):
+                print(f"  Voice {i}: {activity:.3f}")
+
+        results['voice_independence'] = independence
+
+    # Pattern complexity
+    if run_all or args.complexity:
+        print("\n📊 Calculating Pattern Complexity...")
+        print("-" * 70)
+        complexity = calculate_pattern_complexity(score)
+
+        print(f"Interval complexity: {complexity['interval_complexity']:.3f}")
+        print(f"Rhythmic complexity: {complexity['rhythmic_complexity']:.3f}")
+        print(f"Range complexity: {complexity['range_complexity']:.3f}")
+        print(f"Direction changes: {complexity['direction_changes']}")
+        print(f"Overall complexity: {complexity['overall_complexity']:.3f}")
+
+        results['complexity'] = complexity
+
+    # Thematic development
+    if run_all:
+        print("\n🎭 Analyzing Thematic Development...")
+        print("-" * 70)
+        development = analyze_thematic_development(score)
+
+        print(f"Themes detected: {development['theme_count']}")
+        print(f"Transformations: {len(development['transformations'])}")
+        print(f"Development sections: {len(development['development_sections'])}")
+        print(f"Recapitulations: {len(development['recapitulations'])}")
+
+        results['thematic_development'] = {
+            'theme_count': development['theme_count'],
+            'transformation_count': len(development['transformations']),
+            'development_section_count': len(development['development_sections']),
+            'recapitulation_count': len(development['recapitulations'])
+        }
+
+    # Contour similarities
+    if run_all:
+        print("\n🌊 Finding Contour Similarities...")
+        print("-" * 70)
+        contours = find_contour_similarities(score)
+
+        print(f"Found {len(contours)} matching contours")
+
+        if contours and args.verbose:
+            for i, c in enumerate(contours[:3], 1):
+                print(f"\n  Contour {i}:")
+                print(f"    Shape: {c['contour']}")
+                print(f"    Length: {c['length']} notes")
+                print(f"    Occurrences: {c['occurrences']} times")
+
+        results['contours'] = {
+            'count': len(contours),
+            'details': contours[:10]  # Top 10 contours
+        }
+
+    # Save results if output specified
+    if args.output:
+        output_path = Path(args.output)
+        with open(output_path, 'w') as f:
+            json.dump(results, f, indent=2)
+        print(f"\n✓ Results saved to: {output_path}")
+
+    print("\n" + "=" * 70)
+    print("✓ Pattern analysis complete!")
+
+    return 0
 
 
 if __name__ == "__main__":
