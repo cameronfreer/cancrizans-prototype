@@ -1,0 +1,288 @@
+name: API Compatibility Check
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'cancrizans/**/*.py'
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check-compatibility:
+    name: API Compatibility Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout current code
+        uses: actions/checkout@v4
+        with:
+          path: current
+
+      - name: Checkout base code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref || 'main' }}
+          path: base
+
+      - name: Setup Python environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install analysis tools
+        run: |
+          pip install ast-grep semgrep
+
+      - name: Analyze API changes
+        id: analyze
+        run: |
+          cat > analyze_api.py << 'PYEOF'
+          import ast
+          import sys
+          from pathlib import Path
+          from typing import Set, Dict, List, Tuple
+
+          def extract_public_api(file_path: Path) -> Dict[str, List[str]]:
+              """Extract public classes, functions, and their signatures."""
+              api = {
+                  'classes': [],
+                  'functions': [],
+                  'constants': []
+              }
+
+              try:
+                  with open(file_path) as f:
+                      tree = ast.parse(f.read())
+              except:
+                  return api
+
+              for node in ast.walk(tree):
+                  # Public classes
+                  if isinstance(node, ast.ClassDef) and not node.name.startswith('_'):
+                      methods = []
+                      for item in node.body:
+                          if isinstance(item, ast.FunctionDef) and not item.name.startswith('_'):
+                              # Get method signature
+                              args = [arg.arg for arg in item.args.args]
+                              methods.append(f"{item.name}({', '.join(args)})")
+
+                      api['classes'].append({
+                          'name': node.name,
+                          'methods': methods
+                      })
+
+                  # Public functions
+                  elif isinstance(node, ast.FunctionDef) and not node.name.startswith('_'):
+                      args = [arg.arg for arg in node.args.args]
+                      api['functions'].append(f"{node.name}({', '.join(args)})")
+
+                  # Public constants (uppercase variables)
+                  elif isinstance(node, ast.Assign):
+                      for target in node.targets:
+                          if isinstance(target, ast.Name) and target.id.isupper():
+                              api['constants'].append(target.id)
+
+              return api
+
+          def compare_apis(base_dir: Path, current_dir: Path) -> Dict:
+              """Compare APIs between base and current."""
+              changes = {
+                  'removed': {'classes': [], 'functions': [], 'constants': []},
+                  'added': {'classes': [], 'functions': [], 'constants': []},
+                  'modified': {'classes': [], 'functions': []},
+                  'breaking': False
+              }
+
+              base_files = set(base_dir.rglob('*.py'))
+              current_files = set(current_dir.rglob('*.py'))
+
+              # Get relative paths
+              base_rel = {f.relative_to(base_dir): f for f in base_files}
+              current_rel = {f.relative_to(current_dir): f for f in current_files}
+
+              # Analyze common files
+              for rel_path in base_rel.keys() & current_rel.keys():
+                  base_api = extract_public_api(base_rel[rel_path])
+                  current_api = extract_public_api(current_rel[rel_path])
+
+                  # Check removed items
+                  for item_type in ['functions', 'constants']:
+                      removed = set(base_api[item_type]) - set(current_api[item_type])
+                      if removed:
+                          changes['removed'][item_type].extend(
+                              [(str(rel_path), item) for item in removed]
+                          )
+                          changes['breaking'] = True
+
+                  # Check classes
+                  base_classes = {c['name']: c for c in base_api['classes']}
+                  current_classes = {c['name']: c for c in current_api['classes']}
+
+                  # Removed classes
+                  removed_classes = set(base_classes.keys()) - set(current_classes.keys())
+                  if removed_classes:
+                      changes['removed']['classes'].extend(
+                          [(str(rel_path), cls) for cls in removed_classes]
+                      )
+                      changes['breaking'] = True
+
+                  # Modified classes (method signature changes)
+                  for cls_name in base_classes.keys() & current_classes.keys():
+                      base_methods = set(base_classes[cls_name]['methods'])
+                      current_methods = set(current_classes[cls_name]['methods'])
+
+                      removed_methods = base_methods - current_methods
+                      if removed_methods:
+                          changes['modified']['classes'].append(
+                              (str(rel_path), cls_name, list(removed_methods))
+                          )
+                          changes['breaking'] = True
+
+                  # Added items (non-breaking)
+                  for item_type in ['functions', 'constants']:
+                      added = set(current_api[item_type]) - set(base_api[item_type])
+                      if added:
+                          changes['added'][item_type].extend(
+                              [(str(rel_path), item) for item in added]
+                          )
+
+              return changes
+
+          if __name__ == '__main__':
+              base_dir = Path('base/cancrizans')
+              current_dir = Path('current/cancrizans')
+
+              if not base_dir.exists() or not current_dir.exists():
+                  print("Directories not found")
+                  sys.exit(0)
+
+              changes = compare_apis(base_dir, current_dir)
+
+              print("### 🔍 API Compatibility Analysis")
+              print()
+
+              if changes['breaking']:
+                  print("⚠️ **BREAKING CHANGES DETECTED**")
+                  print()
+
+              # Removed items
+              if any(changes['removed'].values()):
+                  print("#### ❌ Removed (Breaking)")
+                  print()
+
+                  if changes['removed']['classes']:
+                      print("**Classes:**")
+                      for path, cls in changes['removed']['classes'][:10]:
+                          print(f"- `{cls}` in `{path}`")
+                      print()
+
+                  if changes['removed']['functions']:
+                      print("**Functions:**")
+                      for path, func in changes['removed']['functions'][:10]:
+                          print(f"- `{func}` in `{path}`")
+                      print()
+
+                  if changes['removed']['constants']:
+                      print("**Constants:**")
+                      for path, const in changes['removed']['constants'][:10]:
+                          print(f"- `{const}` in `{path}`")
+                      print()
+
+              # Modified items
+              if changes['modified']['classes']:
+                  print("#### ⚠️ Modified (Breaking)")
+                  print()
+                  print("**Classes with removed methods:**")
+                  for path, cls, methods in changes['modified']['classes'][:5]:
+                      print(f"- `{cls}` in `{path}`:")
+                      for method in methods[:5]:
+                          print(f"  - `{method}`")
+                  print()
+
+              # Added items
+              if any(changes['added'].values()):
+                  print("#### ✅ Added (Non-breaking)")
+                  print()
+
+                  total_added = (len(changes['added']['classes']) +
+                               len(changes['added']['functions']) +
+                               len(changes['added']['constants']))
+                  print(f"- **Total new items:** {total_added}")
+
+                  if changes['added']['functions']:
+                      print(f"  - Functions: {len(changes['added']['functions'])}")
+                  if changes['added']['constants']:
+                      print(f"  - Constants: {len(changes['added']['constants'])}")
+                  print()
+
+              if not changes['breaking']:
+                  print("✅ **No breaking changes detected**")
+              else:
+                  print()
+                  print("⚠️ This PR contains breaking API changes.")
+                  print("Consider:")
+                  print("- Bumping major version")
+                  print("- Adding deprecation warnings")
+                  print("- Documenting migration path")
+
+              # Exit with failure if breaking changes
+              sys.exit(1 if changes['breaking'] else 0)
+          PYEOF
+
+          python analyze_api.py > api_report.md
+          COMPAT_STATUS=$?
+
+          echo "compat_status=$COMPAT_STATUS" >> $GITHUB_OUTPUT
+
+      - name: Post to step summary
+        if: always()
+        run: |
+          if [ -f api_report.md ]; then
+            cat api_report.md >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### 🔍 API Compatibility Analysis" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ No API changes detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && steps.analyze.outputs.compat_status == '1'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('api_report.md', 'utf8');
+
+            const comment = `## ⚠️ API Compatibility Report
+
+            ${report}
+
+            ---
+            *Please review these changes carefully and update documentation accordingly.*
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Upload compatibility report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-compatibility-report
+          path: api_report.md
+          retention-days: 30
+
+      - name: Warn if breaking changes
+        if: steps.analyze.outputs.compat_status == '1'
+        run: |
+          echo "::warning::Breaking API changes detected. Consider version bump and migration guide."

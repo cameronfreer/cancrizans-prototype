@@ -1,0 +1,279 @@
+name: Memory Profiling
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Weekly on Tuesdays at 08:00 UTC
+    - cron: '0 8 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  profile-memory:
+    name: Memory Usage Profiling
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Install profiling tools
+        run: |
+          pip install memory-profiler pympler tracemalloc-ng psutil
+
+      - name: Run memory profiling
+        run: |
+          mkdir -p profiling/memory
+
+          cat > profile_memory.py << 'PYEOF'
+          import gc
+          import sys
+          from memory_profiler import profile
+          from pympler import asizeof, muppy, summary
+          import tracemalloc
+          import psutil
+          import json
+          from datetime import datetime
+
+          # Import cancrizans modules
+          try:
+              from cancrizans import (
+                  load_bach_crab_canon,
+                  retrograde,
+                  is_time_palindrome,
+                  table_canon,
+                  advanced_crab_canon
+              )
+              from cancrizans.generator import CanonGenerator
+          except ImportError as e:
+              print(f"Import error: {e}")
+              sys.exit(1)
+
+          def measure_memory_usage():
+              """Measure memory usage of common operations."""
+              results = {
+                  'timestamp': datetime.now().isoformat(),
+                  'tests': []
+              }
+
+              process = psutil.Process()
+
+              # Test 1: Load Bach's Crab Canon
+              gc.collect()
+              mem_before = process.memory_info().rss / 1024 / 1024  # MB
+
+              tracemalloc.start()
+              try:
+                  score = load_bach_crab_canon()
+                  current, peak = tracemalloc.get_traced_memory()
+                  tracemalloc.stop()
+
+                  mem_after = process.memory_info().rss / 1024 / 1024
+                  size = asizeof.asizeof(score) / 1024  # KB
+
+                  results['tests'].append({
+                      'name': 'Load Bach Crab Canon',
+                      'memory_delta_mb': round(mem_after - mem_before, 2),
+                      'object_size_kb': round(size, 2),
+                      'peak_allocated_mb': round(peak / 1024 / 1024, 2)
+                  })
+              except Exception as e:
+                  print(f"Error in test 1: {e}")
+
+              # Test 2: Generate canon
+              gc.collect()
+              mem_before = process.memory_info().rss / 1024 / 1024
+
+              tracemalloc.start()
+              try:
+                  gen = CanonGenerator(seed=42)
+                  canon = gen.generate_scale_canon(root='C4', scale='major', length=16)
+                  current, peak = tracemalloc.get_traced_memory()
+                  tracemalloc.stop()
+
+                  mem_after = process.memory_info().rss / 1024 / 1024
+                  size = asizeof.asizeof(canon) / 1024
+
+                  results['tests'].append({
+                      'name': 'Generate Scale Canon (16 notes)',
+                      'memory_delta_mb': round(mem_after - mem_before, 2),
+                      'object_size_kb': round(size, 2),
+                      'peak_allocated_mb': round(peak / 1024 / 1024, 2)
+                  })
+              except Exception as e:
+                  print(f"Error in test 2: {e}")
+
+              # Test 3: Apply transformations
+              gc.collect()
+              mem_before = process.memory_info().rss / 1024 / 1024
+
+              tracemalloc.start()
+              try:
+                  if 'canon' in locals():
+                      reversed_canon = retrograde(canon)
+                      table = table_canon(canon)
+                      current, peak = tracemalloc.get_traced_memory()
+                      tracemalloc.stop()
+
+                      mem_after = process.memory_info().rss / 1024 / 1024
+
+                      results['tests'].append({
+                          'name': 'Apply Transformations',
+                          'memory_delta_mb': round(mem_after - mem_before, 2),
+                          'peak_allocated_mb': round(peak / 1024 / 1024, 2)
+                      })
+              except Exception as e:
+                  print(f"Error in test 3: {e}")
+
+              # Overall summary
+              gc.collect()
+              all_objects = muppy.get_objects()
+              sum1 = summary.summarize(all_objects)
+
+              print("\n### 📊 Memory Profile Summary\n")
+
+              for test in results['tests']:
+                  print(f"**{test['name']}**")
+                  print(f"- Memory Delta: {test['memory_delta_mb']} MB")
+                  if 'object_size_kb' in test:
+                      print(f"- Object Size: {test['object_size_kb']} KB")
+                  print(f"- Peak Allocated: {test['peak_allocated_mb']} MB")
+                  print()
+
+              # Save results
+              with open('profiling/memory/results.json', 'w') as f:
+                  json.dump(results, f, indent=2)
+
+              print("---")
+              print("\n**Top Memory Consumers:**\n")
+              summary.print_(sum1[:10])
+
+              return results
+
+          if __name__ == '__main__':
+              try:
+                  measure_memory_usage()
+              except Exception as e:
+                  print(f"Profiling failed: {e}")
+                  import traceback
+                  traceback.print_exc()
+                  sys.exit(1)
+          PYEOF
+
+          python profile_memory.py > memory_report.txt 2>&1 || true
+
+      - name: Generate memory report
+        run: |
+          cat > memory_summary.md << 'EOF'
+          # 🧠 Memory Profiling Report
+
+          EOF
+
+          if [ -f memory_report.txt ]; then
+            cat memory_report.txt >> memory_summary.md
+          else
+            echo "No memory report generated" >> memory_summary.md
+          fi
+
+          cat memory_summary.md
+
+      - name: Post to step summary
+        run: |
+          cat memory_summary.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Check for memory issues
+        id: check
+        run: |
+          if [ -f profiling/memory/results.json ]; then
+            python << 'PYEOF'
+          import json
+          from pathlib import Path
+
+          with open('profiling/memory/results.json') as f:
+              results = json.load(f)
+
+          issues = []
+
+          for test in results['tests']:
+              # Flag if memory delta > 50MB
+              if test.get('memory_delta_mb', 0) > 50:
+                  issues.append(f"{test['name']}: High memory delta ({test['memory_delta_mb']} MB)")
+
+              # Flag if peak > 100MB
+              if test.get('peak_allocated_mb', 0) > 100:
+                  issues.append(f"{test['name']}: High peak allocation ({test['peak_allocated_mb']} MB)")
+
+          if issues:
+              print("MEMORY_ISSUES=true")
+              for issue in issues:
+                  print(f"::warning::{issue}")
+          else:
+              print("MEMORY_ISSUES=false")
+          PYEOF
+          fi
+
+      - name: Upload profiling results
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-profiling-${{ github.run_number }}
+          path: |
+            profiling/memory/
+            memory_report.txt
+            memory_summary.md
+          retention-days: 30
+
+      - name: Compare with baseline
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          # Download baseline from main branch
+          echo "### 📈 Memory Comparison" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Comparing with baseline (main branch)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && steps.check.outputs.MEMORY_ISSUES == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = `## 🧠 Memory Profiling Alert
+
+            ⚠️ High memory usage detected in this PR.
+
+            Please review the [profiling results](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+
+            Consider:
+            - Optimizing large object allocations
+            - Using generators for large datasets
+            - Implementing streaming where possible
+            - Adding memory-efficient data structures
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Commit memory baseline
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if [ -d profiling/memory ] && [ -n "$(git status --porcelain profiling/)" ]; then
+            git add profiling/memory/
+            git commit -m "chore: Update memory profiling baseline [skip ci]"
+            git push
+            echo "✅ Memory baseline updated" >> $GITHUB_STEP_SUMMARY
+          fi

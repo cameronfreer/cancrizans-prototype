@@ -1,0 +1,279 @@
+name: Breaking Change Detection
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  detect-breaking-changes:
+    name: Detect Breaking Changes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Analyze code changes
+        id: analyze
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          echo "### 🔍 Breaking Change Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          BREAKING=0
+
+          # Check for removed files
+          REMOVED_FILES=$(git diff --name-only --diff-filter=D $BASE_SHA $HEAD_SHA | grep "cancrizans/.*\.py$" || true)
+          if [ -n "$REMOVED_FILES" ]; then
+            echo "#### ❌ Removed Python Files" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "$REMOVED_FILES" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            BREAKING=1
+          fi
+
+          # Check for signature changes in public functions
+          git diff $BASE_SHA $HEAD_SHA -- 'cancrizans/**/*.py' > changes.diff
+
+          # Look for function signature modifications
+          python << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import re
+          import sys
+
+          try:
+              with open('changes.diff') as f:
+                  diff = f.read()
+
+              # Pattern for function definitions
+              removed_pattern = r'^-def\s+([a-z_][a-z0-9_]*)\s*\((.*?)\):'
+              added_pattern = r'^\+def\s+([a-z_][a-z0-9_]*)\s*\((.*?)\):'
+
+              removed_funcs = re.findall(removed_pattern, diff, re.MULTILINE)
+              added_funcs = re.findall(added_pattern, diff, re.MULTILINE)
+
+              # Find modified functions (same name, different signature)
+              removed_dict = {name: params for name, params in removed_funcs if not name.startswith('_')}
+              added_dict = {name: params for name, params in added_funcs if not name.startswith('_')}
+
+              modified = []
+              for name in removed_dict:
+                  if name in added_dict and removed_dict[name] != added_dict[name]:
+                      modified.append((name, removed_dict[name], added_dict[name]))
+
+              if modified:
+                  print("#### ⚠️ Modified Function Signatures")
+                  print()
+                  for name, old_params, new_params in modified:
+                      print(f"**`{name}`**")
+                      print(f"- Old: `({old_params})`")
+                      print(f"- New: `({new_params})`")
+                      print()
+                  sys.exit(1)
+          except Exception as e:
+              print(f"Error analyzing signatures: {e}")
+          PYEOF
+
+          SIG_STATUS=$?
+          if [ $SIG_STATUS -ne 0 ]; then
+            BREAKING=1
+          fi
+
+          # Check for removed imports from __init__.py
+          INIT_CHANGES=$(git diff $BASE_SHA $HEAD_SHA -- 'cancrizans/__init__.py' || true)
+          if echo "$INIT_CHANGES" | grep -q "^-.*import"; then
+            echo "#### ⚠️ __init__.py Import Changes" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Public API imports may have changed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            BREAKING=1
+          fi
+
+          # Check for changes to pyproject.toml dependencies
+          DEP_CHANGES=$(git diff $BASE_SHA $HEAD_SHA -- 'pyproject.toml' | grep -E "^[\-\+].*=.*['\"]" || true)
+          if [ -n "$DEP_CHANGES" ]; then
+            echo "#### 📦 Dependency Changes" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`diff" >> $GITHUB_STEP_SUMMARY
+            echo "$DEP_CHANGES" | head -20 >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Check for Python version requirement changes
+          PY_VER_CHANGE=$(git diff $BASE_SHA $HEAD_SHA -- 'pyproject.toml' | grep "requires-python" || true)
+          if [ -n "$PY_VER_CHANGE" ]; then
+            echo "#### 🐍 Python Version Requirement Changed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`diff" >> $GITHUB_STEP_SUMMARY
+            echo "$PY_VER_CHANGE" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            BREAKING=1
+          fi
+
+          echo "breaking=$BREAKING" >> $GITHUB_OUTPUT
+
+      - name: Check for deprecation warnings
+        run: |
+          # Look for existing deprecation warnings
+          DEPRECATIONS=$(grep -r "warnings.warn.*DeprecationWarning" cancrizans/ || true)
+
+          if [ -n "$DEPRECATIONS" ]; then
+            echo "#### ℹ️ Existing Deprecation Warnings" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The following features are marked as deprecated:" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "$DEPRECATIONS" | head -10 >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Suggest version bump
+        id: version
+        if: steps.analyze.outputs.breaking == '1'
+        run: |
+          # Get current version
+          CURRENT_VERSION=$(grep "^version" pyproject.toml | cut -d'"' -f2)
+
+          # Parse version
+          MAJOR=$(echo $CURRENT_VERSION | cut -d. -f1)
+          MINOR=$(echo $CURRENT_VERSION | cut -d. -f2)
+          PATCH=$(echo $CURRENT_VERSION | cut -d. -f3)
+
+          # Suggest major version bump
+          NEW_MAJOR=$((MAJOR + 1))
+          SUGGESTED="${NEW_MAJOR}.0.0"
+
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 🎯 Recommended Actions" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ **Breaking changes detected**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Current Version:** \`$CURRENT_VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Suggested Version:** \`$SUGGESTED\` (major bump)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Action Items:**" >> $GITHUB_STEP_SUMMARY
+          echo "1. Update version in \`pyproject.toml\`" >> $GITHUB_STEP_SUMMARY
+          echo "2. Update \`CHANGELOG.md\` with breaking changes" >> $GITHUB_STEP_SUMMARY
+          echo "3. Add migration guide for users" >> $GITHUB_STEP_SUMMARY
+          echo "4. Consider deprecation warnings before removal" >> $GITHUB_STEP_SUMMARY
+
+          echo "suggested=$SUGGESTED" >> $GITHUB_OUTPUT
+
+      - name: Generate migration guide template
+        if: steps.analyze.outputs.breaking == '1'
+        run: |
+          cat > MIGRATION_GUIDE_DRAFT.md << 'EOF'
+          # Migration Guide: vX.Y.Z → vA.B.C
+
+          ## Breaking Changes
+
+          ### Removed Functions
+          - List removed functions here
+
+          ### Modified Signatures
+          - List signature changes here
+
+          ### Migration Steps
+
+          #### Before
+          ```python
+          # Old code example
+          ```
+
+          #### After
+          ```python
+          # New code example
+          ```
+
+          ## New Features
+          - List new features introduced
+
+          ## Deprecations
+          - List newly deprecated features
+
+          EOF
+
+          echo "📄 Migration guide template created: MIGRATION_GUIDE_DRAFT.md"
+
+      - name: Upload migration guide template
+        if: steps.analyze.outputs.breaking == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-guide-template
+          path: MIGRATION_GUIDE_DRAFT.md
+          retention-days: 30
+
+      - name: Comment on PR
+        if: steps.analyze.outputs.breaking == '1'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const suggested = '${{ steps.version.outputs.suggested }}';
+
+            const comment = `## ⚠️ Breaking Changes Detected
+
+            This PR contains breaking changes that will affect users.
+
+            ### 📋 Required Actions
+
+            - [ ] Bump version to \`${suggested}\` (major version)
+            - [ ] Update CHANGELOG.md with breaking changes
+            - [ ] Create migration guide for users
+            - [ ] Update documentation
+            - [ ] Consider adding deprecation warnings first
+
+            ### 📄 Resources
+
+            A migration guide template has been generated. Download it from the workflow artifacts.
+
+            [View Detailed Analysis](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            ---
+            *This is an automated check. Review carefully before merging.*
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Add breaking change label
+        if: steps.analyze.outputs.breaking == '1'
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['breaking-change', 'needs-major-version']
+            });
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.analyze.outputs.breaking }}" == "0" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "---" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **No breaking changes detected**" >> $GITHUB_STEP_SUMMARY
+          fi
