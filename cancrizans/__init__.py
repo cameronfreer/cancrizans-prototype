@@ -52,6 +52,7 @@ from cancrizans.canon import (
     identify_melodic_sequences,
     detect_imitation_points,
     analyze_thematic_development,
+    find_contour_similarities,
     # Phase 12: Performance Analysis
     analyze_articulation,
     suggest_dynamics,
@@ -172,6 +173,7 @@ __all__ = [
     "identify_melodic_sequences",
     "detect_imitation_points",
     "analyze_thematic_development",
+    "find_contour_similarities",
     # Phase 12: Performance Analysis
     "analyze_articulation",
     "suggest_dynamics",

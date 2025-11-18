@@ -4630,3 +4630,8 @@ def cross_cultural_canon_analysis(
 
     return results
 
+
+# Import additional pattern analysis functions from pattern module
+# (New enhanced implementations in pattern.py)
+from cancrizans.pattern import find_contour_similarities
+
