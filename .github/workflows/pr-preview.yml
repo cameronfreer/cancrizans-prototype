@@ -1,0 +1,208 @@
+name: PR Preview Environment
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [ main, develop ]
+
+permissions:
+  contents: read
+  pull-requests: write
+  packages: write
+
+jobs:
+  build-preview:
+    name: Build PR Preview
+    runs-on: ubuntu-latest
+    if: github.event.action != 'closed'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Generate preview documentation
+        run: |
+          echo "### 📚 PR Preview Environment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**PR:** #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.event.pull_request.head.ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Create preview directory
+          mkdir -p pr-preview/${{ github.event.pull_request.number }}
+
+          # Generate documentation
+          if [ -d "docs/" ]; then
+            pip install sphinx sphinx-rtd-theme
+            cd docs/
+            make html || echo "Docs build failed"
+            cd ..
+            cp -r docs/_build/html/* pr-preview/${{ github.event.pull_request.number }}/
+          fi
+
+          # Generate code coverage report
+          pytest tests/ --cov=cancrizans --cov-report=html --cov-report=term -x || true
+          if [ -d "htmlcov/" ]; then
+            mkdir -p pr-preview/${{ github.event.pull_request.number }}/coverage
+            cp -r htmlcov/* pr-preview/${{ github.event.pull_request.number }}/coverage/
+          fi
+
+          # Generate index page
+          cat > pr-preview/${{ github.event.pull_request.number }}/index.html << 'EOHTML'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>PR #${{ github.event.pull_request.number }} Preview</title>
+              <style>
+                  body {
+                      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                      max-width: 800px;
+                      margin: 50px auto;
+                      padding: 20px;
+                      line-height: 1.6;
+                  }
+                  h1 { color: #333; }
+                  .card {
+                      background: #f5f5f5;
+                      padding: 20px;
+                      margin: 20px 0;
+                      border-radius: 8px;
+                  }
+                  a {
+                      color: #0366d6;
+                      text-decoration: none;
+                  }
+                  a:hover { text-decoration: underline; }
+                  .badge {
+                      display: inline-block;
+                      padding: 4px 8px;
+                      border-radius: 4px;
+                      background: #28a745;
+                      color: white;
+                      font-size: 12px;
+                      margin: 4px;
+                  }
+              </style>
+          </head>
+          <body>
+              <h1>🔍 PR #${{ github.event.pull_request.number }} Preview</h1>
+
+              <div class="card">
+                  <h2>Pull Request Info</h2>
+                  <p><strong>Title:</strong> ${{ github.event.pull_request.title }}</p>
+                  <p><strong>Author:</strong> @${{ github.event.pull_request.user.login }}</p>
+                  <p><strong>Branch:</strong> ${{ github.event.pull_request.head.ref }}</p>
+                  <p><strong>Commit:</strong> <code>${{ github.event.pull_request.head.sha }}</code></p>
+              </div>
+
+              <div class="card">
+                  <h2>📋 Available Previews</h2>
+                  <ul>
+                      <li><a href="./coverage/">📊 Code Coverage Report</a></li>
+                      <li><a href="./">📚 Documentation</a> (if available)</li>
+                  </ul>
+              </div>
+
+              <div class="card">
+                  <h2>🔗 Links</h2>
+                  <ul>
+                      <li><a href="https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}">View PR on GitHub</a></li>
+                      <li><a href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Workflow Run</a></li>
+                  </ul>
+              </div>
+          </body>
+          </html>
+          EOHTML
+
+      - name: Upload preview artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-preview-${{ github.event.pull_request.number }}
+          path: pr-preview/${{ github.event.pull_request.number }}/
+          retention-days: 7
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const runId = context.runId;
+
+            const comment = `## 🔍 PR Preview Environment
+
+            A preview environment has been generated for this PR!
+
+            ### 📋 Available Previews
+
+            - 📊 **Coverage Report**: [Download artifact](https://github.com/${{ github.repository }}/actions/runs/${runId})
+            - 📚 **Documentation**: Available in the preview artifact
+
+            The preview will be available for 7 days.
+
+            <details>
+            <summary>How to view the preview</summary>
+
+            1. Go to the [workflow run](https://github.com/${{ github.repository }}/actions/runs/${runId})
+            2. Download the \`pr-preview-${prNumber}\` artifact
+            3. Extract the ZIP file
+            4. Open \`index.html\` in your browser
+
+            </details>
+
+            ---
+            *This comment is automatically updated when you push new commits.*
+            `;
+
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber
+            });
+
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('PR Preview Environment')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: comment
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: comment
+              });
+            }
+
+  cleanup-preview:
+    name: Cleanup PR Preview
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed'
+
+    steps:
+      - name: Comment cleanup
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = `## 🧹 PR Preview Cleanup
+
+            This PR has been closed. Preview environment artifacts will be automatically deleted after their retention period.
+            `;
+
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: comment
+            });

@@ -1,0 +1,321 @@
+name: Release Candidate Testing
+
+on:
+  push:
+    branches:
+      - 'release/**'
+      - 'rc/**'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release candidate version (e.g., 1.0.0-rc.1)'
+        required: true
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  validate-version:
+    name: Validate Release Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract.outputs.version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: extract
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            # Extract from branch name (e.g., release/1.0.0-rc.1)
+            VERSION=$(echo "${{ github.ref }}" | sed -E 's/refs\/heads\/(release|rc)\///')
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "### 📋 Release Candidate Version" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`$VERSION\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Validate semantic version
+        run: |
+          VERSION="${{ steps.extract.outputs.version }}"
+
+          # Check if version follows semver with RC suffix
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo "❌ Invalid version format: $VERSION"
+            echo "Expected format: X.Y.Z or X.Y.Z-rc.N"
+            exit 1
+          fi
+
+          echo "✅ Version format is valid" >> $GITHUB_STEP_SUMMARY
+
+  comprehensive-testing:
+    name: RC Comprehensive Tests
+    needs: validate-version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ['3.11', '3.12', '3.13']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: ${{ matrix.python-version }}
+          install-dev: 'true'
+
+      - name: Run full test suite
+        run: |
+          pytest tests/ -v \
+            --cov=cancrizans \
+            --cov-report=xml \
+            --cov-report=html \
+            --cov-report=term \
+            --junitxml=test-results.xml \
+            --durations=20 \
+            --tb=long \
+            -n auto
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: |
+            test-results.xml
+            htmlcov/
+            coverage.xml
+          retention-days: 30
+
+  integration-tests:
+    name: RC Integration Tests
+    needs: validate-version
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Run integration tests
+        run: |
+          echo "### 🔗 Integration Tests" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Test all CLI commands
+          cancrizans --help
+          cancrizans scales --list-tunings | head -20
+          cancrizans generate scale --output /tmp/test.mid
+          cancrizans validate /tmp/test.mid
+          cancrizans analyze-patterns /tmp/test.mid --all --output /tmp/analysis.json
+
+          echo "✅ All CLI integration tests passed" >> $GITHUB_STEP_SUMMARY
+
+  performance-benchmarks:
+    name: RC Performance Benchmarks
+    needs: validate-version
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Run benchmarks
+        run: |
+          python benchmarks/benchmark_suite.py
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc-benchmarks-${{ needs.validate-version.outputs.version }}
+          path: benchmarks/results/
+          retention-days: 90
+
+  security-audit:
+    name: RC Security Audit
+    needs: validate-version
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Run security scans
+        run: |
+          echo "### 🔒 Security Audit" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Dependency audit
+          pip install pip-audit bandit semgrep
+
+          if pip-audit; then
+            echo "✅ No dependency vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Dependency vulnerabilities found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Code security
+          if bandit -r cancrizans -f json -o bandit-rc.json; then
+            echo "✅ No code security issues" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Code security issues found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc-security-reports
+          path: bandit-rc.json
+          retention-days: 90
+
+  build-package:
+    name: Build Release Candidate Package
+    needs: [validate-version, comprehensive-testing]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Update version in pyproject.toml
+        run: |
+          VERSION="${{ needs.validate-version.outputs.version }}"
+
+          # Update version
+          sed -i "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
+
+          echo "Updated version to $VERSION"
+
+      - name: Build package
+        run: |
+          pip install build twine
+          python -m build
+
+      - name: Verify package
+        run: |
+          twine check dist/*
+
+          echo "### 📦 Package Build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ needs.validate-version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Files:**" >> $GITHUB_STEP_SUMMARY
+          ls -lh dist/ >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc-package-${{ needs.validate-version.outputs.version }}
+          path: dist/
+          retention-days: 90
+
+  smoke-tests:
+    name: Installation Smoke Tests
+    needs: [validate-version, build-package]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download package
+        uses: actions/download-artifact@v4
+        with:
+          name: rc-package-${{ needs.validate-version.outputs.version }}
+          path: dist/
+
+      - name: Install from wheel
+        shell: bash
+        run: |
+          WHEEL=$(ls dist/*.whl | head -1)
+          pip install "$WHEEL"
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          # Test import
+          python -c "import cancrizans; print(f'✅ Import successful: {cancrizans.__version__}')"
+
+          # Test CLI
+          cancrizans --help
+
+          echo "✅ Smoke tests passed on ${{ matrix.os }}" >> $GITHUB_STEP_SUMMARY
+
+  create-rc-report:
+    name: Create RC Test Report
+    needs: [validate-version, comprehensive-testing, integration-tests, performance-benchmarks, security-audit, smoke-tests]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Generate report
+        run: |
+          cat > rc-report.md << 'EOF'
+          # Release Candidate Test Report
+
+          **Version:** ${{ needs.validate-version.outputs.version }}
+          **Date:** $(date -u +"%Y-%m-%d %H:%M UTC")
+
+          ## Test Results Summary
+
+          | Test Suite | Status |
+          |------------|--------|
+          | Comprehensive Tests | ${{ needs.comprehensive-testing.result }} |
+          | Integration Tests | ${{ needs.integration-tests.result }} |
+          | Performance Benchmarks | ${{ needs.performance-benchmarks.result }} |
+          | Security Audit | ${{ needs.security-audit.result }} |
+          | Smoke Tests | ${{ needs.smoke-tests.result }} |
+
+          ## Overall Status
+
+          EOF
+
+          # Check if all critical tests passed
+          if [ "${{ needs.comprehensive-testing.result }}" = "success" ] && \
+             [ "${{ needs.integration-tests.result }}" = "success" ] && \
+             [ "${{ needs.smoke-tests.result }}" = "success" ]; then
+            echo "✅ **PASSED** - Release candidate is ready for final review" >> rc-report.md
+          else
+            echo "❌ **FAILED** - Release candidate needs fixes before release" >> rc-report.md
+          fi
+
+          cat rc-report.md
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc-test-report-${{ needs.validate-version.outputs.version }}
+          path: rc-report.md
+          retention-days: 90
+
+      - name: Post to step summary
+        run: |
+          cat rc-report.md >> $GITHUB_STEP_SUMMARY

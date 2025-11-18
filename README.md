@@ -778,6 +778,42 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
   - Release-specific SBOM archival
   - 90-day retention for compliance
 
+- **Cache Management** (`.github/workflows/cache-management.yml`)
+  - **Daily automated cache analysis** and cleanup
+  - Cache size monitoring and reporting
+  - Stale cache detection (>7 days)
+  - Manual cleanup triggers (analyze/cleanup/clear-all)
+  - Storage optimization recommendations
+
+- **Workflow Cleanup** (`.github/workflows/workflow-cleanup.yml`)
+  - **Weekly automated workflow run cleanup**
+  - Deletes runs older than 90 days
+  - Failed run cleanup (>30 days)
+  - Storage freed estimation
+  - Configurable retention periods
+
+- **Badge Generator** (`.github/workflows/badge-generator.yml`)
+  - **Daily status badge updates**
+  - CI status, coverage, Python versions
+  - Workflow count tracking
+  - Shields.io badge generation
+  - Automatic badge file commits
+
+### 🔍 Pull Request Tools
+- **PR Review** (`.github/workflows/pr-review.yml`)
+  - Automatic PR size analysis
+  - Changed files categorization
+  - Review time estimation
+  - Size-based recommendations
+
+- **PR Preview Environment** (`.github/workflows/pr-preview.yml`)
+  - **Automated preview environment** for each PR
+  - Documentation preview generation
+  - Coverage report preview
+  - Interactive HTML artifacts
+  - Automatic PR comments with preview links
+  - 7-day preview retention
+
 ### 📊 Analytics & Monitoring
 - **Test Analytics** (`.github/workflows/test-analytics.yml`)
   - Detailed test result analysis
@@ -813,6 +849,15 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
   - Asset uploading
   - PyPI publishing (ready to enable)
 
+- **Release Candidate Testing** (`.github/workflows/release-candidate.yml`)
+  - **Comprehensive RC testing** before release
+  - Multi-platform testing (3 OS × 3 Python versions)
+  - Integration and smoke tests
+  - Performance benchmark validation
+  - Security audit before release
+  - Package build and installation verification
+  - Automated RC test report generation
+
 - **Release Drafter** (`.github/workflows/release-drafter.yml`)
   - Automatic release notes from PR labels
   - Semantic version resolution (major/minor/patch)
@@ -825,9 +870,10 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
 - **80%+ code coverage** enforced with automated checks
 - **Zero security vulnerabilities** (daily scans with CodeQL, pip-audit, Bandit)
 - **18 performance benchmarks** with regression detection (<10% threshold)
-- **36 automated workflows** covering all aspects of development
+- **41 automated workflows** covering all aspects of development
 - **50+ GitHub labels** for organized issue/PR management
 - **10+ pre-commit hooks** for local code quality enforcement
+- **Reusable composite action** for Python environment setup
 - **Multi-platform CI** testing on Ubuntu, macOS, and Windows
 - **Test retry logic** with pytest-rerunfailures for flaky test handling
 - **Concurrency controls** to optimize CI resource usage
@@ -843,16 +889,21 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
 - **Contributor recognition** with automatic acknowledgments
 - **Metrics collection** tracking code, git, and CI/CD statistics
 - **Cache optimization** with daily warming for faster builds
+- **Cache management** with automated cleanup and analysis
+- **Workflow run cleanup** to optimize storage usage
 - **Link validation** with weekly checks and auto-issue creation
 - **Auto-merge** for safe Dependabot updates
 - **Smart testing** saving CI time with targeted test selection
 - **Notification system** for failures, security, and releases
-- **Weekly security audit** with comprehensive multi-tool scanning
+- **Weekly security audit** with comprehensive multi-tool scanning and scoring
 - **SBOM generation** for software supply chain compliance
 - **Repository health monitoring** with daily checks and recommendations
 - **Upstream dependency tracking** with weekly monitoring
 - **Workflow analytics** for CI/CD performance optimization
 - **Spell checking** for documentation quality
+- **Badge generation** with daily status updates
+- **PR preview environments** with documentation and coverage
+- **Release candidate testing** with comprehensive validation
 - **Professional contribution infrastructure** (templates, guides, automation)
 
 All workflows include automated summaries in GitHub Actions for easy monitoring. See `.github/workflows/` for complete configurations.

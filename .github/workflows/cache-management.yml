@@ -1,0 +1,237 @@
+name: CI Cache Management
+
+on:
+  schedule:
+    # Daily at 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Cache action to perform'
+        required: true
+        type: choice
+        options:
+          - analyze
+          - cleanup
+          - clear-all
+        default: 'analyze'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  manage-caches:
+    name: Manage GitHub Actions Caches
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests python-dateutil
+
+      - name: Analyze caches
+        id: analyze
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python << 'EOF' > cache_report.md
+          import os
+          import requests
+          import json
+          from datetime import datetime, timedelta
+          from dateutil import parser
+
+          token = os.environ['GH_TOKEN']
+          repo = os.environ['GITHUB_REPOSITORY']
+
+          headers = {
+              'Authorization': f'token {token}',
+              'Accept': 'application/vnd.github+json'
+          }
+
+          print("# 💾 GitHub Actions Cache Report")
+          print(f"\n**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}\n")
+
+          try:
+              # Get all caches
+              url = f'https://api.github.com/repos/{repo}/actions/caches'
+              response = requests.get(url, headers=headers)
+              response.raise_for_status()
+              data = response.json()
+
+              caches = data.get('actions_caches', [])
+
+              if not caches:
+                  print("ℹ️ **No caches found**")
+              else:
+                  print(f"## Overview\n")
+                  print(f"- **Total Caches:** {len(caches)}")
+
+                  total_size = sum(c.get('size_in_bytes', 0) for c in caches)
+                  total_size_mb = total_size / (1024 * 1024)
+                  print(f"- **Total Size:** {total_size_mb:.2f} MB")
+
+                  # Analyze by key pattern
+                  print("\n## Caches by Type\n")
+
+                  cache_types = {}
+                  for cache in caches:
+                      key = cache.get('key', '')
+
+                      # Extract type from key
+                      if 'pip-' in key or 'python' in key:
+                          cache_type = 'Python/pip'
+                      elif 'docker' in key or 'buildx' in key:
+                          cache_type = 'Docker'
+                      elif 'npm' in key or 'node' in key:
+                          cache_type = 'Node.js'
+                      elif 'test' in key or 'pytest' in key:
+                          cache_type = 'Test'
+                      else:
+                          cache_type = 'Other'
+
+                      if cache_type not in cache_types:
+                          cache_types[cache_type] = {'count': 0, 'size': 0}
+
+                      cache_types[cache_type]['count'] += 1
+                      cache_types[cache_type]['size'] += cache.get('size_in_bytes', 0)
+
+                  print("| Type | Count | Size (MB) |")
+                  print("|------|-------|-----------|")
+                  for cache_type, stats in sorted(cache_types.items(), key=lambda x: x[1]['size'], reverse=True):
+                      size_mb = stats['size'] / (1024 * 1024)
+                      print(f"| {cache_type} | {stats['count']} | {size_mb:.2f} |")
+
+                  # Find old caches
+                  print("\n## Cache Age Analysis\n")
+
+                  now = datetime.now()
+                  old_caches = []
+
+                  for cache in caches:
+                      last_accessed = parser.parse(cache.get('last_accessed_at', cache.get('created_at', '')))
+                      age_days = (now - last_accessed).days
+
+                      if age_days > 7:
+                          old_caches.append((cache.get('key', ''), age_days, cache.get('size_in_bytes', 0)))
+
+                  if old_caches:
+                      print(f"**Caches not accessed in >7 days:** {len(old_caches)}\n")
+                      old_caches.sort(key=lambda x: x[1], reverse=True)
+
+                      print("| Cache Key | Age (days) | Size (MB) |")
+                      print("|-----------|------------|-----------|")
+                      for key, age, size in old_caches[:10]:
+                          size_mb = size / (1024 * 1024)
+                          print(f"| `{key[:50]}...` | {age} | {size_mb:.2f} |")
+                  else:
+                      print("✅ All caches have been accessed within the last 7 days")
+
+                  # Recommendations
+                  print("\n## 💡 Recommendations\n")
+
+                  if total_size_mb > 5000:  # > 5GB
+                      print(f"- ⚠️ **High cache usage** ({total_size_mb:.0f} MB) - consider cleanup")
+
+                  if len(old_caches) > 10:
+                      old_size = sum(c[2] for c in old_caches) / (1024 * 1024)
+                      print(f"- 🧹 **{len(old_caches)} stale caches** using {old_size:.0f} MB - recommend deletion")
+
+                  if not cache_types:
+                      print("- ℹ️ No specific recommendations")
+                  elif all(v['count'] < 5 for v in cache_types.values()):
+                      print("- ✅ Cache usage is optimal")
+
+              print("\n---")
+              print("\n*This report helps monitor GitHub Actions cache usage and identify cleanup opportunities.*")
+
+          except Exception as e:
+              print(f"Error analyzing caches: {e}")
+              import traceback
+              print(f"\nTraceback:\n{traceback.format_exc()}")
+          EOF
+
+          cat cache_report.md
+
+      - name: Post to step summary
+        run: |
+          cat cache_report.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup old caches
+        if: github.event.inputs.action == 'cleanup' || github.event.inputs.action == 'clear-all'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python << 'EOF'
+          import os
+          import requests
+          from datetime import datetime, timedelta
+          from dateutil import parser
+
+          token = os.environ['GH_TOKEN']
+          repo = os.environ['GITHUB_REPOSITORY']
+          action = os.environ.get('INPUT_ACTION', 'cleanup')
+
+          headers = {
+              'Authorization': f'token {token}',
+              'Accept': 'application/vnd.github+json'
+          }
+
+          # Get all caches
+          url = f'https://api.github.com/repos/{repo}/actions/caches'
+          response = requests.get(url, headers=headers)
+          response.raise_for_status()
+          data = response.json()
+
+          caches = data.get('actions_caches', [])
+          deleted_count = 0
+          deleted_size = 0
+
+          now = datetime.now()
+
+          for cache in caches:
+              cache_id = cache.get('id')
+              last_accessed = parser.parse(cache.get('last_accessed_at', cache.get('created_at', '')))
+              age_days = (now - last_accessed).days
+
+              should_delete = False
+
+              if action == 'clear-all':
+                  should_delete = True
+              elif action == 'cleanup' and age_days > 7:
+                  should_delete = True
+
+              if should_delete and cache_id:
+                  try:
+                      delete_url = f'https://api.github.com/repos/{repo}/actions/caches/{cache_id}'
+                      del_response = requests.delete(delete_url, headers=headers)
+
+                      if del_response.status_code == 204:
+                          deleted_count += 1
+                          deleted_size += cache.get('size_in_bytes', 0)
+                          print(f"Deleted cache: {cache.get('key', 'unknown')}")
+                      else:
+                          print(f"Failed to delete cache {cache_id}: {del_response.status_code}")
+                  except Exception as e:
+                      print(f"Error deleting cache {cache_id}: {e}")
+
+          deleted_size_mb = deleted_size / (1024 * 1024)
+          print(f"\nDeleted {deleted_count} caches, freed {deleted_size_mb:.2f} MB")
+          EOF
+
+      - name: Upload cache report
+        uses: actions/upload-artifact@v4
+        with:
+          name: cache-report-${{ github.run_number }}
+          path: cache_report.md
+          retention-days: 30

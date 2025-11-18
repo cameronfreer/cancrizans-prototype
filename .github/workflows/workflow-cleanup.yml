@@ -1,0 +1,242 @@
+name: Workflow Run Cleanup
+
+on:
+  schedule:
+    # Weekly on Sundays at 03:00 UTC
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      days_old:
+        description: 'Delete runs older than (days)'
+        required: false
+        default: '90'
+      delete_failed:
+        description: 'Delete failed runs older than 30 days'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup-runs:
+    name: Clean Up Old Workflow Runs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests python-dateutil
+
+      - name: Analyze workflow runs
+        id: analyze
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python << 'EOF' > cleanup_report.md
+          import os
+          import requests
+          from datetime import datetime, timedelta
+          from dateutil import parser
+          from collections import defaultdict
+
+          token = os.environ['GH_TOKEN']
+          repo = os.environ['GITHUB_REPOSITORY']
+
+          headers = {
+              'Authorization': f'token {token}',
+              'Accept': 'application/vnd.github+json'
+          }
+
+          print("# 🧹 Workflow Run Cleanup Report")
+          print(f"\n**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}\n")
+
+          try:
+              # Get workflow runs
+              url = f'https://api.github.com/repos/{repo}/actions/runs'
+              params = {'per_page': 100}
+              response = requests.get(url, headers=headers, params=params)
+              response.raise_for_status()
+              data = response.json()
+
+              all_runs = data.get('workflow_runs', [])
+
+              # Continue fetching if there are more pages
+              while 'next' in response.links:
+                  response = requests.get(response.links['next']['url'], headers=headers)
+                  response.raise_for_status()
+                  data = response.json()
+                  all_runs.extend(data.get('workflow_runs', []))
+                  if len(all_runs) > 500:  # Limit to avoid excessive API calls
+                      break
+
+              print(f"## Overview\n")
+              print(f"- **Total Workflow Runs (recent):** {len(all_runs)}")
+
+              # Categorize runs
+              by_status = defaultdict(int)
+              by_workflow = defaultdict(int)
+              old_runs = []
+              failed_runs = []
+
+              now = datetime.now()
+              cutoff_date = now - timedelta(days=90)
+              failed_cutoff = now - timedelta(days=30)
+
+              for run in all_runs:
+                  status = run.get('conclusion') or run.get('status')
+                  by_status[status] += 1
+                  by_workflow[run.get('name', 'unknown')] += 1
+
+                  created = parser.parse(run.get('created_at', ''))
+
+                  if created < cutoff_date:
+                      old_runs.append(run)
+
+                  if status == 'failure' and created < failed_cutoff:
+                      failed_runs.append(run)
+
+              print("\n### By Status\n")
+              print("| Status | Count |")
+              print("|--------|-------|")
+              for status, count in sorted(by_status.items(), key=lambda x: x[1], reverse=True):
+                  print(f"| {status or 'in_progress'} | {count} |")
+
+              print("\n### Cleanup Candidates\n")
+              print(f"- **Runs >90 days old:** {len(old_runs)}")
+              print(f"- **Failed runs >30 days old:** {len(failed_runs)}")
+
+              if old_runs or failed_runs:
+                  total_cleanup = len(set([r['id'] for r in old_runs + failed_runs]))
+                  print(f"- **Total to clean up:** {total_cleanup}")
+
+                  # Estimate storage saved
+                  # Average run uses ~10MB (logs + artifacts)
+                  storage_mb = total_cleanup * 10
+                  print(f"- **Estimated storage freed:** ~{storage_mb} MB")
+              else:
+                  print("\n✅ No cleanup needed - all runs are recent or successful")
+
+              print("\n### Top Workflows by Run Count\n")
+              print("| Workflow | Runs |")
+              print("|----------|------|")
+              for workflow, count in sorted(by_workflow.items(), key=lambda x: x[1], reverse=True)[:10]:
+                  print(f"| {workflow} | {count} |")
+
+              print("\n---")
+              print("\n*This report helps manage workflow run storage and keep the Actions history clean.*")
+
+              # Output counts for cleanup step
+              print(f"\nCLEANUP_COUNT={len(old_runs) + len(failed_runs)}")
+
+          except Exception as e:
+              print(f"Error analyzing runs: {e}")
+              import traceback
+              print(f"\nTraceback:\n{traceback.format_exc()}")
+          EOF
+
+          cat cleanup_report.md
+
+      - name: Post to step summary
+        run: |
+          cat cleanup_report.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Delete old runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DAYS_OLD: ${{ github.event.inputs.days_old || '90' }}
+          DELETE_FAILED: ${{ github.event.inputs.delete_failed || 'true' }}
+        run: |
+          python << 'EOF'
+          import os
+          import requests
+          from datetime import datetime, timedelta
+          from dateutil import parser
+
+          token = os.environ['GH_TOKEN']
+          repo = os.environ['GITHUB_REPOSITORY']
+          days_old = int(os.environ.get('DAYS_OLD', '90'))
+          delete_failed = os.environ.get('DELETE_FAILED', 'true').lower() == 'true'
+
+          headers = {
+              'Authorization': f'token {token}',
+              'Accept': 'application/vnd.github+json'
+          }
+
+          # Get workflow runs
+          url = f'https://api.github.com/repos/{repo}/actions/runs'
+          params = {'per_page': 100}
+          response = requests.get(url, headers=headers, params=params)
+          response.raise_for_status()
+          data = response.json()
+
+          all_runs = data.get('workflow_runs', [])
+
+          # Fetch more pages (limit to avoid excessive API calls)
+          page_count = 1
+          while 'next' in response.links and page_count < 5:
+              response = requests.get(response.links['next']['url'], headers=headers)
+              response.raise_for_status()
+              data = response.json()
+              all_runs.extend(data.get('workflow_runs', []))
+              page_count += 1
+
+          deleted_count = 0
+          now = datetime.now()
+          cutoff_date = now - timedelta(days=days_old)
+          failed_cutoff = now - timedelta(days=30)
+
+          for run in all_runs:
+              run_id = run.get('id')
+              created = parser.parse(run.get('created_at', ''))
+              status = run.get('conclusion')
+
+              should_delete = False
+
+              # Delete old runs
+              if created < cutoff_date:
+                  should_delete = True
+
+              # Delete failed runs if enabled
+              if delete_failed and status == 'failure' and created < failed_cutoff:
+                  should_delete = True
+
+              if should_delete and run_id:
+                  try:
+                      delete_url = f'https://api.github.com/repos/{repo}/actions/runs/{run_id}'
+                      del_response = requests.delete(delete_url, headers=headers)
+
+                      if del_response.status_code == 204:
+                          deleted_count += 1
+                          print(f"Deleted run {run_id}: {run.get('name', 'unknown')} ({status})")
+                      else:
+                          print(f"Failed to delete run {run_id}: {del_response.status_code}")
+                  except Exception as e:
+                      print(f"Error deleting run {run_id}: {e}")
+
+              # Rate limiting - don't delete too many at once
+              if deleted_count >= 100:
+                  print(f"\nReached deletion limit of 100 runs")
+                  break
+
+          print(f"\n✅ Deleted {deleted_count} workflow runs")
+          print(f"Estimated storage freed: ~{deleted_count * 10} MB")
+          EOF
+
+      - name: Upload cleanup report
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-cleanup-report-${{ github.run_number }}
+          path: cleanup_report.md
+          retention-days: 30

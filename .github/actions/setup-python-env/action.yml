@@ -1,0 +1,61 @@
+name: 'Setup Python Environment'
+description: 'Sets up Python with caching and installs dependencies'
+inputs:
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.11'
+  install-dev:
+    description: 'Install dev dependencies'
+    required: false
+    default: 'true'
+  cache-key-prefix:
+    description: 'Cache key prefix for customization'
+    required: false
+    default: 'pip'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python ${{ inputs.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Cache Python dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/pip
+          ~/.cache/uv
+          .pytest_cache
+          .mypy_cache
+        key: ${{ runner.os }}-${{ inputs.cache-key-prefix }}-${{ inputs.python-version }}-${{ hashFiles('pyproject.toml', 'requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ inputs.cache-key-prefix }}-${{ inputs.python-version }}-
+          ${{ runner.os }}-${{ inputs.cache-key-prefix }}-
+
+    - name: Install uv
+      shell: bash
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        if [ "${{ inputs.install-dev }}" = "true" ]; then
+          uv pip install --system -e ".[dev]"
+        else
+          uv pip install --system -e .
+        fi
+
+    - name: Display Python info
+      shell: bash
+      run: |
+        echo "### 🐍 Python Environment" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Python Version:** $(python --version)" >> $GITHUB_STEP_SUMMARY
+        echo "- **pip Version:** $(pip --version | cut -d' ' -f2)" >> $GITHUB_STEP_SUMMARY
+        echo "- **uv Version:** $(uv --version 2>/dev/null || echo 'N/A')" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
