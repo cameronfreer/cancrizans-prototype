@@ -1,0 +1,118 @@
+# Release Drafter Configuration
+# Automatically drafts release notes based on PR labels
+
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+
+categories:
+  - title: '🚀 Features'
+    labels:
+      - 'type: feature'
+      - 'enhancement'
+  - title: '🐛 Bug Fixes'
+    labels:
+      - 'type: bug'
+      - 'bug'
+      - 'fix'
+  - title: '🔒 Security'
+    labels:
+      - 'type: security'
+      - 'security'
+  - title: '⚡ Performance'
+    labels:
+      - 'type: performance'
+      - 'performance'
+  - title: '📝 Documentation'
+    labels:
+      - 'type: documentation'
+      - 'documentation'
+  - title: '🧪 Testing'
+    labels:
+      - 'type: test'
+      - 'tests'
+  - title: '🔧 Maintenance'
+    labels:
+      - 'type: refactoring'
+      - 'type: ci/cd'
+      - 'refactor'
+      - 'ci/cd'
+      - 'dependencies'
+  - title: '💥 Breaking Changes'
+    labels:
+      - 'breaking change'
+
+change-template: '- $TITLE @$AUTHOR (#$NUMBER)'
+change-title-escapes: '\<*_&' # Escape special characters in markdown
+
+version-resolver:
+  major:
+    labels:
+      - 'breaking change'
+      - 'major'
+  minor:
+    labels:
+      - 'type: feature'
+      - 'enhancement'
+      - 'minor'
+  patch:
+    labels:
+      - 'type: bug'
+      - 'bug'
+      - 'fix'
+      - 'patch'
+      - 'dependencies'
+  default: patch
+
+template: |
+  ## Changes
+
+  $CHANGES
+
+  ## Contributors
+
+  $CONTRIBUTORS
+
+  ## Installation
+
+  ```bash
+  pip install cancrizans==$RESOLVED_VERSION
+  ```
+
+  ## Full Changelog
+
+  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
+
+exclude-labels:
+  - 'skip-changelog'
+  - 'invalid'
+  - 'duplicate'
+  - 'wontfix'
+
+autolabeler:
+  - label: 'type: documentation'
+    files:
+      - '*.md'
+      - 'docs/**/*'
+  - label: 'type: test'
+    files:
+      - 'tests/**/*'
+      - 'test_*.py'
+  - label: 'type: ci/cd'
+    files:
+      - '.github/**/*'
+  - label: 'component: core'
+    files:
+      - 'cancrizans/canon.py'
+      - 'cancrizans/generator.py'
+  - label: 'component: cli'
+    files:
+      - 'cancrizans/cli.py'
+  - label: 'dependencies'
+    files:
+      - 'pyproject.toml'
+      - 'requirements*.txt'
+
+replacers:
+  # Automatically link to issues
+  - search: '/\#(\d+)/g'
+    replace: '[#$1](https://github.com/$OWNER/$REPOSITORY/issues/$1)'

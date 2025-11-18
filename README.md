@@ -689,11 +689,15 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
 - **80%+ code coverage** enforced with automated checks
 - **Zero security vulnerabilities** (daily scans with CodeQL, Safety, Bandit)
 - **18 performance benchmarks** with regression detection (<10% threshold)
-- **15+ automated workflows** covering testing, security, performance, docs, and automation
+- **19+ automated workflows** covering all aspects of development
 - **50+ GitHub labels** for organized issue/PR management
-- **Pre-commit hooks** for local code quality enforcement
+- **10+ pre-commit hooks** for local code quality enforcement
 - **Nightly comprehensive tests** across 3 Python versions and 3 OS platforms
 - **Automated documentation deployment** to GitHub Pages
+- **Docker support** with multi-architecture builds (amd64, arm64)
+- **VS Code dev container** for instant development setup
+- **Automated code review** with complexity, security, and quality checks
+- **Automatic changelog generation** from PR labels
 - **Professional contribution infrastructure** (templates, guides, automation)
 
 All workflows include automated summaries in GitHub Actions for easy monitoring. See `.github/workflows/` for complete configurations.
@@ -703,6 +707,41 @@ All workflows include automated summaries in GitHub Actions for easy monitoring.
 - **Benchmarks**: `python benchmarks/benchmark_suite.py` for performance testing
 - **Coverage**: `pytest --cov=cancrizans --cov-report=html` for detailed coverage reports
 - **Docs**: Build documentation locally with Sphinx (see `.github/workflows/docs-deploy.yml`)
+- **Docker**: `docker-compose up dev` for containerized development
+- **VS Code**: Dev container configuration in `.devcontainer/` for seamless setup
+- **Code Quality**: `radon cc cancrizans/ -a` for complexity analysis
+
+### 🐳 Docker Support
+
+Cancrizans includes comprehensive Docker support for consistent development and deployment:
+
+```bash
+# Build the Docker image
+docker build -t cancrizans .
+
+# Run a command
+docker run -v $(pwd)/output:/output cancrizans \
+  cancrizans generate scale --output /output/canon.mid
+
+# Development with docker-compose
+docker-compose run --rm dev /bin/bash
+
+# Run tests in container
+docker-compose --profile testing run --rm test
+
+# Run benchmarks
+docker-compose --profile benchmark run --rm benchmark
+
+# Start Jupyter notebook
+docker-compose --profile jupyter up jupyter
+```
+
+**Pre-built images** are available on GitHub Container Registry:
+```bash
+docker pull ghcr.io/cancrizans-project/cancrizans-prototype:latest
+```
+
+**VS Code Dev Container**: Open the project in VS Code and select "Reopen in Container" for a fully configured development environment with all tools pre-installed.
 
 ## Requirements
 

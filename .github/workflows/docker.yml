@@ -1,0 +1,216 @@
+name: Docker Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'cancrizans/**'
+      - 'pyproject.toml'
+      - '.github/workflows/docker.yml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-test:
+    name: Build and Test Docker Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Test Docker image
+        run: |
+          echo "### 🐳 Docker Image Tests" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Get the first tag
+          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
+          echo "**Testing image:** \`$IMAGE_TAG\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Test 1: Basic import
+          echo "#### Test 1: Python Import" >> $GITHUB_STEP_SUMMARY
+          if docker run --rm $IMAGE_TAG python -c "import cancrizans; print('✅ Import successful')"; then
+            echo "✅ Python import successful" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Python import failed" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          # Test 2: CLI help
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Test 2: CLI Help" >> $GITHUB_STEP_SUMMARY
+          if docker run --rm $IMAGE_TAG cancrizans --help > /dev/null; then
+            echo "✅ CLI help command works" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ CLI help command failed" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          # Test 3: Generate a canon
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Test 3: Canon Generation" >> $GITHUB_STEP_SUMMARY
+          if docker run --rm -v $(pwd)/test-output:/output $IMAGE_TAG \
+            cancrizans generate scale --output /output/test.mid; then
+            echo "✅ Canon generation successful" >> $GITHUB_STEP_SUMMARY
+            if [ -f test-output/test.mid ]; then
+              SIZE=$(stat -f%z test-output/test.mid 2>/dev/null || stat -c%s test-output/test.mid)
+              echo "✅ MIDI file created (${SIZE} bytes)" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "❌ Canon generation failed" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          # Test 4: Run tests inside container
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Test 4: Unit Tests" >> $GITHUB_STEP_SUMMARY
+          if docker run --rm $IMAGE_TAG pytest tests/ -v --tb=short -x; then
+            echo "✅ Unit tests passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Some unit tests failed (non-blocking)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.meta.outputs.tags }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Push Docker image
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Docker Image Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry:** \`${{ env.REGISTRY }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Pull command:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull $(echo '${{ steps.meta.outputs.tags }}' | head -1)" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  multi-arch-build:
+    name: Multi-Architecture Build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "### 🌍 Multi-Architecture Image Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Platforms:** \`linux/amd64\`, \`linux/arm64\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,131 @@
+version: '3.8'
+
+services:
+  # Main application service
+  cancrizans:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cancrizans:latest
+    container_name: cancrizans-app
+    volumes:
+      - ./output:/output
+      - ./cancrizans:/app/cancrizans:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: cancrizans --help
+    restart: unless-stopped
+
+  # Development service with mounted code
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cancrizans:dev
+    container_name: cancrizans-dev
+    volumes:
+      - .:/app
+      - dev-venv:/app/.venv
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    command: /bin/bash
+    stdin_open: true
+    tty: true
+    working_dir: /app
+
+  # Testing service
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cancrizans:test
+    container_name: cancrizans-test
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: pytest tests/ -v --cov=cancrizans --cov-report=html
+    profiles:
+      - testing
+
+  # Benchmark service
+  benchmark:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cancrizans:benchmark
+    container_name: cancrizans-benchmark
+    volumes:
+      - .:/app
+      - ./benchmarks/results:/app/benchmarks/results
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: python benchmarks/benchmark_suite.py
+    profiles:
+      - benchmark
+
+  # Documentation builder
+  docs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cancrizans:docs
+    container_name: cancrizans-docs
+    volumes:
+      - .:/app
+      - ./docs/_build:/app/docs/_build
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: sphinx-build -b html docs docs/_build/html
+    profiles:
+      - docs
+    ports:
+      - "8000:8000"
+
+  # Jupyter notebook service
+  jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cancrizans:jupyter
+    container_name: cancrizans-jupyter
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+    profiles:
+      - jupyter
+    ports:
+      - "8888:8888"
+
+volumes:
+  dev-venv:
+    name: cancrizans-dev-venv
+
+# Usage examples:
+#
+# Build all services:
+#   docker-compose build
+#
+# Run main application:
+#   docker-compose up cancrizans
+#
+# Enter development shell:
+#   docker-compose run --rm dev /bin/bash
+#
+# Run tests:
+#   docker-compose --profile testing run --rm test
+#
+# Run benchmarks:
+#   docker-compose --profile benchmark run --rm benchmark
+#
+# Build documentation:
+#   docker-compose --profile docs run --rm docs
+#
+# Start Jupyter notebook:
+#   docker-compose --profile jupyter up jupyter
+#
+# Generate a canon:
+#   docker-compose run --rm cancrizans cancrizans generate scale --output /output/canon.mid

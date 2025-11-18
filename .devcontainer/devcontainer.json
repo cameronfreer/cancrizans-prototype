@@ -1,0 +1,106 @@
+{
+  "name": "Cancrizans Development",
+  "dockerFile": "../Dockerfile",
+  "context": "..",
+
+  // Configure tool-specific properties
+  "customizations": {
+    "vscode": {
+      // Extensions to install
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.black-formatter",
+        "charliermarsh.ruff",
+        "ms-toolsai.jupyter",
+        "eamodio.gitlens",
+        "GitHub.copilot",
+        "GitHub.vscode-pull-request-github",
+        "streetsidesoftware.code-spell-checker",
+        "yzhang.markdown-all-in-one",
+        "DavidAnson.vscode-markdownlint",
+        "redhat.vscode-yaml",
+        "tamasfe.even-better-toml",
+        "ryanluker.vscode-coverage-gutters",
+        "hbenl.vscode-test-explorer",
+        "littlefoxteam.vscode-python-test-adapter"
+      ],
+
+      // Settings
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": false,
+        "python.linting.ruffEnabled": true,
+        "python.formatting.provider": "black",
+        "python.testing.pytestEnabled": true,
+        "python.testing.unittestEnabled": false,
+        "python.testing.pytestArgs": [
+          "tests"
+        ],
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit",
+            "source.fixAll": "explicit"
+          }
+        },
+        "files.exclude": {
+          "**/__pycache__": true,
+          "**/*.pyc": true,
+          "**/.pytest_cache": true,
+          "**/.mypy_cache": true,
+          "**/.ruff_cache": true
+        },
+        "editor.rulers": [88, 120],
+        "editor.tabSize": 4,
+        "files.trimTrailingWhitespace": true,
+        "files.insertFinalNewline": true,
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+
+  // Forward ports for web development
+  "forwardPorts": [8000, 8080, 5000],
+
+  // Post-create command
+  "postCreateCommand": "pip install -e '.[dev]' && pre-commit install",
+
+  // Post-start command
+  "postStartCommand": "git config --global --add safe.directory ${containerWorkspaceFolder}",
+
+  // Features to add
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "18"
+    }
+  },
+
+  // Mount points
+  "mounts": [
+    "source=${localWorkspaceFolder}/.git,target=${containerWorkspaceFolder}/.git,type=bind,consistency=cached"
+  ],
+
+  // Container environment variables
+  "containerEnv": {
+    "PYTHONUNBUFFERED": "1"
+  },
+
+  // Run args
+  "runArgs": [
+    "--name=cancrizans-dev"
+  ],
+
+  // Workspace folder
+  "workspaceFolder": "/app",
+
+  // Lifecycle scripts
+  "onCreateCommand": "echo 'Container created successfully!'",
+
+  // User
+  "remoteUser": "root"
+}

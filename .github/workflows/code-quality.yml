@@ -1,0 +1,297 @@
+name: Code Quality Analysis
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+  schedule:
+    # Run weekly on Mondays at 9:00 UTC
+    - cron: '0 9 * * 1'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  complexity-analysis:
+    name: Complexity Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install analysis tools
+        run: |
+          pip install radon xenon mccabe
+
+      - name: Run complexity analysis
+        id: complexity
+        continue-on-error: true
+        run: |
+          echo "### 🔍 Code Complexity Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Cyclomatic Complexity
+          echo "#### Cyclomatic Complexity (McCabe)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          radon cc cancrizans/ -a -s >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Maintainability Index
+          echo "#### Maintainability Index" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          radon mi cancrizans/ -s >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Raw Metrics
+          echo "#### Raw Metrics (LOC, LLOC, Comments)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          radon raw cancrizans/ -s >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check complexity thresholds
+        run: |
+          # Fail if average complexity is too high (threshold: B)
+          # A = 1-5, B = 6-10, C = 11-20, D = 21-50, F = 51+
+          xenon --max-absolute B --max-modules B --max-average A cancrizans/ || {
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### ⚠️ High Complexity Detected" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Some functions have high cyclomatic complexity." >> $GITHUB_STEP_SUMMARY
+            echo "Consider refactoring complex functions for better maintainability." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Thresholds:**" >> $GITHUB_STEP_SUMMARY
+            echo "- Maximum absolute complexity: B (6-10)" >> $GITHUB_STEP_SUMMARY
+            echo "- Maximum module average: A (1-5)" >> $GITHUB_STEP_SUMMARY
+          }
+
+  dead-code-detection:
+    name: Dead Code Detection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install vulture
+        run: |
+          pip install vulture
+
+      - name: Detect dead code
+        continue-on-error: true
+        run: |
+          echo "### 🦴 Dead Code Detection" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Run vulture to find unused code
+          if vulture cancrizans/ --min-confidence 80 > vulture-report.txt 2>&1; then
+            echo "✅ No dead code detected (confidence > 80%)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Potential unused code found:" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            cat vulture-report.txt | head -50 >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Note:** These are candidates for removal. Verify each case manually." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dead-code-report
+          path: vulture-report.txt
+          retention-days: 30
+
+  import-analysis:
+    name: Import Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install tools
+        run: |
+          pip install isort
+
+      - name: Check import sorting
+        run: |
+          echo "### 📦 Import Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check if imports are sorted
+          if isort --check-only cancrizans/ tests/ 2>&1; then
+            echo "✅ All imports are properly sorted" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Imports need sorting" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Run \`isort cancrizans/ tests/\` to fix automatically" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  duplication-check:
+    name: Code Duplication Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install tools
+        run: |
+          pip install pylint
+
+      - name: Check for duplicates
+        continue-on-error: true
+        run: |
+          echo "### 🔄 Code Duplication Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Run pylint duplicate code checker
+          pylint --disable=all --enable=duplicate-code cancrizans/ > duplication-report.txt 2>&1 || true
+
+          if grep -q "duplicate-code" duplication-report.txt; then
+            echo "⚠️ Code duplication detected:" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            cat duplication-report.txt | head -50 >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ No significant code duplication found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  documentation-quality:
+    name: Documentation Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install tools
+        run: |
+          pip install pydocstyle interrogate
+
+      - name: Check docstring style
+        continue-on-error: true
+        run: |
+          echo "### 📖 Documentation Quality" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check docstring conventions
+          echo "#### Docstring Style (PEP 257)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if pydocstyle cancrizans/ --count > pydocstyle-report.txt 2>&1; then
+            echo "✅ All docstrings follow PEP 257 conventions" >> $GITHUB_STEP_SUMMARY
+          else
+            VIOLATIONS=$(cat pydocstyle-report.txt | tail -1)
+            echo "⚠️ Docstring violations: $VIOLATIONS" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "<details>" >> $GITHUB_STEP_SUMMARY
+            echo "<summary>View violations</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            cat pydocstyle-report.txt | head -100 >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "</details>" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check docstring coverage
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Docstring Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          interrogate -v cancrizans/ >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  type-coverage:
+    name: Type Annotation Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install mypy
+        run: |
+          pip install mypy
+
+      - name: Check type coverage
+        continue-on-error: true
+        run: |
+          echo "### 🏷️ Type Annotation Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Generate type coverage report
+          mypy cancrizans/ --html-report type-coverage-report --any-exprs-report type-coverage-report 2>&1 | tee mypy-output.txt || true
+
+          # Extract summary
+          if [ -f type-coverage-report/index.html ]; then
+            echo "✅ Type coverage report generated" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            tail -20 mypy-output.txt >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload type coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: type-coverage-report
+          path: type-coverage-report/
+          retention-days: 30
+
+  summary:
+    name: Quality Summary
+    runs-on: ubuntu-latest
+    needs: [complexity-analysis, dead-code-detection, import-analysis, duplication-check, documentation-quality, type-coverage]
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          echo "### ✅ Code Quality Analysis Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All code quality checks have been executed." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Checks performed:**" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔍 Complexity analysis (cyclomatic, maintainability)" >> $GITHUB_STEP_SUMMARY
+          echo "- 🦴 Dead code detection" >> $GITHUB_STEP_SUMMARY
+          echo "- 📦 Import sorting verification" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔄 Code duplication detection" >> $GITHUB_STEP_SUMMARY
+          echo "- 📖 Documentation quality (PEP 257, coverage)" >> $GITHUB_STEP_SUMMARY
+          echo "- 🏷️ Type annotation coverage" >> $GITHUB_STEP_SUMMARY

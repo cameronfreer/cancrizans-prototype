@@ -1,0 +1,264 @@
+name: PR Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review-size:
+    name: Review PR Size
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Analyze PR size
+        id: size
+        run: |
+          # Get PR information
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          # Count changes
+          FILES_CHANGED=$(git diff --name-only $BASE_SHA...$HEAD_SHA | wc -l)
+          LINES_ADDED=$(git diff --numstat $BASE_SHA...$HEAD_SHA | awk '{sum+=$1} END {print sum}')
+          LINES_DELETED=$(git diff --numstat $BASE_SHA...$HEAD_SHA | awk '{sum+=$2} END {print sum}')
+          TOTAL_CHANGES=$((LINES_ADDED + LINES_DELETED))
+
+          echo "files_changed=$FILES_CHANGED" >> $GITHUB_OUTPUT
+          echo "lines_added=$LINES_ADDED" >> $GITHUB_OUTPUT
+          echo "lines_deleted=$LINES_DELETED" >> $GITHUB_OUTPUT
+          echo "total_changes=$TOTAL_CHANGES" >> $GITHUB_OUTPUT
+
+          # Generate recommendation
+          if [ $TOTAL_CHANGES -gt 1000 ]; then
+            echo "recommendation=⚠️ **Large PR**: Consider splitting into smaller PRs for easier review." >> $GITHUB_OUTPUT
+          elif [ $TOTAL_CHANGES -gt 500 ]; then
+            echo "recommendation=📊 **Medium-Large PR**: Review may take some time." >> $GITHUB_OUTPUT
+          else
+            echo "recommendation=✅ **Good Size**: PR is appropriately sized for review." >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = `## 📊 PR Size Analysis
+
+            **Files Changed:** ${{ steps.size.outputs.files_changed }}
+            **Lines Added:** ${{ steps.size.outputs.lines_added }}
+            **Lines Deleted:** ${{ steps.size.outputs.lines_deleted }}
+            **Total Changes:** ${{ steps.size.outputs.total_changes }}
+
+            ${{ steps.size.outputs.recommendation }}
+
+            <details>
+            <summary>📏 Size Guidelines</summary>
+
+            - **XS** (< 10 lines): Trivial changes
+            - **S** (< 100 lines): Small features or bug fixes
+            - **M** (< 500 lines): Medium features
+            - **L** (< 1000 lines): Large features
+            - **XL** (> 1000 lines): Consider splitting
+
+            </details>
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+  review-files:
+    name: Review Changed Files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Analyze changed files
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          echo "### 📁 Changed Files Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check for critical files
+          CRITICAL_FILES=$(git diff --name-only $BASE_SHA...$HEAD_SHA | grep -E "(\.github/workflows/|pyproject\.toml|Dockerfile)" || true)
+
+          if [ -n "$CRITICAL_FILES" ]; then
+            echo "⚠️ **Critical files modified:**" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "$CRITICAL_FILES" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "These changes require careful review." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Check for missing tests
+          PYTHON_FILES=$(git diff --name-only $BASE_SHA...$HEAD_SHA | grep "\.py$" | grep -v "^tests/" || true)
+          TEST_FILES=$(git diff --name-only $BASE_SHA...$HEAD_SHA | grep "^tests/.*\.py$" || true)
+
+          if [ -n "$PYTHON_FILES" ] && [ -z "$TEST_FILES" ]; then
+            echo "⚠️ **Python files changed but no test files modified**" >> $GITHUB_STEP_SUMMARY
+            echo "Consider adding tests for new functionality." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Check for missing documentation
+          CODE_FILES=$(git diff --name-only $BASE_SHA...$HEAD_SHA | grep -E "\.(py|ts|tsx|js|jsx)$" || true)
+          DOC_FILES=$(git diff --name-only $BASE_SHA...$HEAD_SHA | grep -E "\.(md|rst|txt)$" || true)
+
+          if [ -n "$CODE_FILES" ] && [ -z "$DOC_FILES" ]; then
+            echo "💡 **Tip**: Consider updating documentation for code changes." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  review-complexity:
+    name: Review Code Complexity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install analysis tools
+        run: |
+          pip install radon
+
+      - name: Analyze complexity of changed files
+        continue-on-error: true
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          # Get changed Python files
+          CHANGED_FILES=$(git diff --name-only $BASE_SHA...$HEAD_SHA | grep "\.py$" || true)
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No Python files changed"
+            exit 0
+          fi
+
+          echo "### 🔍 Complexity Analysis of Changed Files" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Analyze each file
+          for file in $CHANGED_FILES; do
+            if [ -f "$file" ]; then
+              echo "#### $file" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              radon cc "$file" -a >> $GITHUB_STEP_SUMMARY || echo "Could not analyze $file" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+  review-security:
+    name: Review Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install security tools
+        run: |
+          pip install bandit safety
+
+      - name: Run security checks on changed files
+        continue-on-error: true
+        run: |
+          echo "### 🔒 Security Review" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Run Bandit on changed Python files
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          CHANGED_FILES=$(git diff --name-only $BASE_SHA...$HEAD_SHA | grep "\.py$" | tr '\n' ' ' || true)
+
+          if [ -n "$CHANGED_FILES" ]; then
+            echo "#### Bandit Security Scan" >> $GITHUB_STEP_SUMMARY
+            if bandit $CHANGED_FILES -f txt > bandit-report.txt 2>&1; then
+              echo "✅ No security issues found in changed files" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "⚠️ Potential security issues detected:" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              cat bandit-report.txt | head -50 >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+  review-checklist:
+    name: Generate Review Checklist
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create review checklist
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = `## ✅ Review Checklist
+
+            Please ensure the following before merging:
+
+            ### Code Quality
+            - [ ] Code follows project style guidelines (ruff)
+            - [ ] No unnecessary complexity (cyclomatic complexity < 10)
+            - [ ] All functions have docstrings
+            - [ ] Type hints are used appropriately
+
+            ### Testing
+            - [ ] New features have corresponding tests
+            - [ ] All tests pass locally
+            - [ ] Coverage is maintained or improved (>80%)
+            - [ ] Edge cases are tested
+
+            ### Documentation
+            - [ ] README updated if needed
+            - [ ] CHANGELOG updated (if applicable)
+            - [ ] Docstrings added/updated
+            - [ ] Examples updated if API changed
+
+            ### Security & Performance
+            - [ ] No security vulnerabilities introduced
+            - [ ] No performance regressions
+            - [ ] No hardcoded secrets or credentials
+            - [ ] Dependencies are up to date
+
+            ### Git & CI
+            - [ ] Commit messages are clear and descriptive
+            - [ ] Branch is up to date with base branch
+            - [ ] All CI checks pass
+            - [ ] No merge conflicts
+
+            ---
+            *This checklist is automatically generated. Check off items as you review.*
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });

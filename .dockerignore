@@ -1,0 +1,65 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Documentation
+docs/_build/
+notebooks/.ipynb_checkpoints/
+
+# Output files
+out/
+*.mid
+*.wav
+*.png
+
+# Benchmarks
+benchmarks/results/
+
+# Web
+web/node_modules/
+web/dist/
+
+# CI/CD
+.github/
+
+# macOS
+.DS_Store
+
+# Test data
+test-data/
+
+# Development
+*.log
+*.tmp
+.env
+.env.local
