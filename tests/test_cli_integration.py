@@ -206,3 +206,156 @@ class TestCLIIntegration:
 
                 assert result.returncode == 0
                 assert output.exists()
+
+
+class TestAnalyzePatternsIntegration:
+    """Integration tests for analyze-patterns CLI command."""
+
+    def test_analyze_patterns_via_cli(self):
+        """Test analyze-patterns command via subprocess."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # First generate a canon
+            canon_path = Path(tmpdir) / 'test.mid'
+            subprocess.run(
+                ['cancrizans', 'generate', 'scale', '--output', str(canon_path)],
+                capture_output=True
+            )
+
+            # Then analyze patterns
+            result = subprocess.run(
+                ['cancrizans', 'analyze-patterns', str(canon_path)],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            assert result.returncode == 0
+            assert 'Motif' in result.stdout or 'motif' in result.stdout
+
+    def test_analyze_patterns_with_all_flag(self):
+        """Test analyze-patterns with --all flag."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Generate a canon
+            canon_path = Path(tmpdir) / 'test.mid'
+            subprocess.run(
+                ['cancrizans', 'generate', 'fibonacci', '--output', str(canon_path)],
+                capture_output=True
+            )
+
+            # Analyze with --all flag
+            result = subprocess.run(
+                ['cancrizans', 'analyze-patterns', str(canon_path), '--all', '--verbose'],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            assert result.returncode == 0
+            # Should run multiple analyses
+            assert 'Pattern' in result.stdout or 'pattern' in result.stdout
+
+    def test_analyze_patterns_json_export(self):
+        """Test analyze-patterns with JSON export."""
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Generate a canon
+            canon_path = Path(tmpdir) / 'test.mid'
+            subprocess.run(
+                ['cancrizans', 'generate', 'scale', '--output', str(canon_path)],
+                capture_output=True
+            )
+
+            # Analyze and export JSON
+            json_path = Path(tmpdir) / 'analysis.json'
+            result = subprocess.run(
+                ['cancrizans', 'analyze-patterns', str(canon_path), '--output', str(json_path)],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            assert result.returncode == 0
+            assert json_path.exists()
+
+            # Verify JSON structure
+            with open(json_path) as f:
+                data = json.load(f)
+                assert 'motifs' in data
+                assert 'file' in data
+
+    def test_analyze_patterns_fugue_detection(self):
+        """Test fugue structure analysis flag."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Generate a canon
+            canon_path = Path(tmpdir) / 'test.mid'
+            subprocess.run(
+                ['cancrizans', 'generate', 'scale', '--output', str(canon_path)],
+                capture_output=True
+            )
+
+            # Analyze with fugue detection
+            result = subprocess.run(
+                ['cancrizans', 'analyze-patterns', str(canon_path), '--detect-fugue', '--verbose'],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            assert result.returncode == 0
+            assert 'Fugue' in result.stdout or 'fugue' in result.stdout
+
+    def test_analyze_patterns_complexity_metric(self):
+        """Test pattern complexity analysis."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Generate a canon
+            canon_path = Path(tmpdir) / 'test.mid'
+            subprocess.run(
+                ['cancrizans', 'generate', 'random', '--output', str(canon_path)],
+                capture_output=True
+            )
+
+            # Analyze complexity
+            result = subprocess.run(
+                ['cancrizans', 'analyze-patterns', str(canon_path), '--complexity'],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            assert result.returncode == 0
+            assert 'Complexity' in result.stdout or 'complexity' in result.stdout
+
+    def test_full_workflow_with_pattern_analysis(self):
+        """Test complete workflow: generate -> validate -> analyze-patterns."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            canon_path = Path(tmpdir) / 'canon.mid'
+            json_path = Path(tmpdir) / 'analysis.json'
+
+            # 1. Generate
+            gen_result = subprocess.run(
+                ['cancrizans', 'generate', 'golden', '--output', str(canon_path)],
+                capture_output=True,
+                text=True
+            )
+            assert gen_result.returncode == 0
+            assert canon_path.exists()
+
+            # 2. Validate
+            val_result = subprocess.run(
+                ['cancrizans', 'validate', str(canon_path)],
+                capture_output=True,
+                text=True
+            )
+            assert val_result.returncode == 0
+
+            # 3. Analyze patterns
+            analysis_result = subprocess.run(
+                ['cancrizans', 'analyze-patterns', str(canon_path),
+                 '--all', '--output', str(json_path)],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            assert analysis_result.returncode == 0
+            assert json_path.exists()

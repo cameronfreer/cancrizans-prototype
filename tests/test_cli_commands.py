@@ -1326,3 +1326,309 @@ class TestBachCrabUtilities:
                 # Should have restored original content
                 assert xml_path2.read_text() == original_content
                 assert "modified content" not in xml_path2.read_text()
+
+
+class TestAnalyzePatternsCommand:
+    """Test analyze-patterns command functionality."""
+
+    @pytest.fixture
+    def multi_voice_midi(self):
+        """Create a temporary multi-voice MIDI file for pattern testing."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            gen = CanonGenerator(seed=42)
+            canon = gen.generate_scale_canon('C', 'major', length=8)
+            midi_path = Path(tmpdir) / 'test_canon.mid'
+            to_midi(canon, midi_path)
+            yield midi_path
+
+    def test_analyze_patterns_basic(self, multi_voice_midi, capsys):
+        """Test basic pattern analysis."""
+        args = argparse.Namespace(
+            input=str(multi_voice_midi),
+            output=None,
+            min_length=3,
+            min_occurrences=2,
+            detect_fugue=False,
+            voice_independence=False,
+            complexity=False,
+            sequences=False,
+            imitation=False,
+            all=False,
+            verbose=False
+        )
+
+        from cancrizans.cli import analyze_patterns_command
+        result = analyze_patterns_command(args)
+
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "Detecting Motifs" in captured.out or "🎵" in captured.out
+
+    def test_analyze_patterns_all_analyses(self, multi_voice_midi, capsys):
+        """Test running all pattern analyses with --all flag."""
+        args = argparse.Namespace(
+            input=str(multi_voice_midi),
+            output=None,
+            min_length=3,
+            min_occurrences=2,
+            detect_fugue=False,
+            voice_independence=False,
+            complexity=False,
+            sequences=False,
+            imitation=False,
+            all=True,
+            verbose=True
+        )
+
+        from cancrizans.cli import analyze_patterns_command
+        result = analyze_patterns_command(args)
+
+        assert result == 0
+        captured = capsys.readouterr()
+        # Should run motifs, sequences, imitation, complexity
+        assert "Motif" in captured.out or "motif" in captured.out
+        assert "Sequence" in captured.out or "sequence" in captured.out
+
+    def test_analyze_patterns_fugue_analysis(self, multi_voice_midi, capsys):
+        """Test fugue structure analysis."""
+        args = argparse.Namespace(
+            input=str(multi_voice_midi),
+            output=None,
+            min_length=3,
+            min_occurrences=2,
+            detect_fugue=True,
+            voice_independence=False,
+            complexity=False,
+            sequences=False,
+            imitation=False,
+            all=False,
+            verbose=True
+        )
+
+        from cancrizans.cli import analyze_patterns_command
+        result = analyze_patterns_command(args)
+
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "Fugue" in captured.out or "fugue" in captured.out
+
+    def test_analyze_patterns_voice_independence(self, multi_voice_midi, capsys):
+        """Test voice independence metrics."""
+        args = argparse.Namespace(
+            input=str(multi_voice_midi),
+            output=None,
+            min_length=3,
+            min_occurrences=2,
+            detect_fugue=False,
+            voice_independence=True,
+            complexity=False,
+            sequences=False,
+            imitation=False,
+            all=False,
+            verbose=True
+        )
+
+        from cancrizans.cli import analyze_patterns_command
+        result = analyze_patterns_command(args)
+
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "Voice Independence" in captured.out or "independence" in captured.out
+
+    def test_analyze_patterns_complexity(self, multi_voice_midi, capsys):
+        """Test pattern complexity analysis."""
+        args = argparse.Namespace(
+            input=str(multi_voice_midi),
+            output=None,
+            min_length=3,
+            min_occurrences=2,
+            detect_fugue=False,
+            voice_independence=False,
+            complexity=True,
+            sequences=False,
+            imitation=False,
+            all=False,
+            verbose=True
+        )
+
+        from cancrizans.cli import analyze_patterns_command
+        result = analyze_patterns_command(args)
+
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "Complexity" in captured.out or "complexity" in captured.out
+
+    def test_analyze_patterns_sequences(self, multi_voice_midi, capsys):
+        """Test melodic sequence detection."""
+        args = argparse.Namespace(
+            input=str(multi_voice_midi),
+            output=None,
+            min_length=3,
+            min_occurrences=2,
+            detect_fugue=False,
+            voice_independence=False,
+            complexity=False,
+            sequences=True,
+            imitation=False,
+            all=False,
+            verbose=True
+        )
+
+        from cancrizans.cli import analyze_patterns_command
+        result = analyze_patterns_command(args)
+
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "Sequence" in captured.out or "sequence" in captured.out
+
+    def test_analyze_patterns_imitation(self, multi_voice_midi, capsys):
+        """Test imitation point detection."""
+        args = argparse.Namespace(
+            input=str(multi_voice_midi),
+            output=None,
+            min_length=3,
+            min_occurrences=2,
+            detect_fugue=False,
+            voice_independence=False,
+            complexity=False,
+            sequences=False,
+            imitation=True,
+            all=False,
+            verbose=True
+        )
+
+        from cancrizans.cli import analyze_patterns_command
+        result = analyze_patterns_command(args)
+
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "Imitation" in captured.out or "imitation" in captured.out
+
+    def test_analyze_patterns_json_output(self, multi_voice_midi):
+        """Test JSON output export."""
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_json = Path(tmpdir) / 'analysis.json'
+
+            args = argparse.Namespace(
+                input=str(multi_voice_midi),
+                output=str(output_json),
+                min_length=3,
+                min_occurrences=2,
+                detect_fugue=True,
+                voice_independence=True,
+                complexity=True,
+                sequences=True,
+                imitation=True,
+                all=False,
+                verbose=False
+            )
+
+            from cancrizans.cli import analyze_patterns_command
+            result = analyze_patterns_command(args)
+
+            assert result == 0
+            assert output_json.exists()
+
+            # Verify JSON structure
+            with open(output_json) as f:
+                data = json.load(f)
+                assert 'file' in data
+                assert 'motifs' in data
+                assert 'parts' in data
+
+    def test_analyze_patterns_nonexistent_file(self, capsys):
+        """Test analyzing nonexistent file."""
+        args = argparse.Namespace(
+            input='/nonexistent/file.mid',
+            output=None,
+            min_length=3,
+            min_occurrences=2,
+            detect_fugue=False,
+            voice_independence=False,
+            complexity=False,
+            sequences=False,
+            imitation=False,
+            all=False,
+            verbose=False
+        )
+
+        from cancrizans.cli import analyze_patterns_command
+        result = analyze_patterns_command(args)
+
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "Error" in captured.out or "not found" in captured.out
+
+    def test_analyze_patterns_single_voice_skips_multi_voice_analyses(self, capsys):
+        """Test that multi-voice analyses are skipped for single-voice files."""
+        from music21 import stream, note
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create single-voice score
+            score = stream.Score()
+            part = stream.Part()
+            for pitch in [60, 62, 64, 65, 67, 69, 71, 72]:
+                part.append(note.Note(pitch, quarterLength=1.0))
+            score.append(part)
+
+            midi_path = Path(tmpdir) / 'single_voice.mid'
+            score.write('midi', fp=str(midi_path))
+
+            args = argparse.Namespace(
+                input=str(midi_path),
+                output=None,
+                min_length=3,
+                min_occurrences=2,
+                detect_fugue=True,
+                voice_independence=True,
+                complexity=False,
+                sequences=False,
+                imitation=True,
+                all=False,
+                verbose=True
+            )
+
+            from cancrizans.cli import analyze_patterns_command
+            result = analyze_patterns_command(args)
+
+            assert result == 0
+            captured = capsys.readouterr()
+            # Should successfully complete and show motifs
+            assert "Motif" in captured.out or "motif" in captured.out
+
+    def test_analyze_patterns_verbose_mode(self, multi_voice_midi, capsys):
+        """Test verbose output mode."""
+        args = argparse.Namespace(
+            input=str(multi_voice_midi),
+            output=None,
+            min_length=3,
+            min_occurrences=2,
+            detect_fugue=False,
+            voice_independence=False,
+            complexity=True,
+            sequences=False,
+            imitation=False,
+            all=False,
+            verbose=True
+        )
+
+        from cancrizans.cli import analyze_patterns_command
+        result = analyze_patterns_command(args)
+
+        assert result == 0
+        captured = capsys.readouterr()
+        # Verbose mode should show more details
+        assert len(captured.out) > 100  # Should have substantial output
+
+    def test_main_calls_analyze_patterns_command(self, multi_voice_midi):
+        """Test main() correctly routes to analyze_patterns_command."""
+        from unittest.mock import patch
+
+        test_args = ['cancrizans', 'analyze-patterns', str(multi_voice_midi)]
+
+        with patch('sys.argv', test_args):
+            result = main()
+
+        assert result == 0
