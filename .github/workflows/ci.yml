@@ -44,15 +44,32 @@ jobs:
 
     - name: Run tests with pytest (parallel)
       run: |
-        pytest tests/ -v -n auto --cov=cancrizans --cov-report=term-missing --cov-report=xml --cov-report=html
+        pytest tests/ -v -n auto \
+          --cov=cancrizans \
+          --cov-report=term-missing \
+          --cov-report=xml \
+          --cov-report=html \
+          --junitxml=test-results.xml \
+          --durations=10 \
+          --tb=short
 
-    - name: Upload coverage reports
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-${{ matrix.python-version }}
+        path: test-results.xml
+        retention-days: 30
+
+    - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v4
       if: matrix.python-version == '3.11'
       with:
         file: ./coverage.xml
         fail_ci_if_error: false
         token: ${{ secrets.CODECOV_TOKEN }}
+        flags: unittests
+        name: codecov-umbrella
       continue-on-error: true
 
     - name: Upload coverage HTML
@@ -62,6 +79,15 @@ jobs:
         name: coverage-html
         path: htmlcov/
         retention-days: 30
+
+    - name: Test Summary
+      if: always()
+      run: |
+        echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+        echo "Python Version: ${{ matrix.python-version }}" >> $GITHUB_STEP_SUMMARY
+        if [ -f test-results.xml ]; then
+          echo "Test results uploaded as artifact" >> $GITHUB_STEP_SUMMARY
+        fi
 
   lint:
     name: Type checking with mypy
@@ -258,13 +284,35 @@ jobs:
 
     - name: Run integration tests
       run: |
-        pytest tests/test_microtonal_canon_integration.py -v --tb=short
+        pytest tests/test_microtonal_canon_integration.py tests/test_cli_integration.py -v --tb=short
 
     - name: Test CLI commands
       run: |
+        echo "Testing basic CLI commands..."
         cancrizans --help
         cancrizans scales --list-tunings | head -20
         cancrizans microtonal-canon --help
+        cancrizans analyze-patterns --help
+
+    - name: Test full CLI workflow
+      run: |
+        echo "Testing complete workflow: generate -> validate -> analyze-patterns"
+        mkdir -p /tmp/test-workflow
+
+        # Generate a canon
+        cancrizans generate scale --output /tmp/test-workflow/test.mid --length 8
+
+        # Validate it
+        cancrizans validate /tmp/test-workflow/test.mid
+
+        # Analyze patterns with JSON output
+        cancrizans analyze-patterns /tmp/test-workflow/test.mid \
+          --output /tmp/test-workflow/analysis.json \
+          --all --verbose
+
+        # Verify JSON was created
+        test -f /tmp/test-workflow/analysis.json
+        echo "✓ Full workflow completed successfully"
 
   ci-success:
     name: CI Success

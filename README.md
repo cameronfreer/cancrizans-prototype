@@ -4,12 +4,12 @@
 
 Cancrizans is a comprehensive toolkit for analyzing, verifying, and rendering palindromic musical structures, with a focus on Bach's *Canon Cancrizans* from *The Musical Offering* (BWV 1079).
 
-[![Python Tests](https://img.shields.io/badge/tests-472%20passed-brightgreen)](tests/)
-[![Coverage](https://img.shields.io/badge/coverage-99%25%20(100%25%20reachable)-brightgreen)](tests/)
-[![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org)
-[![Version](https://img.shields.io/badge/version-0.26.0-blue)](cancrizans/__init__.py)
+[![CI](https://github.com/cancrizans-project/cancrizans-prototype/workflows/CI/badge.svg)](https://github.com/cancrizans-project/cancrizans-prototype/actions)
+[![codecov](https://codecov.io/gh/cancrizans-project/cancrizans-prototype/branch/main/graph/badge.svg)](https://codecov.io/gh/cancrizans-project/cancrizans-prototype)
+[![Python](https://img.shields.io/badge/python-3.11%2B%20%7C%203.12-blue)](https://www.python.org)
+[![Tests](https://img.shields.io/badge/tests-811%20passed-brightgreen)](tests/)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Music](https://img.shields.io/badge/music-Public%20Domain-green)](data/)
+[![Code Quality](https://img.shields.io/badge/code%20quality-ruff-purple)](https://github.com/astral-sh/ruff)
 
 ## 🚀 Quick Links
 
@@ -44,20 +44,34 @@ The name comes from the sideways movement of crabs, referencing the backward mot
 
 ### 🐍 Python Library & CLI
 - **Core transformations**: retrograde, inversion, augmentation, diminution, mirror canon
-- **Advanced canon types**: table canon, mensuration canon, spiral canon, puzzle canon solver (NEW!)
-- **Analysis tools**: interval, harmonic, and rhythm analysis
+- **Advanced canon types**: table canon, mensuration canon, spiral canon, puzzle canon solver
+- **Pattern analysis** (NEW!): 8 advanced analysis functions
+  - Motif detection with transposition tracking
+  - Melodic sequence identification
+  - Imitation point detection (fugal entries)
+  - Fugue structure analysis (subject, answer, episodes, stretto)
+  - Voice independence metrics
+  - Pattern complexity scoring
+  - Thematic development tracking
+  - Contour similarity matching
+- **Microtonal music** (NEW!): 40+ tuning systems, 36+ world music scales
+  - Historical temperaments (Werckmeister, Kirnberger, Vallotti, etc.)
+  - Just intonation (3-limit, 5-limit, 7-limit)
+  - Equal temperaments (12, 19, 24, 31, 53-TET)
+  - World music scales (Arabic maqamat, Indian ragas, Indonesian gamelan)
+- **Analysis tools**: interval, harmonic, rhythm, and counterpoint analysis
 - **Music theory analysis**: voice leading, cadence detection, modulation detection, species counterpoint
 - **Palindrome verification**: automated structural analysis with pairwise mapping
 - **Export formats**: MIDI, MusicXML, LilyPond (.ly), ABC notation (.abc), WAV (optional)
 - **Visualizations**: piano roll and symmetry plots with matplotlib
-- **CLI interface**: analyze, render, synthesize, validate, generate, and **research** (batch analysis)
+- **CLI interface**: analyze, render, synthesize, validate, generate, **analyze-patterns**, and research
 - **Algorithmic generation**: 11 algorithms (scale, arpeggio, fibonacci, golden ratio, modal, etc.)
 - **Quality validation**: Automated scoring and recommendations for generated canons
 - **Research tools**: Batch processing, multi-format export (CSV/JSON/LaTeX/Markdown)
 - **Performance optimization**: Caching decorators (@memoize, @lru_cache, @disk_cache)
 - **Transformation chains**: Compose multiple transformations with fluent builder pattern
 - **Advanced MIDI features**: Velocity curves, tempo curves, multi-instrument export, MIDI analysis
-- **World-class testing**: 472 tests, 97% coverage, 100% pass rate
+- **World-class testing**: 811 tests, comprehensive coverage, 100% pass rate
 
 ### 🌐 Web Interface (PWA)
 - **✏️ Interactive Composer**: Create your own crab canons!
