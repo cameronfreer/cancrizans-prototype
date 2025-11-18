@@ -460,3 +460,339 @@ class TestResearchIntegration:
 
         # Should return 0.0 when there are < 2 notes
         assert analysis['structure']['contour_correlation'] == 0.0
+
+
+class TestAdvancedResearch:
+    """Test advanced research functions."""
+
+    def test_batch_visualize(self):
+        """Test batch visualization generation."""
+        from cancrizans.research import batch_visualize
+        from cancrizans.generator import CanonGenerator
+        from cancrizans.io import to_midi
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+
+            # Create some test files
+            gen = CanonGenerator(seed=42)
+            for i in range(2):
+                canon = gen.generate_scale_canon('C', 'major')
+                to_midi(canon, tmppath / f'canon{i}.mid')
+
+            # Generate visualizations
+            output_dir = tmppath / 'viz'
+            batch_visualize(tmppath, output_dir, pattern='*.mid')
+
+            # Check outputs
+            assert (output_dir / 'canon0_piano_roll.png').exists()
+            assert (output_dir / 'canon0_symmetry.png').exists()
+            assert (output_dir / 'canon1_piano_roll.png').exists()
+            assert (output_dir / 'canon1_symmetry.png').exists()
+
+    def test_batch_visualize_specific_types(self):
+        """Test batch visualization with specific types."""
+        from cancrizans.research import batch_visualize
+        from cancrizans.generator import CanonGenerator
+        from cancrizans.io import to_midi
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+
+            # Create test file
+            gen = CanonGenerator(seed=42)
+            canon = gen.generate_scale_canon('C', 'major')
+            to_midi(canon, tmppath / 'canon.mid')
+
+            # Generate only piano rolls
+            output_dir = tmppath / 'viz'
+            batch_visualize(tmppath, output_dir, vis_types=['piano_roll'])
+
+            # Check outputs
+            assert (output_dir / 'canon_piano_roll.png').exists()
+            assert not (output_dir / 'canon_symmetry.png').exists()
+
+    def test_generate_educational_examples(self):
+        """Test educational example generation."""
+        from cancrizans.research import generate_educational_examples
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+
+            # Generate examples
+            generate_educational_examples(tmppath, seed=42)
+
+            # Check that all expected files exist
+            expected_files = [
+                'educational_scale_canon.mid',
+                'educational_scale_canon.musicxml',
+                'educational_arpeggio_canon.mid',
+                'educational_arpeggio_canon.musicxml',
+                'educational_modal_canon.mid',
+                'educational_modal_canon.musicxml',
+                'educational_markov_canon.mid',
+                'educational_markov_canon.musicxml',
+                'educational_contour_canon.mid',
+                'educational_contour_canon.musicxml',
+                'educational_motif_canon.mid',
+                'educational_motif_canon.musicxml',
+            ]
+
+            for filename in expected_files:
+                assert (tmppath / filename).exists(), f"Missing file: {filename}"
+
+    def test_educational_examples_have_metadata(self):
+        """Test that educational examples have proper metadata."""
+        from cancrizans.research import generate_educational_examples
+        from cancrizans.io import load_score, get_metadata
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+
+            # Generate examples
+            generate_educational_examples(tmppath, seed=42)
+
+            # Load one and check metadata
+            score = load_score(tmppath / 'educational_scale_canon.musicxml')
+            meta = get_metadata(score)
+
+            # Should have title and composer
+            assert 'title' in meta or 'movementName' in meta
+            assert meta.get('composer') == 'Cancrizans Educational'
+
+    def test_generate_research_report(self):
+        """Test research report generation."""
+        from cancrizans.research import generate_research_report
+
+        # Create some mock analyses
+        analyses = [
+            {
+                'name': 'Canon 1',
+                'is_palindrome': True,
+                'basic_properties': {
+                    'duration_quarters': 32.0,
+                    'total_notes': 40,
+                },
+                'harmony': {'consonance_ratio': 0.75},
+                'intervals': {'average': 2.5},
+            },
+            {
+                'name': 'Canon 2',
+                'is_palindrome': False,
+                'basic_properties': {
+                    'duration_quarters': 24.0,
+                    'total_notes': 30,
+                },
+                'harmony': {'consonance_ratio': 0.65},
+                'intervals': {'average': 3.0},
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            output_path = tmppath / 'report.md'
+
+            # Generate report
+            generate_research_report(analyses, output_path)
+
+            # Verify output
+            assert output_path.exists()
+            content = output_path.read_text()
+
+            # Check for key sections
+            assert 'Crab Canon Research Report' in content
+            assert 'Total canons analyzed: 2' in content
+            assert 'Palindromic canons: 1' in content
+            assert 'Canon 1' in content
+            assert 'Canon 2' in content
+
+    def test_research_report_with_advanced_metrics(self):
+        """Test research report with spectral and symmetry metrics."""
+        from cancrizans.research import generate_research_report
+
+        # Create analyses with advanced metrics
+        analyses = [
+            {
+                'name': 'Canon 1',
+                'is_palindrome': True,
+                'basic_properties': {'duration_quarters': 32.0, 'total_notes': 40},
+                'harmony': {'consonance_ratio': 0.75},
+                'intervals': {'average': 2.5},
+                'spectral': {'tessitura': 60.0},
+                'symmetry': {'pitch_symmetry': 0.95, 'rhythmic_symmetry': 0.98},
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            output_path = tmppath / 'report.md'
+
+            # Generate report
+            generate_research_report(analyses, output_path)
+
+            # Verify advanced sections
+            content = output_path.read_text()
+            assert 'Spectral Analysis' in content
+            assert 'Symmetry Metrics' in content
+            assert 'tessitura' in content.lower()
+
+    def test_compare_corpus_canons(self):
+        """Test pairwise canon comparison."""
+        from cancrizans.research import compare_corpus_canons
+        from cancrizans.generator import CanonGenerator
+
+        gen = CanonGenerator(seed=42)
+        canon1 = gen.generate_scale_canon('C', 'major')
+        canon2 = gen.generate_scale_canon('D', 'minor')
+        canon3 = gen.generate_arpeggio_canon('G', 'major')
+
+        canons = [
+            ('Canon 1', canon1),
+            ('Canon 2', canon2),
+            ('Canon 3', canon3),
+        ]
+
+        result = compare_corpus_canons(canons)
+
+        # Check structure
+        assert result['num_canons'] == 3
+        assert result['num_comparisons'] == 3  # 3 choose 2
+        assert 'avg_similarity' in result
+        assert 'min_similarity' in result
+        assert 'max_similarity' in result
+        assert 'comparison_matrix' in result
+
+    def test_compare_corpus_canons_with_export(self):
+        """Test corpus comparison with JSON export."""
+        from cancrizans.research import compare_corpus_canons
+        from cancrizans.generator import CanonGenerator
+
+        gen = CanonGenerator(seed=42)
+        canon1 = gen.generate_scale_canon('C', 'major')
+        canon2 = gen.generate_scale_canon('D', 'major')
+
+        canons = [
+            ('Canon 1', canon1),
+            ('Canon 2', canon2),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            output_path = tmppath / 'comparisons.json'
+
+            result = compare_corpus_canons(canons, output_path=output_path)
+
+            # Check file was created
+            assert output_path.exists()
+
+            # Verify JSON content
+            import json
+            with open(output_path) as f:
+                data = json.load(f)
+
+            assert data['num_canons'] == 2
+            assert data['num_comparisons'] == 1
+            assert len(data['comparisons']) == 1
+
+    def test_advanced_analysis_in_canon_analyzer(self):
+        """Test that CanonAnalyzer includes advanced metrics."""
+        from cancrizans.generator import CanonGenerator
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        analyzer = CanonAnalyzer(canon, name="Test", advanced=True)
+        analysis = analyzer.analyze()
+
+        # Should have spectral analysis
+        assert 'spectral' in analysis
+        assert 'tessitura' in analysis['spectral']
+
+        # Should have symmetry and chord progression (for 2-voice canons)
+        if len(list(canon.parts)) == 2:
+            assert 'symmetry' in analysis
+            assert 'chord_progression' in analysis
+
+    def test_advanced_analysis_disabled(self):
+        """Test that advanced analysis can be disabled."""
+        from cancrizans.generator import CanonGenerator
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        analyzer = CanonAnalyzer(canon, name="Test", advanced=False)
+        analysis = analyzer.analyze()
+
+        # Should NOT have advanced metrics
+        assert 'spectral' not in analysis
+        assert 'symmetry' not in analysis
+
+
+class TestResearchIntegrationWorkflows:
+    """Test complete research workflows."""
+
+    def test_full_research_workflow(self):
+        """Test complete research workflow: generate, analyze, visualize, report."""
+        from cancrizans.research import (
+            generate_educational_examples,
+            analyze_corpus,
+            batch_visualize,
+            generate_research_report,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+
+            # Step 1: Generate educational examples
+            examples_dir = tmppath / 'examples'
+            generate_educational_examples(examples_dir, seed=42)
+
+            # Step 2: Analyze corpus
+            analyses, comparison = analyze_corpus(examples_dir, pattern='*.mid')
+
+            # Step 3: Generate visualizations
+            viz_dir = tmppath / 'viz'
+            batch_visualize(examples_dir, viz_dir, pattern='*.mid')
+
+            # Step 4: Generate report
+            report_path = tmppath / 'report.md'
+            generate_research_report(analyses, report_path)
+
+            # Verify all outputs
+            assert len(analyses) == 6  # 6 educational examples
+            assert len(list(viz_dir.glob('*.png'))) > 0
+            assert report_path.exists()
+
+    def test_comparative_study_workflow(self):
+        """Test workflow for comparing multiple canons."""
+        from cancrizans.research import compare_corpus_canons
+        from cancrizans.generator import CanonGenerator
+        from cancrizans.io import to_midi, load_score
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+
+            # Create diverse canons
+            gen = CanonGenerator(seed=42)
+            canons_data = [
+                ('Scale C Major', gen.generate_scale_canon('C', 'major')),
+                ('Scale D Minor', gen.generate_scale_canon('D', 'minor')),
+                ('Arpeggio G', gen.generate_arpeggio_canon('G', 'major')),
+                ('Fibonacci', gen.generate_fibonacci_canon(length=12)),
+            ]
+
+            # Save and reload to ensure they work with file I/O
+            saved_canons = []
+            for name, canon in canons_data:
+                path = tmppath / f'{name.replace(" ", "_")}.mid'
+                to_midi(canon, path)
+                loaded = load_score(path)
+                saved_canons.append((name, loaded))
+
+            # Perform comparative analysis
+            results = compare_corpus_canons(saved_canons)
+
+            # Verify results make sense
+            assert results['num_canons'] == 4
+            assert results['num_comparisons'] == 6  # 4 choose 2
+            assert 0.0 <= results['avg_similarity'] <= 1.0

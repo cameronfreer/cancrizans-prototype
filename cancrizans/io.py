@@ -317,3 +317,650 @@ def load_score(path: Union[str, Path]) -> stream.Score:
         s = stream.Score()
         s.insert(0, score)
         return s
+
+
+def export_all(
+    score: stream.Score,
+    base_path: Union[str, Path],
+    formats: Optional[list] = None
+) -> dict:
+    """
+    Export a score to multiple formats at once.
+
+    Args:
+        score: The Score to export
+        base_path: Base path (without extension) for output files
+        formats: List of formats to export. Available: 'midi', 'musicxml',
+                'lilypond', 'abc'. Defaults to all formats.
+
+    Returns:
+        Dictionary mapping format names to output file paths
+
+    Example:
+        >>> paths = export_all(my_score, 'output/canon')
+        >>> # Creates: canon.mid, canon.musicxml, canon.ly, canon.abc
+    """
+    if formats is None:
+        formats = ['midi', 'musicxml', 'lilypond', 'abc']
+
+    base_path = Path(base_path)
+    results = {}
+
+    format_map = {
+        'midi': ('.mid', to_midi),
+        'musicxml': ('.musicxml', to_musicxml),
+        'lilypond': ('.ly', to_lilypond),
+        'abc': ('.abc', to_abc),
+    }
+
+    for fmt in formats:
+        if fmt not in format_map:
+            raise ValueError(f"Unknown format: {fmt}. Available: {list(format_map.keys())}")
+
+        ext, export_func = format_map[fmt]
+        output_path = base_path.parent / f"{base_path.name}{ext}"
+        results[fmt] = export_func(score, output_path)
+
+    return results
+
+
+def set_metadata(
+    score: stream.Score,
+    title: Optional[str] = None,
+    composer: Optional[str] = None,
+    copyright: Optional[str] = None,
+    date: Optional[str] = None,
+    **kwargs
+) -> stream.Score:
+    """
+    Set metadata fields on a score.
+
+    Args:
+        score: The Score to modify (modified in-place)
+        title: Title of the piece
+        composer: Composer name
+        copyright: Copyright notice
+        date: Date/year of composition
+        **kwargs: Additional metadata fields (e.g., lyricist, dedication)
+
+    Returns:
+        The modified Score (for method chaining)
+
+    Example:
+        >>> set_metadata(score, title="My Canon", composer="J.S. Bach")
+    """
+    if not hasattr(score, 'metadata') or score.metadata is None:
+        score.metadata = m21.metadata.Metadata()
+
+    if title:
+        score.metadata.title = title
+    if composer:
+        score.metadata.composer = composer
+    if copyright:
+        score.metadata.copyright = copyright
+    if date:
+        score.metadata.date = date
+
+    # Handle additional fields
+    for key, value in kwargs.items():
+        setattr(score.metadata, key, value)
+
+    return score
+
+
+def get_metadata(score: stream.Score) -> dict:
+    """
+    Extract metadata from a score.
+
+    Args:
+        score: The Score to read metadata from
+
+    Returns:
+        Dictionary of metadata fields
+
+    Example:
+        >>> meta = get_metadata(score)
+        >>> print(meta['title'], meta['composer'])
+    """
+    if not hasattr(score, 'metadata') or score.metadata is None:
+        return {}
+
+    metadata = {}
+
+    # Standard fields
+    standard_fields = ['title', 'composer', 'copyright', 'date',
+                      'lyricist', 'dedication', 'movementName']
+
+    for field in standard_fields:
+        value = getattr(score.metadata, field, None)
+        if value:
+            metadata[field] = value
+
+    return metadata
+
+
+def merge_scores(*scores: stream.Score) -> stream.Score:
+    """
+    Merge multiple scores into a single score by combining their parts.
+
+    All parts from all scores are added to a new score. Useful for
+    combining separately-created voices or movements.
+
+    Args:
+        *scores: Variable number of Score objects to merge
+
+    Returns:
+        New Score containing all parts from input scores
+
+    Example:
+        >>> merged = merge_scores(score1, score2, score3)
+    """
+    if not scores:
+        return stream.Score()
+
+    merged = stream.Score()
+
+    # Copy metadata from first score if available
+    if hasattr(scores[0], 'metadata') and scores[0].metadata:
+        merged.metadata = scores[0].metadata
+
+    # Add all parts from all scores
+    for score in scores:
+        for part in score.parts:
+            merged.insert(0, part)
+
+    return merged
+
+
+def extract_parts(
+    score: stream.Score,
+    indices: Union[int, list]
+) -> stream.Score:
+    """
+    Extract specific parts/voices from a score.
+
+    Args:
+        score: The Score to extract from
+        indices: Single index or list of indices to extract (0-based)
+
+    Returns:
+        New Score containing only the specified parts
+
+    Example:
+        >>> voice1_only = extract_parts(score, 0)
+        >>> soprano_alto = extract_parts(score, [0, 1])
+    """
+    if isinstance(indices, int):
+        indices = [indices]
+
+    extracted = stream.Score()
+
+    # Copy metadata if available
+    if hasattr(score, 'metadata') and score.metadata:
+        extracted.metadata = score.metadata
+
+    parts = list(score.parts)
+
+    for idx in indices:
+        if idx < 0 or idx >= len(parts):
+            raise IndexError(f"Part index {idx} out of range (0-{len(parts)-1})")
+        extracted.insert(0, parts[idx])
+
+    return extracted
+
+
+def validate_import(path: Union[str, Path]) -> dict:
+    """
+    Validate an imported music file and return diagnostic information.
+
+    Args:
+        path: Path to the file to validate
+
+    Returns:
+        Dictionary with validation results:
+        - 'valid': bool - whether file loaded successfully
+        - 'format': str - detected format (midi, musicxml, etc.)
+        - 'parts': int - number of parts/voices
+        - 'measures': int - number of measures
+        - 'duration': float - total duration in quarter notes
+        - 'errors': list - any errors encountered
+
+    Example:
+        >>> info = validate_import('canon.mid')
+        >>> if info['valid']:
+        >>>     print(f"Loaded {info['parts']} parts")
+    """
+    path = Path(path)
+    result = {
+        'valid': False,
+        'format': None,
+        'parts': 0,
+        'measures': 0,
+        'duration': 0.0,
+        'errors': []
+    }
+
+    if not path.exists():
+        result['errors'].append(f"File not found: {path}")
+        return result
+
+    # Detect format from extension
+    ext = path.suffix.lower()
+    format_map = {
+        '.mid': 'midi',
+        '.midi': 'midi',
+        '.xml': 'musicxml',
+        '.musicxml': 'musicxml',
+        '.mxl': 'musicxml',
+        '.ly': 'lilypond',
+        '.abc': 'abc'
+    }
+    result['format'] = format_map.get(ext, 'unknown')
+
+    try:
+        score = load_score(path)
+        result['valid'] = True
+        result['parts'] = len(score.parts)
+
+        # Get duration
+        if score.parts:
+            result['duration'] = max(p.duration.quarterLength for p in score.parts)
+
+        # Count measures (approximate)
+        if score.parts:
+            measures = score.parts[0].getElementsByClass(m21.stream.Measure)
+            result['measures'] = len(measures)
+
+    except Exception as e:
+        result['errors'].append(str(e))
+
+    return result
+
+
+def convert_format(
+    input_path: Union[str, Path],
+    output_path: Union[str, Path]
+) -> Path:
+    """
+    Convert a music file from one format to another.
+
+    Format is auto-detected from file extensions.
+
+    Args:
+        input_path: Path to input file
+        output_path: Path to output file (extension determines format)
+
+    Returns:
+        Path to the output file
+
+    Example:
+        >>> convert_format('canon.mid', 'canon.musicxml')
+        >>> convert_format('score.xml', 'score.ly')
+    """
+    # Load the input file
+    score = load_score(input_path)
+
+    # Determine output format from extension
+    output_path = Path(output_path)
+    ext = output_path.suffix.lower()
+
+    if ext in ['.mid', '.midi']:
+        return to_midi(score, output_path)
+    elif ext in ['.xml', '.musicxml', '.mxl']:
+        return to_musicxml(score, output_path)
+    elif ext == '.ly':
+        return to_lilypond(score, output_path)
+    elif ext == '.abc':
+        return to_abc(score, output_path)
+    else:
+        raise ValueError(f"Unsupported output format: {ext}")
+
+
+# Advanced MIDI Features
+
+def apply_velocity_curve(
+    score: stream.Score,
+    curve_type: str = 'linear',
+    start_velocity: int = 64,
+    end_velocity: int = 96,
+    part_index: Optional[int] = None
+) -> stream.Score:
+    """
+    Apply a velocity (dynamics) curve to a score.
+
+    Args:
+        score: The Score to modify
+        curve_type: Type of curve ('linear', 'crescendo', 'diminuendo', 'swell', 'arch')
+        start_velocity: Starting MIDI velocity (0-127)
+        end_velocity: Ending MIDI velocity (0-127)
+        part_index: Apply to specific part (None = all parts)
+
+    Returns:
+        Modified Score with velocities applied
+
+    Example:
+        >>> score_with_dynamics = apply_velocity_curve(score, 'crescendo', 60, 100)
+    """
+    import numpy as np
+    from music21 import note as m21note
+
+    # Clamp velocities to MIDI range
+    start_velocity = max(1, min(127, start_velocity))
+    end_velocity = max(1, min(127, end_velocity))
+
+    parts_to_process = [part_index] if part_index is not None else range(len(score.parts))
+
+    for idx in parts_to_process:
+        if idx >= len(score.parts):
+            continue
+
+        part = list(score.parts)[idx]
+        notes = [n for n in part.flatten().notes]
+
+        if not notes:
+            continue
+
+        num_notes = len(notes)
+
+        # Generate velocity curve
+        if curve_type == 'linear' or curve_type == 'crescendo':
+            velocities = np.linspace(start_velocity, end_velocity, num_notes)
+        elif curve_type == 'diminuendo':
+            velocities = np.linspace(end_velocity, start_velocity, num_notes)
+        elif curve_type == 'swell':
+            # Crescendo then diminuendo
+            mid = num_notes // 2
+            first_half = np.linspace(start_velocity, end_velocity, mid)
+            second_half = np.linspace(end_velocity, start_velocity, num_notes - mid)
+            velocities = np.concatenate([first_half, second_half])
+        elif curve_type == 'arch':
+            # Bell curve
+            x = np.linspace(-2, 2, num_notes)
+            curve = np.exp(-x**2 / 2)
+            velocities = start_velocity + (end_velocity - start_velocity) * curve
+        else:
+            raise ValueError(f"Unknown curve type: {curve_type}")
+
+        # Apply velocities to notes
+        for note_obj, velocity in zip(notes, velocities):
+            if isinstance(note_obj, m21note.Note):
+                note_obj.volume.velocity = int(velocity)
+            elif hasattr(note_obj, 'notes'):  # Chord
+                for n in note_obj.notes:
+                    n.volume.velocity = int(velocity)
+
+    return score
+
+
+def set_midi_program(
+    score: stream.Score,
+    program: int,
+    part_index: int = 0,
+    channel: int = 0
+) -> stream.Score:
+    """
+    Set the MIDI program (instrument) for a part.
+
+    Args:
+        score: The Score to modify
+        program: MIDI program number (0-127)
+            Common programs:
+            0 = Acoustic Grand Piano
+            6 = Harpsichord
+            19 = Church Organ
+            40 = Violin
+            73 = Flute
+        part_index: Which part to apply to (0-based)
+        channel: MIDI channel (0-15)
+
+    Returns:
+        Modified Score with instrument set
+
+    Example:
+        >>> score = set_midi_program(score, 6, part_index=0)  # Harpsichord
+    """
+    from music21 import instrument as m21instrument
+
+    if part_index >= len(score.parts):
+        raise IndexError(f"Part index {part_index} out of range")
+
+    part = list(score.parts)[part_index]
+
+    # Map common MIDI programs to music21 instruments
+    program_map = {
+        0: m21instrument.Piano(),
+        6: m21instrument.Harpsichord(),
+        19: m21instrument.Organ(),
+        40: m21instrument.Violin(),
+        41: m21instrument.Viola(),
+        42: m21instrument.Violoncello(),
+        43: m21instrument.Contrabass(),
+        56: m21instrument.Trumpet(),
+        57: m21instrument.Trombone(),
+        58: m21instrument.Tuba(),
+        60: m21instrument.Horn(),
+        68: m21instrument.Oboe(),
+        69: m21instrument.EnglishHorn(),
+        70: m21instrument.Bassoon(),
+        71: m21instrument.Clarinet(),
+        72: m21instrument.Piccolo(),
+        73: m21instrument.Flute(),
+        74: m21instrument.Recorder(),
+    }
+
+    # Use mapped instrument if available, otherwise generic
+    if program in program_map:
+        instr = program_map[program]
+    else:
+        instr = m21instrument.Instrument()
+        instr.midiProgram = program
+
+    instr.midiChannel = channel
+    part.insert(0, instr)
+
+    return score
+
+
+def apply_tempo_curve(
+    score: stream.Score,
+    curve_type: str = 'linear',
+    start_bpm: float = 60.0,
+    end_bpm: float = 120.0,
+    num_changes: int = 10
+) -> stream.Score:
+    """
+    Apply a tempo curve (rubato) to a score.
+
+    Args:
+        score: The Score to modify
+        curve_type: Type of curve ('linear', 'accelerando', 'ritardando', 'rubato')
+        start_bpm: Starting tempo in BPM
+        end_bpm: Ending tempo in BPM
+        num_changes: Number of tempo changes to insert
+
+    Returns:
+        Modified Score with tempo changes
+
+    Example:
+        >>> score = apply_tempo_curve(score, 'accelerando', 60, 120)
+    """
+    import numpy as np
+    from music21 import tempo as m21tempo
+
+    if not score.parts:
+        return score
+
+    # Calculate total duration
+    total_duration = max(p.duration.quarterLength for p in score.parts)
+
+    if total_duration == 0:
+        return score
+
+    # Generate tempo curve
+    positions = np.linspace(0, total_duration, num_changes)
+
+    if curve_type == 'linear' or curve_type == 'accelerando':
+        tempos = np.linspace(start_bpm, end_bpm, num_changes)
+    elif curve_type == 'ritardando':
+        tempos = np.linspace(end_bpm, start_bpm, num_changes)
+    elif curve_type == 'rubato':
+        # Sinusoidal tempo variation
+        x = np.linspace(0, 2 * np.pi, num_changes)
+        variation = np.sin(x) * (end_bpm - start_bpm) / 4
+        tempos = (start_bpm + end_bpm) / 2 + variation
+    else:
+        raise ValueError(f"Unknown curve type: {curve_type}")
+
+    # Insert tempo marks into first part
+    first_part = list(score.parts)[0]
+
+    for pos, tempo_val in zip(positions, tempos):
+        mm = m21tempo.MetronomeMark(number=tempo_val)
+        first_part.insert(pos, mm)
+
+    return score
+
+
+def to_midi_advanced(
+    score: stream.Score,
+    path: Union[str, Path],
+    velocity_curve: Optional[str] = None,
+    start_velocity: int = 64,
+    end_velocity: int = 96,
+    tempo_curve: Optional[str] = None,
+    start_bpm: float = 120.0,
+    end_bpm: float = 120.0,
+    programs: Optional[dict] = None
+) -> Path:
+    """
+    Export a score to MIDI with advanced features.
+
+    Args:
+        score: The Score to export
+        path: Destination file path
+        velocity_curve: Dynamics curve type ('crescendo', 'diminuendo', 'swell', etc.)
+        start_velocity: Starting MIDI velocity (0-127)
+        end_velocity: Ending MIDI velocity (0-127)
+        tempo_curve: Tempo curve type ('accelerando', 'ritardando', 'rubato')
+        start_bpm: Starting tempo in BPM
+        end_bpm: Ending tempo in BPM
+        programs: Dict mapping part indices to MIDI program numbers
+            Example: {0: 0, 1: 6}  # Piano and Harpsichord
+
+    Returns:
+        Path to the written MIDI file
+
+    Example:
+        >>> to_midi_advanced(
+        ...     score, 'output.mid',
+        ...     velocity_curve='crescendo', start_velocity=60, end_velocity=100,
+        ...     tempo_curve='accelerando', start_bpm=80, end_bpm=120,
+        ...     programs={0: 0, 1: 6}
+        ... )
+    """
+    # Make a copy to avoid modifying original
+    score_copy = score.__deepcopy__()
+
+    # Apply MIDI programs if specified
+    if programs:
+        for part_idx, program in programs.items():
+            if part_idx < len(score_copy.parts):
+                score_copy = set_midi_program(score_copy, program, part_idx)
+
+    # Apply velocity curve if specified
+    if velocity_curve:
+        score_copy = apply_velocity_curve(
+            score_copy, velocity_curve, start_velocity, end_velocity
+        )
+
+    # Apply tempo curve if specified
+    if tempo_curve:
+        score_copy = apply_tempo_curve(
+            score_copy, tempo_curve, start_bpm, end_bpm
+        )
+
+    # Export to MIDI
+    return to_midi(score_copy, path)
+
+
+def analyze_midi_file(path: Union[str, Path]) -> dict:
+    """
+    Analyze a MIDI file to extract performance information.
+
+    Args:
+        path: Path to the MIDI file
+
+    Returns:
+        Dictionary with analysis results:
+        - 'tempo_changes': List of (offset, bpm) tuples
+        - 'programs': Dict mapping tracks to program numbers
+        - 'velocity_range': (min, max) velocity values
+        - 'velocity_mean': Average velocity
+        - 'duration': Total duration in quarter notes
+        - 'time_signature': (numerator, denominator)
+        - 'key_signature': Key signature
+        - 'tracks': Number of tracks
+
+    Example:
+        >>> analysis = analyze_midi_file('performance.mid')
+        >>> print(f"Tempo changes: {len(analysis['tempo_changes'])}")
+        >>> print(f"Average velocity: {analysis['velocity_mean']}")
+    """
+    path = Path(path)
+
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+
+    score = load_score(path)
+
+    result = {
+        'tempo_changes': [],
+        'programs': {},
+        'velocity_range': (127, 0),
+        'velocity_mean': 0,
+        'duration': 0,
+        'time_signature': (4, 4),
+        'key_signature': None,
+        'tracks': len(score.parts)
+    }
+
+    # Extract tempo changes
+    for part_idx, part in enumerate(score.parts):
+        for element in part.flatten():
+            if hasattr(element, 'number') and hasattr(element, 'offset'):
+                # Metronome mark
+                if element.__class__.__name__ == 'MetronomeMark':
+                    result['tempo_changes'].append((float(element.offset), element.number))
+
+            # Extract program/instrument
+            if hasattr(element, 'midiProgram'):
+                result['programs'][part_idx] = element.midiProgram
+
+    # Extract velocity statistics
+    all_velocities = []
+    for part in score.parts:
+        for note_obj in part.flatten().notes:
+            if hasattr(note_obj, 'volume') and hasattr(note_obj.volume, 'velocity'):
+                vel = note_obj.volume.velocity
+                if vel is not None:
+                    all_velocities.append(vel)
+
+    if all_velocities:
+        result['velocity_range'] = (min(all_velocities), max(all_velocities))
+        result['velocity_mean'] = sum(all_velocities) / len(all_velocities)
+
+    # Get duration
+    if score.parts:
+        result['duration'] = max(p.duration.quarterLength for p in score.parts)
+
+    # Get time signature
+    ts = score.flatten().getElementsByClass(m21.meter.TimeSignature)
+    if ts:
+        result['time_signature'] = (ts[0].numerator, ts[0].denominator)
+
+    # Get key signature
+    ks = score.flatten().getElementsByClass(m21.key.KeySignature)
+    if ks:
+        result['key_signature'] = ks[0].sharps
+
+    return result

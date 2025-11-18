@@ -4,7 +4,11 @@ import pytest
 from pathlib import Path
 import tempfile
 from music21 import stream, note
-from cancrizans.io import to_midi, to_musicxml, to_lilypond, to_abc, load_score
+from cancrizans.io import (
+    to_midi, to_musicxml, to_lilypond, to_abc, load_score,
+    export_all, set_metadata, get_metadata, merge_scores,
+    extract_parts, validate_import, convert_format
+)
 from cancrizans.generator import CanonGenerator
 
 
@@ -728,3 +732,780 @@ class TestIOEdgeCases:
             load_score('/nonexistent/path/to/file.mid')
 
         assert 'File not found' in str(exc_info.value)
+
+
+class TestExportAll:
+    """Test batch export functionality."""
+
+    def test_export_all_default_formats(self):
+        """Test export_all with default formats."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_path = Path(tmpdir) / 'canon'
+            results = export_all(canon, base_path)
+
+            assert 'midi' in results
+            assert 'musicxml' in results
+            assert 'lilypond' in results
+            assert 'abc' in results
+
+            # Check all files were created
+            assert results['midi'].exists()
+            assert results['musicxml'].exists()
+            assert results['lilypond'].exists()
+            assert results['abc'].exists()
+
+    def test_export_all_specific_formats(self):
+        """Test export_all with specific formats."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_path = Path(tmpdir) / 'canon'
+            results = export_all(canon, base_path, formats=['midi', 'musicxml'])
+
+            assert 'midi' in results
+            assert 'musicxml' in results
+            assert 'lilypond' not in results
+            assert 'abc' not in results
+
+    def test_export_all_invalid_format(self):
+        """Test export_all with invalid format raises error."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_path = Path(tmpdir) / 'canon'
+            with pytest.raises(ValueError) as exc_info:
+                export_all(canon, base_path, formats=['invalid'])
+
+            assert 'Unknown format' in str(exc_info.value)
+
+    def test_export_all_creates_directories(self):
+        """Test export_all creates nested directories."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base_path = Path(tmpdir) / 'nested' / 'path' / 'canon'
+            results = export_all(canon, base_path, formats=['midi'])
+
+            assert results['midi'].exists()
+            assert results['midi'].parent.exists()
+
+
+class TestMetadata:
+    """Test metadata management."""
+
+    def test_set_metadata_basic_fields(self):
+        """Test setting basic metadata fields."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        set_metadata(canon, title="Test Canon", composer="Test Composer")
+
+        assert canon.metadata.title == "Test Canon"
+        assert canon.metadata.composer == "Test Composer"
+
+    def test_set_metadata_all_fields(self):
+        """Test setting all metadata fields."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        set_metadata(
+            canon,
+            title="Full Canon",
+            composer="Bach",
+            copyright="Public Domain",
+            date="1747"
+        )
+
+        assert canon.metadata.title == "Full Canon"
+        assert canon.metadata.composer == "Bach"
+        assert canon.metadata.copyright == "Public Domain"
+        # music21 may format dates, so just check it contains the year
+        assert "1747" in str(canon.metadata.date)
+
+    def test_set_metadata_kwargs(self):
+        """Test setting metadata with kwargs."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        set_metadata(canon, title="Test", lyricist="Test Lyricist")
+
+        assert canon.metadata.title == "Test"
+        assert canon.metadata.lyricist == "Test Lyricist"
+
+    def test_set_metadata_returns_score(self):
+        """Test set_metadata returns score for chaining."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        result = set_metadata(canon, title="Test")
+
+        assert result is canon
+
+    def test_get_metadata_basic(self):
+        """Test getting metadata."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        set_metadata(canon, title="Test Canon", composer="Bach")
+        meta = get_metadata(canon)
+
+        assert meta['title'] == "Test Canon"
+        assert meta['composer'] == "Bach"
+
+    def test_get_metadata_empty(self):
+        """Test getting metadata from score with no metadata."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        meta = get_metadata(canon)
+
+        assert isinstance(meta, dict)
+
+    def test_metadata_roundtrip_export(self):
+        """Test metadata is preserved through export/import."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        set_metadata(canon, title="Test Canon", composer="Test")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            xml_path = Path(tmpdir) / 'test.musicxml'
+            to_musicxml(canon, xml_path)
+
+            loaded = load_score(xml_path)
+            meta = get_metadata(loaded)
+
+            # MusicXML may store title as movementName or title
+            has_title = meta.get('title') == "Test Canon" or meta.get('movementName') == "Test Canon"
+            assert has_title, f"Expected title 'Test Canon' but got metadata: {meta}"
+            assert meta.get('composer') == "Test"
+
+
+class TestScoreManipulation:
+    """Test score manipulation functions."""
+
+    def test_merge_scores_two_scores(self):
+        """Test merging two scores."""
+        gen = CanonGenerator(seed=42)
+        canon1 = gen.generate_scale_canon('C', 'major')
+        canon2 = gen.generate_arpeggio_canon('G', 'major')
+
+        merged = merge_scores(canon1, canon2)
+
+        # Should have parts from both scores
+        assert len(merged.parts) == len(canon1.parts) + len(canon2.parts)
+
+    def test_merge_scores_multiple(self):
+        """Test merging multiple scores."""
+        gen = CanonGenerator(seed=42)
+        canon1 = gen.generate_scale_canon('C', 'major')
+        canon2 = gen.generate_scale_canon('D', 'minor')
+        canon3 = gen.generate_scale_canon('E', 'major')
+
+        merged = merge_scores(canon1, canon2, canon3)
+
+        expected_parts = len(canon1.parts) + len(canon2.parts) + len(canon3.parts)
+        assert len(merged.parts) == expected_parts
+
+    def test_merge_scores_empty(self):
+        """Test merging with no scores returns empty score."""
+        merged = merge_scores()
+
+        assert isinstance(merged, stream.Score)
+        assert len(merged.parts) == 0
+
+    def test_merge_scores_preserves_metadata(self):
+        """Test merge preserves metadata from first score."""
+        gen = CanonGenerator(seed=42)
+        canon1 = gen.generate_scale_canon('C', 'major')
+        canon2 = gen.generate_scale_canon('D', 'major')
+
+        set_metadata(canon1, title="First Canon")
+        merged = merge_scores(canon1, canon2)
+
+        meta = get_metadata(merged)
+        assert meta.get('title') == "First Canon"
+
+    def test_extract_parts_single_index(self):
+        """Test extracting a single part."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        extracted = extract_parts(canon, 0)
+
+        assert len(extracted.parts) == 1
+
+    def test_extract_parts_multiple_indices(self):
+        """Test extracting multiple parts."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        # Assuming canon has at least 2 parts
+        if len(canon.parts) >= 2:
+            extracted = extract_parts(canon, [0, 1])
+            assert len(extracted.parts) == 2
+
+    def test_extract_parts_out_of_range(self):
+        """Test extracting with out-of-range index raises error."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with pytest.raises(IndexError) as exc_info:
+            extract_parts(canon, 999)
+
+        assert 'out of range' in str(exc_info.value)
+
+    def test_extract_parts_preserves_metadata(self):
+        """Test extract_parts preserves metadata."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        set_metadata(canon, title="Test Canon")
+        extracted = extract_parts(canon, 0)
+
+        meta = get_metadata(extracted)
+        assert meta.get('title') == "Test Canon"
+
+
+class TestValidateImport:
+    """Test import validation."""
+
+    def test_validate_import_valid_midi(self):
+        """Test validating a valid MIDI file."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_path = Path(tmpdir) / 'test.mid'
+            to_midi(canon, midi_path)
+
+            result = validate_import(midi_path)
+
+            assert result['valid'] is True
+            assert result['format'] == 'midi'
+            assert result['parts'] > 0
+            assert result['duration'] > 0.0
+            assert len(result['errors']) == 0
+
+    def test_validate_import_valid_musicxml(self):
+        """Test validating a valid MusicXML file."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            xml_path = Path(tmpdir) / 'test.musicxml'
+            to_musicxml(canon, xml_path)
+
+            result = validate_import(xml_path)
+
+            assert result['valid'] is True
+            assert result['format'] == 'musicxml'
+            assert result['parts'] > 0
+
+    def test_validate_import_nonexistent_file(self):
+        """Test validating nonexistent file."""
+        result = validate_import('/nonexistent/file.mid')
+
+        assert result['valid'] is False
+        assert len(result['errors']) > 0
+        assert 'File not found' in result['errors'][0]
+
+    def test_validate_import_format_detection(self):
+        """Test format detection from extension."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Test various extensions
+            files = {
+                'test.mid': 'midi',
+                'test.midi': 'midi',
+                'test.musicxml': 'musicxml',
+                'test.xml': 'musicxml',
+            }
+
+            for filename, expected_format in files.items():
+                if filename.endswith('.mid') or filename.endswith('.midi'):
+                    path = Path(tmpdir) / filename
+                    to_midi(canon, path)
+                    result = validate_import(path)
+                    assert result['format'] == expected_format
+                elif filename.endswith('.xml') or filename.endswith('.musicxml'):
+                    path = Path(tmpdir) / filename
+                    to_musicxml(canon, path)
+                    result = validate_import(path)
+                    assert result['format'] == expected_format
+
+
+class TestConvertFormat:
+    """Test format conversion."""
+
+    def test_convert_midi_to_musicxml(self):
+        """Test converting MIDI to MusicXML."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_path = Path(tmpdir) / 'test.mid'
+            xml_path = Path(tmpdir) / 'test.musicxml'
+
+            to_midi(canon, midi_path)
+            result = convert_format(midi_path, xml_path)
+
+            assert xml_path.exists()
+            assert result == xml_path
+
+    def test_convert_musicxml_to_midi(self):
+        """Test converting MusicXML to MIDI."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            xml_path = Path(tmpdir) / 'test.musicxml'
+            midi_path = Path(tmpdir) / 'test.mid'
+
+            to_musicxml(canon, xml_path)
+            result = convert_format(xml_path, midi_path)
+
+            assert midi_path.exists()
+            assert result == midi_path
+
+    def test_convert_to_lilypond(self):
+        """Test converting to LilyPond."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_path = Path(tmpdir) / 'test.mid'
+            ly_path = Path(tmpdir) / 'test.ly'
+
+            to_midi(canon, midi_path)
+            result = convert_format(midi_path, ly_path)
+
+            assert ly_path.exists()
+            assert result == ly_path
+
+    def test_convert_to_abc(self):
+        """Test converting to ABC."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_path = Path(tmpdir) / 'test.mid'
+            abc_path = Path(tmpdir) / 'test.abc'
+
+            to_midi(canon, midi_path)
+            result = convert_format(midi_path, abc_path)
+
+            assert abc_path.exists()
+            assert result == abc_path
+
+    def test_convert_unsupported_format(self):
+        """Test converting to unsupported format raises error."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_path = Path(tmpdir) / 'test.mid'
+            invalid_path = Path(tmpdir) / 'test.xyz'
+
+            to_midi(canon, midi_path)
+
+            with pytest.raises(ValueError) as exc_info:
+                convert_format(midi_path, invalid_path)
+
+            assert 'Unsupported output format' in str(exc_info.value)
+
+
+class TestIOIntegration:
+    """Test integration of multiple I/O features."""
+
+    def test_full_workflow_with_metadata(self):
+        """Test complete workflow: create, add metadata, export, validate."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        # Add metadata
+        set_metadata(canon, title="Integration Test", composer="Test Suite")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Export to all formats
+            base_path = Path(tmpdir) / 'canon'
+            results = export_all(canon, base_path)
+
+            # Validate loadable formats (MIDI and MusicXML)
+            # Note: LilyPond and ABC can be exported but not loaded with music21
+            for fmt in ['midi', 'musicxml']:
+                path = results[fmt]
+                validation = validate_import(path)
+                assert validation['valid'] is True
+
+    def test_merge_and_export(self):
+        """Test merging scores and exporting."""
+        gen = CanonGenerator(seed=42)
+        canon1 = gen.generate_scale_canon('C', 'major')
+        canon2 = gen.generate_scale_canon('D', 'major')
+
+        merged = merge_scores(canon1, canon2)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            midi_path = Path(tmpdir) / 'merged.mid'
+            to_midi(merged, midi_path)
+
+            loaded = load_score(midi_path)
+            assert len(loaded.parts) == len(merged.parts)
+
+    def test_extract_convert_validate(self):
+        """Test extracting part, converting format, and validating."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        # Extract first part
+        extracted = extract_parts(canon, 0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Export and convert
+            midi_path = Path(tmpdir) / 'extracted.mid'
+            xml_path = Path(tmpdir) / 'extracted.musicxml'
+
+            to_midi(extracted, midi_path)
+            convert_format(midi_path, xml_path)
+
+            # Validate both
+            midi_validation = validate_import(midi_path)
+            xml_validation = validate_import(xml_path)
+
+            assert midi_validation['valid'] is True
+            assert xml_validation['valid'] is True
+
+
+class TestAdvancedMIDI:
+    """Test advanced MIDI features (velocity, tempo, programs)."""
+
+    def test_apply_velocity_curve_crescendo(self):
+        """Test applying crescendo velocity curve."""
+        from cancrizans import apply_velocity_curve
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        result = apply_velocity_curve(canon, 'crescendo', 40, 100)
+
+        # Check that velocities are set
+        notes = list(result.parts[0].flatten().notes)
+        velocities = [n.volume.velocity for n in notes if hasattr(n, 'volume')]
+
+        assert len(velocities) > 0
+        # First note should be quieter than last
+        assert velocities[0] < velocities[-1]
+
+    def test_apply_velocity_curve_diminuendo(self):
+        """Test applying diminuendo velocity curve."""
+        from cancrizans import apply_velocity_curve
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        result = apply_velocity_curve(canon, 'diminuendo', 40, 100)
+
+        notes = list(result.parts[0].flatten().notes)
+        velocities = [n.volume.velocity for n in notes if hasattr(n, 'volume')]
+
+        assert len(velocities) > 0
+        # diminuendo swaps end and start, so first note should be louder than last
+        assert velocities[0] > velocities[-1]
+
+    def test_apply_velocity_curve_swell(self):
+        """Test applying swell (crescendo-diminuendo) curve."""
+        from cancrizans import apply_velocity_curve
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major', length=12)
+
+        result = apply_velocity_curve(canon, 'swell', 50, 100)
+
+        notes = list(result.parts[0].flatten().notes)
+        velocities = [n.volume.velocity for n in notes if hasattr(n, 'volume')]
+
+        assert len(velocities) > 0
+        # Middle note should be loudest
+        mid = len(velocities) // 2
+        assert velocities[mid] > velocities[0]
+        assert velocities[mid] > velocities[-1]
+
+    def test_apply_velocity_curve_specific_part(self):
+        """Test applying velocity curve to specific part only."""
+        from cancrizans import apply_velocity_curve
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        # Apply to first part only
+        result = apply_velocity_curve(canon, 'crescendo', 40, 100, part_index=0)
+
+        part0_notes = list(result.parts[0].flatten().notes)
+        part0_vels = [n.volume.velocity for n in part0_notes if hasattr(n, 'volume')]
+
+        part1_notes = list(result.parts[1].flatten().notes)
+        part1_vels = [n.volume.velocity for n in part1_notes if hasattr(n, 'volume')]
+
+        # Part 0 should have velocities set
+        assert len(part0_vels) > 0
+        # Part 1 might not have explicit velocities (defaults)
+
+    def test_set_midi_program_piano(self):
+        """Test setting MIDI program to piano."""
+        from cancrizans import set_midi_program
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        result = set_midi_program(canon, 0, part_index=0)  # Piano = 0
+
+        # Check that instrument is set
+        part = list(result.parts)[0]
+        instruments = part.getElementsByClass('Instrument')
+
+        assert len(instruments) > 0
+        assert instruments[0].midiProgram == 0
+
+    def test_set_midi_program_harpsichord(self):
+        """Test setting MIDI program to harpsichord."""
+        from cancrizans import set_midi_program
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        result = set_midi_program(canon, 6, part_index=0)  # Harpsichord = 6
+
+        part = list(result.parts)[0]
+        instruments = part.getElementsByClass('Instrument')
+
+        assert len(instruments) > 0
+        assert instruments[0].midiProgram == 6
+
+    def test_set_midi_program_multiple_parts(self):
+        """Test setting different programs for different parts."""
+        from cancrizans import set_midi_program
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        # Set piano for part 0
+        result = set_midi_program(canon, 0, part_index=0)
+        # Set harpsichord for part 1
+        result = set_midi_program(result, 6, part_index=1)
+
+        part0 = list(result.parts)[0]
+        part1 = list(result.parts)[1]
+
+        instr0 = part0.getElementsByClass('Instrument')
+        instr1 = part1.getElementsByClass('Instrument')
+
+        assert len(instr0) > 0
+        assert len(instr1) > 0
+        assert instr0[0].midiProgram == 0
+        assert instr1[0].midiProgram == 6
+
+    def test_apply_tempo_curve_accelerando(self):
+        """Test applying accelerando tempo curve."""
+        from cancrizans import apply_tempo_curve
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        result = apply_tempo_curve(canon, 'accelerando', 60, 120, num_changes=5)
+
+        # Check that tempo marks are inserted
+        part = list(result.parts)[0]
+        tempo_marks = part.flatten().getElementsByClass('MetronomeMark')
+
+        assert len(tempo_marks) == 5
+        # First should be slower than last
+        assert tempo_marks[0].number < tempo_marks[-1].number
+
+    def test_apply_tempo_curve_ritardando(self):
+        """Test applying ritardando tempo curve."""
+        from cancrizans import apply_tempo_curve
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        result = apply_tempo_curve(canon, 'ritardando', 60, 120, num_changes=5)
+
+        part = list(result.parts)[0]
+        tempo_marks = part.flatten().getElementsByClass('MetronomeMark')
+
+        assert len(tempo_marks) == 5
+        # ritardando swaps end and start, so first should be faster than last
+        assert tempo_marks[0].number > tempo_marks[-1].number
+
+    def test_apply_tempo_curve_rubato(self):
+        """Test applying rubato (sinusoidal) tempo curve."""
+        from cancrizans import apply_tempo_curve
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        result = apply_tempo_curve(canon, 'rubato', 80, 120, num_changes=8)
+
+        part = list(result.parts)[0]
+        tempo_marks = part.flatten().getElementsByClass('MetronomeMark')
+
+        assert len(tempo_marks) == 8
+        # Should have varying tempos
+        tempos = [tm.number for tm in tempo_marks]
+        assert len(set(tempos)) > 1  # Not all the same
+
+    def test_to_midi_advanced_basic(self):
+        """Test advanced MIDI export with no special features."""
+        from cancrizans import to_midi_advanced
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / 'advanced.mid'
+            result = to_midi_advanced(canon, path)
+
+            assert result.exists()
+            assert result == path
+
+    def test_to_midi_advanced_with_velocity(self):
+        """Test advanced MIDI export with velocity curve."""
+        from cancrizans import to_midi_advanced, load_score
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / 'crescendo.mid'
+            to_midi_advanced(
+                canon, path,
+                velocity_curve='crescendo',
+                start_velocity=40,
+                end_velocity=100
+            )
+
+            assert path.exists()
+
+            # Load and verify
+            loaded = load_score(path)
+            notes = list(loaded.parts[0].flatten().notes)
+            velocities = [n.volume.velocity for n in notes if hasattr(n, 'volume')]
+
+            # Should have increasing velocities
+            assert len(velocities) > 0
+
+    def test_to_midi_advanced_with_programs(self):
+        """Test advanced MIDI export with different instruments."""
+        from cancrizans import to_midi_advanced
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / 'multi_instrument.mid'
+            to_midi_advanced(
+                canon, path,
+                programs={0: 0, 1: 6}  # Piano and harpsichord
+            )
+
+            assert path.exists()
+            # File was created successfully with programs
+
+    def test_to_midi_advanced_full_features(self):
+        """Test advanced MIDI export with all features."""
+        from cancrizans import to_midi_advanced
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / 'full_featured.mid'
+            to_midi_advanced(
+                canon, path,
+                velocity_curve='swell',
+                start_velocity=50,
+                end_velocity=100,
+                tempo_curve='accelerando',
+                start_bpm=80,
+                end_bpm=120,
+                programs={0: 73, 1: 40}  # Flute and violin
+            )
+
+            assert path.exists()
+
+    def test_analyze_midi_file_basic(self):
+        """Test analyzing a MIDI file."""
+        from cancrizans import to_midi, analyze_midi_file
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / 'test.mid'
+            to_midi(canon, path)
+
+            analysis = analyze_midi_file(path)
+
+            assert isinstance(analysis, dict)
+            assert 'tempo_changes' in analysis
+            assert 'programs' in analysis
+            assert 'velocity_range' in analysis
+            assert 'velocity_mean' in analysis
+            assert 'duration' in analysis
+            assert 'time_signature' in analysis
+            assert 'tracks' in analysis
+
+    def test_analyze_midi_file_with_tempo(self):
+        """Test analyzing MIDI file with tempo changes."""
+        from cancrizans import apply_tempo_curve, to_midi, analyze_midi_file
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+        canon_with_tempo = apply_tempo_curve(canon, 'accelerando', 60, 120, num_changes=3)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / 'tempo_test.mid'
+            to_midi(canon_with_tempo, path)
+
+            analysis = analyze_midi_file(path)
+
+            # Should have tempo changes (may be duplicated across parts)
+            assert len(analysis['tempo_changes']) >= 3
+
+    def test_analyze_midi_file_with_programs(self):
+        """Test analyzing MIDI file with instruments."""
+        from cancrizans import set_midi_program, to_midi, analyze_midi_file
+
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_scale_canon('C', 'major')
+        canon = set_midi_program(canon, 0, part_index=0)
+        canon = set_midi_program(canon, 6, part_index=1)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / 'instruments_test.mid'
+            to_midi(canon, path)
+
+            analysis = analyze_midi_file(path)
+
+            # Check that programs were detected
+            assert len(analysis['programs']) >= 2
+            # Programs is a dict mapping part indices to program numbers
+            assert 0 in analysis['programs'].values()
+            assert 6 in analysis['programs'].values()
+
+    def test_analyze_midi_file_nonexistent(self):
+        """Test analyzing non-existent MIDI file."""
+        from cancrizans import analyze_midi_file
+        import pytest
+
+        with pytest.raises(FileNotFoundError):
+            analyze_midi_file('/nonexistent/file.mid')

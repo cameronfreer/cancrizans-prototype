@@ -3,7 +3,7 @@ Core transformations for canonical music analysis: retrograde, inversion,
 augmentation, diminution, time alignment, and palindrome verification.
 """
 
-from typing import TypeVar, Union, List, Tuple, Dict
+from typing import TypeVar, Union, List, Tuple, Dict, Optional
 import music21 as m21
 from music21 import stream, note, chord
 import numpy as np
@@ -536,3 +536,3630 @@ def rhythm_analysis(score_or_stream: Union[stream.Score, stream.Stream]) -> Dict
         'longest': max(all_durations),
         'unique_durations': len(duration_histogram)
     }
+
+
+# Advanced canonical transformations
+
+def stretto(
+    theme: stream.Stream,
+    num_voices: int = 2,
+    entry_interval: float = 4.0,
+    transformation: str = 'none'
+) -> stream.Score:
+    """
+    Create a stretto canon with overlapping voice entries.
+
+    In stretto, voices enter before the previous voice finishes, creating
+    overlapping imitative counterpoint. Common in fugues and complex canons.
+
+    Args:
+        theme: The theme/subject to use
+        num_voices: Number of voice entries (default 2)
+        entry_interval: Quarter notes between voice entries (default 4.0)
+        transformation: Apply to following voices: 'none', 'invert', 'retrograde',
+                       'augmentation', 'diminution' (default 'none')
+
+    Returns:
+        A Score with overlapping voices in stretto
+
+    Examples:
+        >>> from music21 import stream, note
+        >>> theme = stream.Stream()
+        >>> theme.append(note.Note('C4', quarterLength=1))
+        >>> theme.append(note.Note('D4', quarterLength=1))
+        >>> theme.append(note.Note('E4', quarterLength=1))
+        >>> stretto_score = stretto(theme, num_voices=3, entry_interval=2.0)
+    """
+    score = stream.Score()
+
+    for voice_num in range(num_voices):
+        part = stream.Part()
+        part.id = f'voice_{voice_num + 1}'
+
+        # Apply transformation to subsequent voices if requested
+        voice_theme = theme
+        if voice_num > 0 and transformation != 'none':
+            if transformation == 'invert':
+                voice_theme = invert(theme)
+            elif transformation == 'retrograde':
+                voice_theme = retrograde(theme)
+            elif transformation == 'augmentation':
+                voice_theme = augmentation(theme, factor=2.0)
+            elif transformation == 'diminution':
+                voice_theme = diminution(theme, factor=2.0)
+
+        # Insert theme at staggered offset
+        offset = voice_num * entry_interval
+        for el in voice_theme.flatten().notesAndRests:
+            part.insert(el.offset + offset, el)
+
+        score.insert(0, part)
+
+    return score
+
+
+def canon_at_interval(
+    theme: stream.Stream,
+    interval: int = 7,
+    time_delay: float = 0.0,
+    mode: str = 'strict'
+) -> stream.Score:
+    """
+    Create a canon where the following voice is transposed by an interval.
+
+    Canon at the fifth (interval=7) and canon at the octave (interval=12)
+    are common in Baroque music. Bach frequently used canon at various intervals.
+
+    Args:
+        theme: The leading voice melody
+        interval: Transposition interval in semitones (default 7 = perfect fifth)
+                 Positive = transpose up, negative = transpose down
+        time_delay: Quarter notes before the following voice enters (default 0.0)
+        mode: 'strict' (exact transposition) or 'tonal' (preserve key/scale)
+
+    Returns:
+        A Score with two voices at the specified interval
+
+    Examples:
+        >>> # Canon at the fifth (like "Frère Jacques")
+        >>> canon_fifth = canon_at_interval(theme, interval=7, time_delay=4.0)
+        >>>
+        >>> # Canon at the octave
+        >>> canon_octave = canon_at_interval(theme, interval=12, time_delay=2.0)
+    """
+    score = stream.Score()
+
+    # First voice: original theme
+    part1 = stream.Part()
+    part1.id = 'voice_1_leader'
+    for el in theme.flatten().notesAndRests:
+        part1.insert(el.offset, el)
+
+    # Second voice: transposed theme
+    part2 = stream.Part()
+    part2.id = 'voice_2_follower'
+
+    for el in theme.flatten().notesAndRests:
+        new_el = el.__class__()
+        new_el.quarterLength = el.quarterLength
+
+        if isinstance(el, note.Note):
+            if mode == 'strict':
+                # Strict transposition by semitones
+                new_midi = el.pitch.midi + interval
+                new_el.pitch = m21.pitch.Pitch(midi=new_midi)
+            else:  # tonal
+                # Transpose within key/scale (diatonic transposition)
+                # This is a simplified version; could be enhanced
+                new_el.pitch = el.pitch.transpose(interval)
+        elif isinstance(el, chord.Chord):
+            if mode == 'strict':
+                new_pitches = []
+                for p in el.pitches:
+                    new_midi = p.midi + interval
+                    new_pitches.append(m21.pitch.Pitch(midi=new_midi))
+                new_el.pitches = new_pitches
+            else:
+                new_el.pitches = [p.transpose(interval) for p in el.pitches]
+        elif isinstance(el, note.Rest):
+            pass  # Rest unchanged
+
+        part2.insert(el.offset + time_delay, new_el)
+
+    score.insert(0, part1)
+    score.insert(0, part2)
+
+    return score
+
+
+def proportional_canon(
+    theme: stream.Stream,
+    ratio: Tuple[int, int] = (2, 3),
+    num_statements: int = 1
+) -> stream.Score:
+    """
+    Create a proportional/mensuration canon with voices in different tempo ratios.
+
+    In proportional canons, voices play the same melody but at different speeds.
+    For example, ratio (2, 3) means voice 1 plays at 2/3 the speed of voice 2.
+
+    Args:
+        theme: The theme to use
+        ratio: Tuple of (voice1_ratio, voice2_ratio) integers (default (2, 3))
+               Voice 1 plays at ratio[0]/ratio[1] the speed of voice 2
+        num_statements: Number of complete statements per voice (default 1)
+
+    Returns:
+        A Score with voices in proportional tempo relationship
+
+    Examples:
+        >>> # Classic mensuration canon: 2:3 ratio
+        >>> prop_canon = proportional_canon(theme, ratio=(2, 3))
+        >>>
+        >>> # Triple canon: 1:2 ratio (voice 2 twice as fast)
+        >>> double_speed = proportional_canon(theme, ratio=(1, 2))
+    """
+    score = stream.Score()
+
+    # Voice 1: slower (multiply durations by ratio[0])
+    part1 = stream.Part()
+    part1.id = 'voice_1_slower'
+
+    for statement in range(num_statements):
+        offset_base = statement * sum(el.quarterLength for el in theme.flatten().notesAndRests) * ratio[0]
+        for el in theme.flatten().notesAndRests:
+            new_el = el.__class__()
+            if isinstance(el, note.Note):
+                new_el.pitch = el.pitch
+            elif isinstance(el, chord.Chord):
+                new_el.pitches = el.pitches
+            new_el.quarterLength = el.quarterLength * ratio[0]
+            part1.insert(offset_base + el.offset * ratio[0], new_el)
+
+    # Voice 2: faster (multiply durations by ratio[1])
+    part2 = stream.Part()
+    part2.id = 'voice_2_faster'
+
+    for statement in range(num_statements):
+        offset_base = statement * sum(el.quarterLength for el in theme.flatten().notesAndRests) * ratio[1]
+        for el in theme.flatten().notesAndRests:
+            new_el = el.__class__()
+            if isinstance(el, note.Note):
+                new_el.pitch = el.pitch
+            elif isinstance(el, chord.Chord):
+                new_el.pitches = el.pitches
+            new_el.quarterLength = el.quarterLength * ratio[1]
+            part2.insert(offset_base + el.offset * ratio[1], new_el)
+
+    score.insert(0, part1)
+    score.insert(0, part2)
+
+    return score
+
+
+def spectral_analysis(score_or_stream: Union[stream.Score, stream.Stream]) -> Dict[str, any]:
+    """
+    Perform spectral/frequency analysis on a score or stream.
+
+    Analyzes the frequency distribution of pitches, including:
+    - Pitch class histogram (C, C#, D, etc.)
+    - Octave distribution
+    - Most/least common pitches
+    - Pitch range and tessitura
+
+    Args:
+        score_or_stream: A Score or Stream to analyze
+
+    Returns:
+        Dictionary with spectral statistics
+
+    Examples:
+        >>> from cancrizans import load_bach_crab_canon, spectral_analysis
+        >>> score = load_bach_crab_canon()
+        >>> analysis = spectral_analysis(score)
+        >>> print(f"Most common pitch class: {analysis['most_common_pitch_class']}")
+    """
+    if isinstance(score_or_stream, stream.Score):
+        parts = list(score_or_stream.parts)
+    else:
+        parts = [score_or_stream]
+
+    all_pitches = []
+    pitch_class_histogram = {i: 0 for i in range(12)}  # 0=C, 1=C#, etc.
+    octave_histogram = {}
+    pitch_histogram = {}
+
+    for part in parts:
+        for el in part.flatten().notes:
+            if isinstance(el, note.Note):
+                midi = el.pitch.midi
+                pc = midi % 12
+                octave = midi // 12
+
+                all_pitches.append(midi)
+                pitch_class_histogram[pc] += 1
+                octave_histogram[octave] = octave_histogram.get(octave, 0) + 1
+                pitch_histogram[midi] = pitch_histogram.get(midi, 0) + 1
+            elif isinstance(el, chord.Chord):
+                for p in el.pitches:
+                    midi = p.midi
+                    pc = midi % 12
+                    octave = midi // 12
+
+                    all_pitches.append(midi)
+                    pitch_class_histogram[pc] += 1
+                    octave_histogram[octave] = octave_histogram.get(octave, 0) + 1
+                    pitch_histogram[midi] = pitch_histogram.get(midi, 0) + 1
+
+    if not all_pitches:
+        return {
+            'total_pitches': 0,
+            'pitch_class_histogram': pitch_class_histogram,
+            'octave_histogram': {},
+            'pitch_range': 0,
+            'lowest_pitch': None,
+            'highest_pitch': None
+        }
+
+    # Pitch class names
+    pc_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+
+    # Find most common pitch class
+    most_common_pc = max(pitch_class_histogram.items(), key=lambda x: x[1])
+    most_common_pc_name = pc_names[most_common_pc[0]]
+
+    # Calculate tessitura (average pitch)
+    tessitura = sum(all_pitches) / len(all_pitches)
+
+    return {
+        'total_pitches': len(all_pitches),
+        'pitch_class_histogram': pitch_class_histogram,
+        'pitch_class_histogram_named': {pc_names[i]: count for i, count in pitch_class_histogram.items()},
+        'octave_histogram': octave_histogram,
+        'most_common_pitch_class': most_common_pc_name,
+        'most_common_pitch_class_count': most_common_pc[1],
+        'pitch_range': max(all_pitches) - min(all_pitches),
+        'lowest_pitch': min(all_pitches),
+        'highest_pitch': max(all_pitches),
+        'tessitura': tessitura,
+        'unique_pitches': len(set(all_pitches)),
+        'pitch_diversity': len(set(all_pitches)) / len(all_pitches) if all_pitches else 0
+    }
+
+
+def symmetry_metrics(score: stream.Score) -> Dict[str, any]:
+    """
+    Calculate advanced symmetry metrics for a two-voice canon.
+
+    Analyzes multiple dimensions of symmetry including:
+    - Pitch symmetry (retrograde matching)
+    - Rhythmic symmetry
+    - Interval symmetry
+    - Temporal symmetry
+
+    Args:
+        score: A Score with two voices
+
+    Returns:
+        Dictionary with detailed symmetry measurements
+
+    Examples:
+        >>> from cancrizans import load_bach_crab_canon, symmetry_metrics
+        >>> score = load_bach_crab_canon()
+        >>> metrics = symmetry_metrics(score)
+        >>> print(f"Overall symmetry: {metrics['overall_symmetry']:.2%}")
+    """
+    parts = list(score.parts)
+
+    if len(parts) != 2:
+        return {
+            'error': 'Symmetry metrics require exactly 2 voices',
+            'num_voices': len(parts)
+        }
+
+    # Extract note sequences from both parts
+    voice1_notes = [(float(n.offset), n) for n in parts[0].flatten().notes]
+    voice2_notes = [(float(n.offset), n) for n in parts[1].flatten().notes]
+
+    # Sort by offset
+    voice1_notes.sort(key=lambda x: x[0])
+    voice2_notes.sort(key=lambda x: x[0])
+
+    if len(voice1_notes) != len(voice2_notes):
+        return {
+            'error': 'Voices have different numbers of notes',
+            'voice1_notes': len(voice1_notes),
+            'voice2_notes': len(voice2_notes)
+        }
+
+    if len(voice1_notes) == 0:
+        return {
+            'overall_symmetry': 1.0,
+            'pitch_symmetry': 1.0,
+            'rhythmic_symmetry': 1.0,
+            'interval_symmetry': 1.0,
+            'temporal_symmetry': 1.0,
+            'note_count': 0
+        }
+
+    n = len(voice1_notes)
+
+    # Calculate pitch symmetry (retrograde)
+    pitch_matches = 0
+    for i in range(n):
+        note1 = voice1_notes[i][1]
+        note2 = voice2_notes[n - 1 - i][1]
+
+        if isinstance(note1, note.Note) and isinstance(note2, note.Note):
+            if note1.pitch.midi == note2.pitch.midi:
+                pitch_matches += 1
+
+    pitch_symmetry = pitch_matches / n if n > 0 else 0
+
+    # Calculate rhythmic symmetry
+    rhythm_matches = 0
+    for i in range(n):
+        dur1 = voice1_notes[i][1].quarterLength
+        dur2 = voice2_notes[n - 1 - i][1].quarterLength
+
+        if abs(dur1 - dur2) < 0.01:  # Small tolerance for floating point
+            rhythm_matches += 1
+
+    rhythmic_symmetry = rhythm_matches / n if n > 0 else 0
+
+    # Calculate interval symmetry
+    if n > 1:
+        interval_matches = 0
+        for i in range(n - 1):
+            # Forward intervals in voice 1
+            if isinstance(voice1_notes[i][1], note.Note) and isinstance(voice1_notes[i + 1][1], note.Note):
+                interval1 = voice1_notes[i + 1][1].pitch.midi - voice1_notes[i][1].pitch.midi
+
+                # Backward intervals in voice 2 (should match for retrograde)
+                rev_i = n - 2 - i
+                if rev_i >= 0 and isinstance(voice2_notes[rev_i][1], note.Note) and isinstance(voice2_notes[rev_i + 1][1], note.Note):
+                    interval2 = voice2_notes[rev_i][1].pitch.midi - voice2_notes[rev_i + 1][1].pitch.midi
+
+                    if interval1 == interval2:
+                        interval_matches += 1
+
+        interval_symmetry = interval_matches / (n - 1) if n > 1 else 0
+    else:
+        interval_symmetry = 1.0
+
+    # Calculate temporal symmetry (timing alignment)
+    total_duration_v1 = max(off + n.quarterLength for off, n in voice1_notes)
+    total_duration_v2 = max(off + n.quarterLength for off, n in voice2_notes)
+
+    temporal_symmetry = 1.0 - abs(total_duration_v1 - total_duration_v2) / max(total_duration_v1, total_duration_v2)
+
+    # Overall symmetry (weighted average)
+    overall_symmetry = (
+        pitch_symmetry * 0.4 +
+        rhythmic_symmetry * 0.3 +
+        interval_symmetry * 0.2 +
+        temporal_symmetry * 0.1
+    )
+
+    return {
+        'overall_symmetry': overall_symmetry,
+        'pitch_symmetry': pitch_symmetry,
+        'rhythmic_symmetry': rhythmic_symmetry,
+        'interval_symmetry': interval_symmetry,
+        'temporal_symmetry': temporal_symmetry,
+        'note_count': n,
+        'pitch_matches': pitch_matches,
+        'rhythm_matches': rhythm_matches,
+        'is_perfect_palindrome': overall_symmetry >= 0.99
+    }
+
+
+def chord_progression_analysis(score: stream.Score) -> Dict[str, any]:
+    """
+    Analyze chord progressions in a multi-voice score.
+
+    Identifies vertical sonorities and analyzes harmonic progressions.
+
+    Args:
+        score: A Score with multiple voices
+
+    Returns:
+        Dictionary with chord progression information
+
+    Examples:
+        >>> analysis = chord_progression_analysis(two_voice_score)
+        >>> print(f"Unique chords: {analysis['unique_chords']}")
+    """
+    parts = list(score.parts)
+
+    if len(parts) < 2:
+        return {
+            'error': 'Chord analysis requires at least 2 voices',
+            'num_voices': len(parts)
+        }
+
+    # Get all unique time points where notes sound
+    time_points = set()
+    for part in parts:
+        for el in part.flatten().notes:
+            time_points.add(float(el.offset))
+
+    chords_at_time = []
+    chord_types = {}
+
+    for time_point in sorted(time_points):
+        # Find all pitches sounding at this time
+        sounding_pitches = []
+        for part in parts:
+            for el in part.flatten().notes:
+                if float(el.offset) <= time_point < float(el.offset + el.quarterLength):
+                    if isinstance(el, note.Note):
+                        sounding_pitches.append(el.pitch.midi)
+                    elif isinstance(el, chord.Chord):
+                        sounding_pitches.extend([p.midi for p in el.pitches])
+
+        if len(sounding_pitches) >= 2:
+            # Sort and create chord signature
+            sounding_pitches.sort()
+            chord_sig = tuple(p % 12 for p in sounding_pitches)  # Pitch classes
+
+            # Classify chord type (simplified)
+            chord_type = _classify_chord(chord_sig)
+            chord_types[chord_type] = chord_types.get(chord_type, 0) + 1
+
+            chords_at_time.append({
+                'time': time_point,
+                'pitches': sounding_pitches,
+                'pitch_classes': chord_sig,
+                'type': chord_type
+            })
+
+    return {
+        'total_chords': len(chords_at_time),
+        'unique_chords': len(set(c['pitch_classes'] for c in chords_at_time)),
+        'chord_types': chord_types,
+        'progression': chords_at_time[:20],  # First 20 chords
+        'most_common_chord_type': max(chord_types.items(), key=lambda x: x[1])[0] if chord_types else None
+    }
+
+
+def _classify_chord(pitch_classes: Tuple[int, ...]) -> str:
+    """
+    Classify a chord by its interval structure (simplified).
+
+    Args:
+        pitch_classes: Tuple of pitch classes (0-11)
+
+    Returns:
+        String describing chord type
+    """
+    if len(pitch_classes) < 2:
+        return 'single_note'
+
+    # Calculate intervals from root
+    intervals = [(pc - pitch_classes[0]) % 12 for pc in pitch_classes]
+    intervals_set = set(intervals)
+
+    # Common chord types (simplified)
+    if intervals_set == {0, 4, 7}:
+        return 'major_triad'
+    elif intervals_set == {0, 3, 7}:
+        return 'minor_triad'
+    elif intervals_set == {0, 3, 6}:
+        return 'diminished_triad'
+    elif intervals_set == {0, 4, 8}:
+        return 'augmented_triad'
+    elif 7 in intervals_set or 5 in intervals_set:
+        return 'contains_fifth'
+    elif 3 in intervals_set or 4 in intervals_set:
+        return 'contains_third'
+    else:
+        return 'other'
+
+
+def compare_canons(canon1: stream.Score, canon2: stream.Score) -> Dict[str, any]:
+    """
+    Compare two canons across multiple dimensions.
+
+    Analyzes similarities and differences between two canonical works.
+
+    Args:
+        canon1: First canon to compare
+        canon2: Second canon to compare
+
+    Returns:
+        Dictionary with comparison metrics
+
+    Examples:
+        >>> from cancrizans import load_bach_crab_canon
+        >>> bach_canon = load_bach_crab_canon()
+        >>> my_canon = assemble_crab_from_theme(my_theme)
+        >>> comparison = compare_canons(bach_canon, my_canon)
+        >>> print(f"Similarity: {comparison['overall_similarity']:.2%}")
+    """
+    # Get analyses for both canons
+    interval1 = interval_analysis(canon1)
+    interval2 = interval_analysis(canon2)
+
+    rhythm1 = rhythm_analysis(canon1)
+    rhythm2 = rhythm_analysis(canon2)
+
+    spectral1 = spectral_analysis(canon1)
+    spectral2 = spectral_analysis(canon2)
+
+    # Compare interval distributions
+    interval_similarity = _compare_distributions(
+        interval1.get('histogram', {}),
+        interval2.get('histogram', {})
+    )
+
+    # Compare rhythmic distributions
+    rhythm_similarity = _compare_distributions(
+        rhythm1.get('histogram', {}),
+        rhythm2.get('histogram', {})
+    )
+
+    # Compare pitch class distributions
+    pc_similarity = _compare_distributions(
+        spectral1.get('pitch_class_histogram', {}),
+        spectral2.get('pitch_class_histogram', {})
+    )
+
+    # Overall similarity (weighted average)
+    overall_similarity = (
+        interval_similarity * 0.4 +
+        rhythm_similarity * 0.3 +
+        pc_similarity * 0.3
+    )
+
+    return {
+        'overall_similarity': overall_similarity,
+        'interval_similarity': interval_similarity,
+        'rhythm_similarity': rhythm_similarity,
+        'pitch_class_similarity': pc_similarity,
+        'canon1_length': interval1.get('total_intervals', 0),
+        'canon2_length': interval2.get('total_intervals', 0),
+        'length_ratio': interval2.get('total_intervals', 1) / max(interval1.get('total_intervals', 1), 1),
+        'comparison_summary': _generate_comparison_summary(overall_similarity)
+    }
+
+
+def _compare_distributions(dist1: Dict, dist2: Dict) -> float:
+    """
+    Calculate similarity between two distributions using cosine similarity.
+
+    Args:
+        dist1: First distribution dictionary
+        dist2: Second distribution dictionary
+
+    Returns:
+        Similarity score between 0 and 1
+    """
+    if not dist1 or not dist2:
+        return 0.0
+
+    # Get all keys from both distributions
+    all_keys = set(dist1.keys()) | set(dist2.keys())
+
+    if not all_keys:
+        return 0.0
+
+    # Create vectors
+    vec1 = np.array([dist1.get(k, 0) for k in all_keys])
+    vec2 = np.array([dist2.get(k, 0) for k in all_keys])
+
+    # Cosine similarity
+    dot_product = np.dot(vec1, vec2)
+    norm1 = np.linalg.norm(vec1)
+    norm2 = np.linalg.norm(vec2)
+
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+
+    similarity = dot_product / (norm1 * norm2)
+    return float(similarity)
+
+
+def _generate_comparison_summary(similarity: float) -> str:
+    """Generate a text summary of canon similarity."""
+    if similarity >= 0.9:
+        return "Very similar - nearly identical structure"
+    elif similarity >= 0.7:
+        return "Similar - shares many characteristics"
+    elif similarity >= 0.5:
+        return "Moderately similar - some common features"
+    elif similarity >= 0.3:
+        return "Somewhat different - few shared characteristics"
+    else:
+        return "Very different - distinct structures"
+
+
+def counterpoint_check(score: stream.Score) -> Dict[str, any]:
+    """
+    Validate voice leading according to basic counterpoint rules.
+
+    Checks for common issues in two-voice counterpoint:
+    - Parallel fifths and octaves
+    - Direct/hidden fifths and octaves
+    - Voice crossing
+    - Excessive leaps
+    - Dissonance treatment
+
+    Args:
+        score: A Score with two voices to check
+
+    Returns:
+        Dictionary with validation results and detected issues
+
+    Examples:
+        >>> results = counterpoint_check(two_voice_score)
+        >>> print(f"Parallel fifths: {results['parallel_fifths']}")
+        >>> print(f"Voice crossings: {results['voice_crossings']}")
+    """
+    parts = list(score.parts)
+
+    if len(parts) != 2:
+        return {
+            'error': 'Counterpoint check requires exactly 2 voices',
+            'num_voices': len(parts)
+        }
+
+    # Extract all time points and notes for each voice
+    voice1_notes = [(float(n.offset), n) for n in parts[0].flatten().notes]
+    voice2_notes = [(float(n.offset), n) for n in parts[1].flatten().notes]
+
+    # Sort by offset
+    voice1_notes.sort(key=lambda x: x[0])
+    voice2_notes.sort(key=lambda x: x[0])
+
+    parallel_fifths = []
+    parallel_octaves = []
+    voice_crossings = []
+    large_leaps = []
+    unresolved_dissonances = []
+
+    # Check for parallel motion
+    for i in range(min(len(voice1_notes), len(voice2_notes)) - 1):
+        offset1, note1 = voice1_notes[i]
+        offset2, note2 = voice2_notes[i]
+
+        if isinstance(note1, note.Note) and isinstance(note2, note.Note):
+            # Calculate interval
+            interval1 = abs(note1.pitch.midi - note2.pitch.midi) % 12
+
+            # Check next simultaneity
+            if i + 1 < min(len(voice1_notes), len(voice2_notes)):
+                next_note1 = voice1_notes[i + 1][1]
+                next_note2 = voice2_notes[i + 1][1]
+
+                if isinstance(next_note1, note.Note) and isinstance(next_note2, note.Note):
+                    interval2 = abs(next_note1.pitch.midi - next_note2.pitch.midi) % 12
+
+                    # Parallel fifths
+                    if interval1 == 7 and interval2 == 7:
+                        parallel_fifths.append((i, offset1))
+
+                    # Parallel octaves
+                    if interval1 == 0 and interval2 == 0:
+                        parallel_octaves.append((i, offset1))
+
+            # Check voice crossing
+            if note1.pitch.midi < note2.pitch.midi:
+                voice_crossings.append((i, offset1))
+
+    # Check for large leaps in each voice
+    for voice_num, voice_notes in enumerate([voice1_notes, voice2_notes], 1):
+        for i in range(len(voice_notes) - 1):
+            _, note_a = voice_notes[i]
+            _, note_b = voice_notes[i + 1]
+
+            if isinstance(note_a, note.Note) and isinstance(note_b, note.Note):
+                leap = abs(note_b.pitch.midi - note_a.pitch.midi)
+                if leap > 7:  # Larger than a fifth
+                    large_leaps.append((voice_num, i, leap))
+
+    # Calculate quality score
+    total_checks = (min(len(voice1_notes), len(voice2_notes)) * 2 +
+                   len(voice1_notes) + len(voice2_notes))
+
+    if total_checks == 0:
+        quality_score = 1.0
+    else:
+        issues = (len(parallel_fifths) + len(parallel_octaves) +
+                 len(voice_crossings) + len(large_leaps) * 0.5)
+        quality_score = max(0.0, 1.0 - (issues / total_checks))
+
+    return {
+        'parallel_fifths': len(parallel_fifths),
+        'parallel_fifths_locations': parallel_fifths,
+        'parallel_octaves': len(parallel_octaves),
+        'parallel_octaves_locations': parallel_octaves,
+        'voice_crossings': len(voice_crossings),
+        'voice_crossings_locations': voice_crossings,
+        'large_leaps': len(large_leaps),
+        'large_leaps_details': large_leaps,
+        'quality_score': quality_score,
+        'passed': quality_score > 0.7,
+        'total_simultaneities': min(len(voice1_notes), len(voice2_notes))
+    }
+
+
+def voice_leading_analysis(score: stream.Score) -> Dict[str, any]:
+    """
+    Comprehensive voice leading analysis for two-voice counterpoint.
+
+    Analyzes motion types, leap resolutions, approach to perfect intervals,
+    and overall voice independence.
+
+    Args:
+        score: A Score with two voices to analyze
+
+    Returns:
+        Dictionary with detailed voice leading metrics
+
+    Examples:
+        >>> results = voice_leading_analysis(two_voice_score)
+        >>> print(f"Contrary motion: {results['motion_types']['contrary']}")
+        >>> print(f"Leap resolutions: {results['leap_resolution_rate']}")
+    """
+    parts = list(score.parts)
+
+    if len(parts) != 2:
+        return {
+            'error': 'Voice leading analysis requires exactly 2 voices',
+            'num_voices': len(parts)
+        }
+
+    # Extract notes with offsets
+    voice1_notes = [(float(n.offset), n) for n in parts[0].flatten().notes]
+    voice2_notes = [(float(n.offset), n) for n in parts[1].flatten().notes]
+
+    voice1_notes.sort(key=lambda x: x[0])
+    voice2_notes.sort(key=lambda x: x[0])
+
+    # Motion type counters
+    motion_types = {
+        'parallel': 0,
+        'similar': 0,
+        'contrary': 0,
+        'oblique': 0
+    }
+
+    # Voice range tracking
+    voice1_range = {'min': 127, 'max': 0}
+    voice2_range = {'min': 127, 'max': 0}
+
+    # Leap tracking
+    voice1_leaps = []
+    voice2_leaps = []
+    resolved_leaps = 0
+    total_leaps = 0
+
+    # Approach to perfect intervals
+    perfect_approaches = {
+        'contrary': 0,
+        'similar': 0,
+        'direct': 0
+    }
+
+    # Track ranges for ALL notes in both voices
+    for offset, n in voice1_notes:
+        if isinstance(n, note.Note):
+            voice1_range['min'] = min(voice1_range['min'], n.pitch.midi)
+            voice1_range['max'] = max(voice1_range['max'], n.pitch.midi)
+
+    for offset, n in voice2_notes:
+        if isinstance(n, note.Note):
+            voice2_range['min'] = min(voice2_range['min'], n.pitch.midi)
+            voice2_range['max'] = max(voice2_range['max'], n.pitch.midi)
+
+    # Analyze motion between consecutive simultaneities
+    for i in range(min(len(voice1_notes), len(voice2_notes)) - 1):
+        offset1, note1 = voice1_notes[i]
+        offset2, note2 = voice2_notes[i]
+
+        if i + 1 < min(len(voice1_notes), len(voice2_notes)):
+            next_note1 = voice1_notes[i + 1][1]
+            next_note2 = voice2_notes[i + 1][1]
+
+            if all(isinstance(n, note.Note) for n in [note1, note2, next_note1, next_note2]):
+                # Calculate motion
+                v1_motion = next_note1.pitch.midi - note1.pitch.midi
+                v2_motion = next_note2.pitch.midi - note2.pitch.midi
+
+                # Classify motion type
+                if v1_motion == 0 and v2_motion == 0:
+                    pass  # No motion
+                elif v1_motion == 0 or v2_motion == 0:
+                    motion_types['oblique'] += 1
+                elif (v1_motion > 0 and v2_motion > 0) or (v1_motion < 0 and v2_motion < 0):
+                    if abs(v1_motion) == abs(v2_motion):
+                        motion_types['parallel'] += 1
+                    else:
+                        motion_types['similar'] += 1
+                else:
+                    motion_types['contrary'] += 1
+
+                # Check approach to perfect intervals
+                next_interval = abs(next_note1.pitch.midi - next_note2.pitch.midi) % 12
+                if next_interval in [0, 7]:  # Unison or perfect fifth
+                    if (v1_motion > 0 and v2_motion < 0) or (v1_motion < 0 and v2_motion > 0):
+                        perfect_approaches['contrary'] += 1
+                    elif (v1_motion > 0 and v2_motion > 0) or (v1_motion < 0 and v2_motion < 0):
+                        if abs(v1_motion) == abs(v2_motion):
+                            perfect_approaches['direct'] += 1
+                        else:
+                            perfect_approaches['similar'] += 1
+
+    # Analyze leaps and resolutions in each voice
+    for voice_notes, voice_leaps in [(voice1_notes, voice1_leaps), (voice2_notes, voice2_leaps)]:
+        for i in range(len(voice_notes) - 1):
+            _, note_a = voice_notes[i]
+            _, note_b = voice_notes[i + 1]
+
+            if isinstance(note_a, note.Note) and isinstance(note_b, note.Note):
+                leap = note_b.pitch.midi - note_a.pitch.midi
+                if abs(leap) > 4:  # Larger than a major third
+                    voice_leaps.append(i)
+                    total_leaps += 1
+
+                    # Check if leap is resolved by step in opposite direction
+                    if i + 2 < len(voice_notes):
+                        _, note_c = voice_notes[i + 2]
+                        if isinstance(note_c, note.Note):
+                            resolution = note_c.pitch.midi - note_b.pitch.midi
+                            if abs(resolution) <= 2 and (leap * resolution < 0):  # Step in opposite direction
+                                resolved_leaps += 1
+
+    # Calculate metrics
+    total_motion = sum(motion_types.values())
+    leap_resolution_rate = resolved_leaps / total_leaps if total_leaps > 0 else 1.0
+
+    # Voice independence score (prefer contrary motion, avoid parallel)
+    if total_motion > 0:
+        independence_score = (
+            motion_types['contrary'] * 1.0 +
+            motion_types['oblique'] * 0.8 +
+            motion_types['similar'] * 0.3 -
+            motion_types['parallel'] * 0.5
+        ) / total_motion
+        independence_score = max(0.0, min(1.0, independence_score))
+    else:
+        independence_score = 0.5
+
+    # Perfect interval approach score (prefer contrary motion)
+    total_perfect = sum(perfect_approaches.values())
+    if total_perfect > 0:
+        perfect_approach_score = (
+            perfect_approaches['contrary'] * 1.0 +
+            perfect_approaches['similar'] * 0.3 -
+            perfect_approaches['direct'] * 1.0
+        ) / total_perfect
+        perfect_approach_score = max(0.0, min(1.0, perfect_approach_score))
+    else:
+        perfect_approach_score = 1.0
+
+    # Overall voice leading quality
+    overall_quality = (
+        independence_score * 0.4 +
+        leap_resolution_rate * 0.3 +
+        perfect_approach_score * 0.3
+    )
+
+    return {
+        'motion_types': motion_types,
+        'motion_percentages': {
+            k: (v / total_motion * 100) if total_motion > 0 else 0
+            for k, v in motion_types.items()
+        },
+        'voice_ranges': {
+            'voice1': {
+                'min_midi': voice1_range['min'] if voice1_range['min'] != 127 else 0,
+                'max_midi': voice1_range['max'],
+                'span': voice1_range['max'] - voice1_range['min'] if voice1_range['min'] != 127 else 0
+            },
+            'voice2': {
+                'min_midi': voice2_range['min'] if voice2_range['min'] != 127 else 0,
+                'max_midi': voice2_range['max'],
+                'span': voice2_range['max'] - voice2_range['min'] if voice2_range['min'] != 127 else 0
+            }
+        },
+        'leap_statistics': {
+            'total_leaps': total_leaps,
+            'resolved_leaps': resolved_leaps,
+            'resolution_rate': leap_resolution_rate
+        },
+        'perfect_interval_approaches': perfect_approaches,
+        'independence_score': independence_score,
+        'perfect_approach_score': perfect_approach_score,
+        'overall_quality': overall_quality,
+        'grade': _get_quality_grade(overall_quality)
+    }
+
+
+def cadence_detection(score: stream.Score) -> Dict[str, any]:
+    """
+    Detect cadences in a two-voice score.
+
+    Identifies authentic, half, plagal, and deceptive cadences based on
+    intervallic motion and melodic patterns.
+
+    Args:
+        score: A Score to analyze for cadences
+
+    Returns:
+        Dictionary with detected cadences and their locations
+
+    Examples:
+        >>> results = cadence_detection(two_voice_score)
+        >>> print(f"Authentic cadences: {results['cadence_counts']['authentic']}")
+        >>> for loc, cad_type in results['cadences']:
+        ...     print(f"Cadence at {loc}: {cad_type}")
+    """
+    parts = list(score.parts)
+
+    if len(parts) < 2:
+        return {
+            'error': 'Cadence detection requires at least 2 voices',
+            'num_voices': len(parts)
+        }
+
+    # Use first two parts
+    voice1_notes = [(float(n.offset), n) for n in parts[0].flatten().notes]
+    voice2_notes = [(float(n.offset), n) for n in parts[1].flatten().notes]
+
+    voice1_notes.sort(key=lambda x: x[0])
+    voice2_notes.sort(key=lambda x: x[0])
+
+    cadences = []
+    cadence_counts = {
+        'authentic': 0,
+        'half': 0,
+        'plagal': 0,
+        'deceptive': 0,
+        'other': 0
+    }
+
+    # Analyze final few notes of phrases (looking for cadential patterns)
+    # Simple heuristic: check last 3-4 simultaneities
+    min_len = min(len(voice1_notes), len(voice2_notes))
+
+    if min_len >= 3:
+        # Check final cadence
+        final_idx = min_len - 1
+
+        # Get last 3 notes from each voice
+        v1_notes = [voice1_notes[final_idx - 2][1], voice1_notes[final_idx - 1][1], voice1_notes[final_idx][1]]
+        v2_notes = [voice2_notes[final_idx - 2][1], voice2_notes[final_idx - 1][1], voice2_notes[final_idx][1]]
+
+        if all(isinstance(n, note.Note) for n in v1_notes + v2_notes):
+            # Calculate intervals
+            final_interval = abs(v1_notes[2].pitch.midi - v2_notes[2].pitch.midi) % 12
+            penult_interval = abs(v1_notes[1].pitch.midi - v2_notes[1].pitch.midi) % 12
+
+            # Calculate bass motion (assuming voice2 is bass)
+            bass_motion = v2_notes[2].pitch.midi - v2_notes[1].pitch.midi
+
+            # Calculate upper voice motion
+            upper_motion = v1_notes[2].pitch.midi - v1_notes[1].pitch.midi
+
+            # Authentic cadence: V-I motion, ending on unison/octave
+            # Heuristic: bass rises by 4th or falls by 5th, upper voice resolves stepwise
+            if final_interval == 0 and abs(upper_motion) <= 2:
+                if abs(bass_motion) == 5 or abs(bass_motion) == 7:
+                    cadences.append((float(voice1_notes[final_idx][0]), 'authentic'))
+                    cadence_counts['authentic'] += 1
+                # Plagal cadence: IV-I motion (bass rises by step or falls by third)
+                elif abs(bass_motion) <= 4:
+                    cadences.append((float(voice1_notes[final_idx][0]), 'plagal'))
+                    cadence_counts['plagal'] += 1
+                else:
+                    cadences.append((float(voice1_notes[final_idx][0]), 'other'))
+                    cadence_counts['other'] += 1
+            # Half cadence: ending on fifth
+            elif final_interval == 7:
+                cadences.append((float(voice1_notes[final_idx][0]), 'half'))
+                cadence_counts['half'] += 1
+            # Deceptive cadence: expected resolution avoided
+            elif penult_interval == 7 and final_interval != 0:
+                cadences.append((float(voice1_notes[final_idx][0]), 'deceptive'))
+                cadence_counts['deceptive'] += 1
+            else:
+                cadences.append((float(voice1_notes[final_idx][0]), 'other'))
+                cadence_counts['other'] += 1
+
+    return {
+        'cadences': cadences,
+        'cadence_counts': cadence_counts,
+        'total_cadences': len(cadences),
+        'has_final_cadence': len(cadences) > 0,
+        'final_cadence_type': cadences[0][1] if cadences else None
+    }
+
+
+def modulation_detection(score: stream.Score, window_size: int = 8) -> Dict[str, any]:
+    """
+    Detect potential modulations (key changes) in a score.
+
+    Uses a sliding window analysis of pitch content to identify
+    shifts in tonal center.
+
+    Args:
+        score: A Score to analyze for modulations
+        window_size: Number of notes in analysis window (default: 8)
+
+    Returns:
+        Dictionary with detected modulations and key analysis
+
+    Examples:
+        >>> results = modulation_detection(score)
+        >>> print(f"Key changes detected: {results['num_modulations']}")
+        >>> print(f"Starting key: {results['starting_key']}")
+    """
+    # Get all notes from all parts
+    all_notes = []
+    for part in score.parts:
+        for n in part.flatten().notes:
+            if isinstance(n, note.Note):
+                all_notes.append((float(n.offset), n.pitch.midi % 12))
+            elif isinstance(n, chord.Chord):
+                for p in n.pitches:
+                    all_notes.append((float(n.offset), p.midi % 12))
+
+    all_notes.sort(key=lambda x: x[0])
+
+    if len(all_notes) < window_size * 2:
+        return {
+            'num_modulations': 0,
+            'modulations': [],
+            'starting_key': None,
+            'ending_key': None,
+            'error': 'Insufficient notes for modulation detection'
+        }
+
+    # Analyze pitch class distribution in sliding windows
+    windows = []
+    for i in range(0, len(all_notes) - window_size + 1, window_size // 2):
+        window_notes = all_notes[i:i + window_size]
+        pitch_classes = [pc for _, pc in window_notes]
+
+        # Count pitch class distribution
+        pc_counts = {pc: pitch_classes.count(pc) for pc in set(pitch_classes)}
+
+        # Simple key estimation: most common pitch class might be tonic
+        dominant_pc = max(pc_counts.items(), key=lambda x: x[1])[0]
+
+        windows.append({
+            'start_offset': window_notes[0][0],
+            'end_offset': window_notes[-1][0],
+            'dominant_pitch_class': dominant_pc,
+            'distribution': pc_counts
+        })
+
+    # Detect changes in dominant pitch class
+    modulations = []
+    for i in range(len(windows) - 1):
+        if windows[i]['dominant_pitch_class'] != windows[i + 1]['dominant_pitch_class']:
+            modulations.append({
+                'offset': windows[i + 1]['start_offset'],
+                'from_tonic': windows[i]['dominant_pitch_class'],
+                'to_tonic': windows[i + 1]['dominant_pitch_class']
+            })
+
+    return {
+        'num_modulations': len(modulations),
+        'modulations': modulations,
+        'starting_key': windows[0]['dominant_pitch_class'] if windows else None,
+        'ending_key': windows[-1]['dominant_pitch_class'] if windows else None,
+        'windows_analyzed': len(windows),
+        'window_size': window_size
+    }
+
+
+def species_counterpoint_check(score: stream.Score, species: int = 1) -> Dict[str, any]:
+    """
+    Check compliance with species counterpoint rules.
+
+    Validates two-voice counterpoint according to Fux's species rules:
+    - First species: note-against-note
+    - Second species: two-against-one
+    - Third species: four-against-one
+
+    Args:
+        score: A Score with two voices to check
+        species: Species number (1, 2, or 3) - default: 1
+
+    Returns:
+        Dictionary with compliance results and rule violations
+
+    Examples:
+        >>> results = species_counterpoint_check(score, species=1)
+        >>> print(f"Rule violations: {results['total_violations']}")
+        >>> print(f"Compliance: {results['compliance_rate']:.1%}")
+    """
+    parts = list(score.parts)
+
+    if len(parts) != 2:
+        return {
+            'error': 'Species counterpoint requires exactly 2 voices',
+            'num_voices': len(parts)
+        }
+
+    if species not in [1, 2, 3]:
+        return {'error': f'Invalid species: {species}. Must be 1, 2, or 3'}
+
+    # Extract notes
+    cantus_notes = [(float(n.offset), n, n.quarterLength) for n in parts[1].flatten().notes]
+    counterpoint_notes = [(float(n.offset), n, n.quarterLength) for n in parts[0].flatten().notes]
+
+    cantus_notes.sort(key=lambda x: x[0])
+    counterpoint_notes.sort(key=lambda x: x[0])
+
+    violations = {
+        'parallel_perfect': [],
+        'bad_intervals': [],
+        'bad_opening': [],
+        'bad_closing': [],
+        'large_leaps': [],
+        'unresolved_leaps': [],
+        'rhythm_violations': []
+    }
+
+    # First species rules
+    if species == 1:
+        # Check note-against-note rhythm
+        if len(cantus_notes) != len(counterpoint_notes):
+            violations['rhythm_violations'].append({
+                'rule': 'First species requires equal number of notes',
+                'cantus_count': len(cantus_notes),
+                'counterpoint_count': len(counterpoint_notes)
+            })
+
+        # Check opening (should be perfect consonance: unison, fifth, or octave)
+        if cantus_notes and counterpoint_notes:
+            if all(isinstance(n[1], note.Note) for n in [cantus_notes[0], counterpoint_notes[0]]):
+                opening_interval = abs(cantus_notes[0][1].pitch.midi - counterpoint_notes[0][1].pitch.midi) % 12
+                if opening_interval not in [0, 7]:
+                    violations['bad_opening'].append({
+                        'rule': 'Must begin with perfect consonance',
+                        'interval': opening_interval
+                    })
+
+            # Check closing (should be octave or unison)
+            if all(isinstance(n[1], note.Note) for n in [cantus_notes[-1], counterpoint_notes[-1]]):
+                closing_interval = abs(cantus_notes[-1][1].pitch.midi - counterpoint_notes[-1][1].pitch.midi) % 12
+                if closing_interval != 0:
+                    violations['bad_closing'].append({
+                        'rule': 'Must end with unison or octave',
+                        'interval': closing_interval
+                    })
+
+    # Check intervals (all species)
+    for i in range(min(len(cantus_notes), len(counterpoint_notes))):
+        cantus_note = cantus_notes[i][1]
+        cp_note = counterpoint_notes[i][1]
+
+        if isinstance(cantus_note, note.Note) and isinstance(cp_note, note.Note):
+            interval = abs(cantus_note.pitch.midi - cp_note.pitch.midi) % 12
+
+            # Dissonances (2nds, 7ths, tritones) are generally forbidden (except passing tones in higher species)
+            if species == 1 and interval in [1, 2, 6, 10, 11]:
+                violations['bad_intervals'].append({
+                    'location': i,
+                    'offset': cantus_notes[i][0],
+                    'interval': interval,
+                    'rule': 'Dissonance in first species'
+                })
+
+    # Check parallel perfect intervals (all species)
+    for i in range(min(len(cantus_notes), len(counterpoint_notes)) - 1):
+        if all(isinstance(cantus_notes[j][1], note.Note) and isinstance(counterpoint_notes[j][1], note.Note)
+               for j in [i, i + 1]):
+            interval1 = abs(cantus_notes[i][1].pitch.midi - counterpoint_notes[i][1].pitch.midi) % 12
+            interval2 = abs(cantus_notes[i + 1][1].pitch.midi - counterpoint_notes[i + 1][1].pitch.midi) % 12
+
+            # Parallel fifths or octaves
+            if interval1 in [0, 7] and interval1 == interval2:
+                violations['parallel_perfect'].append({
+                    'location': i,
+                    'offset': cantus_notes[i][0],
+                    'interval': interval1
+                })
+
+    # Check melodic intervals in counterpoint (all species)
+    for i in range(len(counterpoint_notes) - 1):
+        if all(isinstance(counterpoint_notes[j][1], note.Note) for j in [i, i + 1]):
+            leap = abs(counterpoint_notes[i + 1][1].pitch.midi - counterpoint_notes[i][1].pitch.midi)
+
+            # Leaps larger than octave forbidden
+            if leap > 12:
+                violations['large_leaps'].append({
+                    'location': i,
+                    'offset': counterpoint_notes[i][0],
+                    'leap': leap
+                })
+            # Leaps larger than third should be followed by stepwise motion in opposite direction
+            elif leap > 4:
+                if i + 2 < len(counterpoint_notes) and isinstance(counterpoint_notes[i + 2][1], note.Note):
+                    motion1 = counterpoint_notes[i + 1][1].pitch.midi - counterpoint_notes[i][1].pitch.midi
+                    motion2 = counterpoint_notes[i + 2][1].pitch.midi - counterpoint_notes[i + 1][1].pitch.midi
+
+                    # Check if resolved by step in opposite direction
+                    if not (abs(motion2) <= 2 and motion1 * motion2 < 0):
+                        violations['unresolved_leaps'].append({
+                            'location': i,
+                            'offset': counterpoint_notes[i][0],
+                            'leap': leap
+                        })
+
+    # Calculate compliance
+    total_violations = sum(len(v) for v in violations.values())
+    total_checks = (len(cantus_notes) + len(counterpoint_notes) +
+                   min(len(cantus_notes), len(counterpoint_notes)))
+
+    compliance_rate = 1.0 - (total_violations / total_checks) if total_checks > 0 else 0.0
+    compliance_rate = max(0.0, compliance_rate)
+
+    return {
+        'species': species,
+        'violations': violations,
+        'total_violations': total_violations,
+        'compliance_rate': compliance_rate,
+        'passed': compliance_rate > 0.8,
+        'grade': _get_quality_grade(compliance_rate),
+        'cantus_notes': len(cantus_notes),
+        'counterpoint_notes': len(counterpoint_notes)
+    }
+
+
+def _get_quality_grade(score: float) -> str:
+    """Convert quality score (0-1) to letter grade."""
+    if score >= 0.97:
+        return 'A+'
+    elif score >= 0.93:
+        return 'A'
+    elif score >= 0.90:
+        return 'A-'
+    elif score >= 0.87:
+        return 'B+'
+    elif score >= 0.83:
+        return 'B'
+    elif score >= 0.80:
+        return 'B-'
+    elif score >= 0.77:
+        return 'C+'
+    elif score >= 0.73:
+        return 'C'
+    elif score >= 0.70:
+        return 'C-'
+    elif score >= 0.67:
+        return 'D+'
+    elif score >= 0.63:
+        return 'D'
+    elif score >= 0.60:
+        return 'D-'
+    else:
+        return 'F'
+
+
+# ============================================================================
+# Phase 9: Advanced Canon Types
+# ============================================================================
+
+
+def table_canon(
+    theme: stream.Stream,
+    num_voices: int = 4,
+    axis_pitch: Union[str, m21.pitch.Pitch] = 'C4'
+) -> stream.Score:
+    """
+    Create a table canon where each voice reads the same music rotated/transformed.
+
+    A table canon (also called "canon per tonos" or "crab canon on a table") allows
+    multiple performers to read the same notation from different orientations:
+    - Voice 1: Normal (0°)
+    - Voice 2: Inverted (pitch inversion)
+    - Voice 3: Retrograde (180° rotation)
+    - Voice 4: Retrograde inversion (180° + pitch inversion)
+
+    This creates a four-way symmetry where all voices can be read from a single
+    page placed on a table.
+
+    Args:
+        theme: The base musical theme
+        num_voices: Number of voices (2 or 4, default 4)
+        axis_pitch: Pitch axis for inversion (default C4)
+
+    Returns:
+        A Score with 2 or 4 voices in table canon arrangement
+
+    Example:
+        >>> from cancrizans import table_canon
+        >>> from music21 import stream, note
+        >>> theme = stream.Stream()
+        >>> theme.append(note.Note('C4', quarterLength=1.0))
+        >>> theme.append(note.Note('E4', quarterLength=1.0))
+        >>> theme.append(note.Note('G4', quarterLength=1.0))
+        >>> canon = table_canon(theme, num_voices=4)
+        >>> len(canon.parts)
+        4
+    """
+    if num_voices not in [2, 4]:
+        raise ValueError("num_voices must be 2 or 4")
+
+    score = stream.Score()
+
+    # Voice 1: Normal (original theme)
+    voice1 = stream.Part()
+    voice1.id = 'voice1_normal'
+    for el in theme.flatten().notesAndRests:
+        voice1.insert(el.offset, el)
+    score.append(voice1)
+
+    if num_voices >= 2:
+        # Voice 2: Inversion
+        voice2 = stream.Part()
+        voice2.id = 'voice2_inversion'
+        inverted = invert(theme, axis_pitch)
+        for el in inverted.flatten().notesAndRests:
+            voice2.insert(el.offset, el)
+        score.append(voice2)
+
+    if num_voices >= 4:
+        # Voice 3: Retrograde
+        voice3 = stream.Part()
+        voice3.id = 'voice3_retrograde'
+        retro = retrograde(theme)
+        for el in retro.flatten().notesAndRests:
+            voice3.insert(el.offset, el)
+        score.append(voice3)
+
+        # Voice 4: Retrograde + Inversion
+        voice4 = stream.Part()
+        voice4.id = 'voice4_retro_inversion'
+        retro_inv = invert(retrograde(theme), axis_pitch)
+        for el in retro_inv.flatten().notesAndRests:
+            voice4.insert(el.offset, el)
+        score.append(voice4)
+
+    return score
+
+
+def mensuration_canon(
+    theme: stream.Stream,
+    ratios: List[float] = [1.0, 2.0],
+    offset_quarters: float = 0.0
+) -> stream.Score:
+    """
+    Create a mensuration canon where voices play the same melody at different speeds.
+
+    A mensuration canon (also called "prolation canon") has multiple voices singing
+    the same melody simultaneously but at different tempi. This was common in
+    Renaissance music, where different mensuration signs indicated different speeds.
+
+    Args:
+        theme: The base musical theme
+        ratios: List of speed ratios (1.0 = original speed, 2.0 = twice as slow, etc.)
+        offset_quarters: Temporal offset between voice entrances in quarter notes
+
+    Returns:
+        A Score with voices at different speeds
+
+    Example:
+        >>> from cancrizans import mensuration_canon
+        >>> from music21 import stream, note
+        >>> theme = stream.Stream()
+        >>> for pitch in ['C4', 'D4', 'E4', 'F4']:
+        ...     theme.append(note.Note(pitch, quarterLength=1.0))
+        >>> canon = mensuration_canon(theme, ratios=[1.0, 2.0, 4.0])
+        >>> len(canon.parts)
+        3
+    """
+    score = stream.Score()
+
+    for i, ratio in enumerate(ratios):
+        part = stream.Part()
+        part.id = f'voice{i+1}_ratio_{ratio}'
+
+        # Apply augmentation (ratio > 1.0 makes it slower)
+        if ratio != 1.0:
+            transformed = augmentation(theme, ratio)
+        else:
+            # Create a copy even if ratio is 1.0 to avoid sharing note objects
+            transformed = stream.Stream()
+            for el in theme.flatten().notesAndRests:
+                new_el = el.__class__()
+                new_el.quarterLength = el.quarterLength
+                if isinstance(el, note.Note):
+                    new_el.pitch = el.pitch
+                elif isinstance(el, chord.Chord):
+                    new_el.pitches = el.pitches
+                transformed.insert(el.offset, new_el)
+
+        # Add with offset
+        # Voice 0 at 0, voice 1 at offset_quarters, voice 2 at 2*offset_quarters, etc.
+        current_offset = i * offset_quarters
+        for el in transformed.flatten().notesAndRests:
+            part.insert(el.offset + current_offset, el)
+
+        score.append(part)
+
+    return score
+
+
+def spiral_canon(
+    theme: stream.Stream,
+    num_iterations: int = 4,
+    transposition_interval: int = 2,
+    mode: str = 'ascending'
+) -> stream.Score:
+    """
+    Create a spiral (modulating) canon that transposes with each iteration.
+
+    A spiral canon repeatedly transposes the theme, creating a modulating effect
+    that "spirals" upward or downward through different keys. This was used by
+    Bach in some of the canons from The Musical Offering.
+
+    Args:
+        theme: The base musical theme
+        num_iterations: Number of times to repeat and transpose
+        transposition_interval: Semitones to transpose each iteration (default 2 = whole step)
+        mode: 'ascending' or 'descending' (direction of transposition)
+
+    Returns:
+        A Score with the spiraling canon
+
+    Example:
+        >>> from cancrizans import spiral_canon
+        >>> from music21 import stream, note
+        >>> theme = stream.Stream()
+        >>> theme.append(note.Note('C4', quarterLength=1.0))
+        >>> theme.append(note.Note('E4', quarterLength=1.0))
+        >>> canon = spiral_canon(theme, num_iterations=3, transposition_interval=2)
+        >>> len(canon.parts[0].flatten().notes)
+        6
+    """
+    if mode not in ['ascending', 'descending']:
+        raise ValueError("mode must be 'ascending' or 'descending'")
+
+    score = stream.Score()
+    part = stream.Part()
+    part.id = 'spiral_canon'
+
+    theme_duration = theme.duration.quarterLength
+
+    for i in range(num_iterations):
+        # Calculate transposition for this iteration
+        if mode == 'ascending':
+            semitones = i * transposition_interval
+        else:
+            semitones = -i * transposition_interval
+
+        # Transpose the theme using music21's built-in method
+        if semitones != 0:
+            # Use music21's transpose method
+            transposed = stream.Stream()
+            for el in theme.flatten().notesAndRests:
+                new_el = el.__class__()
+                new_el.quarterLength = el.quarterLength
+
+                if isinstance(el, note.Note):
+                    new_el.pitch = el.pitch.transpose(semitones)
+                elif isinstance(el, chord.Chord):
+                    new_el.pitches = [p.transpose(semitones) for p in el.pitches]
+                # Rests don't need pitch transposition
+
+                transposed.insert(el.offset, new_el)
+        else:
+            transposed = theme
+
+        # Add to the part at the appropriate offset
+        offset = i * theme_duration
+        for el in transposed.flatten().notesAndRests:
+            part.insert(el.offset + offset, el)
+
+    score.append(part)
+    return score
+
+
+def solve_puzzle_canon(
+    given_voice: stream.Stream,
+    canon_type: str = 'retrograde',
+    axis_pitch: Union[str, m21.pitch.Pitch] = 'C4',
+    offset_quarters: float = 0.0
+) -> stream.Score:
+    """
+    Solve a puzzle canon by deriving the missing voice(s) from a given voice.
+
+    Given one voice of a canon, this function generates the complementary voice(s)
+    based on the specified canon type. This is useful for "puzzle canons" where
+    performers must deduce how to read the notation.
+
+    Args:
+        given_voice: The known voice
+        canon_type: Type of canon to solve:
+            - 'retrograde': Crab canon (time reversal)
+            - 'inversion': Mirror canon (pitch inversion)
+            - 'retro_inversion': Combined retrograde + inversion
+            - 'augmentation': Mensuration canon at 2:1 ratio
+        axis_pitch: Pitch axis for inversion types (default C4)
+        offset_quarters: Temporal offset for the derived voice
+
+    Returns:
+        A Score with both the given voice and the solved voice
+
+    Example:
+        >>> from cancrizans import solve_puzzle_canon
+        >>> from music21 import stream, note
+        >>> voice = stream.Stream()
+        >>> voice.append(note.Note('C4', quarterLength=1.0))
+        >>> voice.append(note.Note('D4', quarterLength=1.0))
+        >>> canon = solve_puzzle_canon(voice, canon_type='retrograde')
+        >>> len(canon.parts)
+        2
+    """
+    valid_types = ['retrograde', 'inversion', 'retro_inversion', 'augmentation']
+    if canon_type not in valid_types:
+        raise ValueError(f"canon_type must be one of {valid_types}")
+
+    score = stream.Score()
+
+    # Add the given voice
+    voice1 = stream.Part()
+    voice1.id = 'given_voice'
+    for el in given_voice.flatten().notesAndRests:
+        voice1.insert(el.offset, el)
+    score.append(voice1)
+
+    # Solve for the complementary voice
+    voice2 = stream.Part()
+    voice2.id = f'solved_{canon_type}'
+
+    if canon_type == 'retrograde':
+        solved = retrograde(given_voice)
+    elif canon_type == 'inversion':
+        solved = invert(given_voice, axis_pitch)
+    elif canon_type == 'retro_inversion':
+        solved = invert(retrograde(given_voice), axis_pitch)
+    elif canon_type == 'augmentation':
+        solved = augmentation(given_voice, 2.0)
+
+    # Add with offset
+    for el in solved.flatten().notesAndRests:
+        voice2.insert(el.offset + offset_quarters, el)
+
+    score.append(voice2)
+    return score
+
+
+# ============================================================================
+# Phase 11: Harmonic Enhancement
+# ============================================================================
+
+
+def analyze_chord_progressions(
+    score: stream.Score,
+    key_sig: Optional[Union[str, m21.key.Key]] = None
+) -> Dict[str, any]:
+    """
+    Analyze chord progressions in a score.
+
+    Identifies chords at each time point and analyzes the progression.
+    Uses music21's chord detection and analysis capabilities.
+
+    Args:
+        score: The score to analyze
+        key_sig: The key signature (detected automatically if not provided)
+
+    Returns:
+        Dictionary containing:
+        - 'chords': List of detected chords with offsets
+        - 'progressions': Common progression patterns detected
+        - 'key': Detected or specified key
+        - 'num_chords': Total number of chords
+        - 'unique_chords': Number of unique chord types
+
+    Example:
+        >>> from cancrizans import analyze_chord_progressions
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> # Add C major triad
+        >>> part1, part2, part3 = stream.Part(), stream.Part(), stream.Part()
+        >>> part1.append(note.Note('C4', quarterLength=1.0))
+        >>> part2.append(note.Note('E4', quarterLength=1.0))
+        >>> part3.append(note.Note('G4', quarterLength=1.0))
+        >>> score.append(part1)
+        >>> score.append(part2)
+        >>> score.append(part3)
+        >>> result = analyze_chord_progressions(score)
+        >>> result['num_chords'] >= 1
+        True
+    """
+    # Detect key if not provided
+    if key_sig is None:
+        try:
+            key_sig = score.analyze('key')
+        except:
+            # Default to C major if key detection fails
+            key_sig = m21.key.Key('C')
+    elif isinstance(key_sig, str):
+        key_sig = m21.key.Key(key_sig)
+
+    # Use music21's chordify to get vertical slices
+    try:
+        chordified = score.chordify()
+    except:
+        return {
+            'error': 'Could not chordify score',
+            'chords': [],
+            'progressions': [],
+            'key': str(key_sig),
+            'num_chords': 0,
+            'unique_chords': 0
+        }
+
+    # Extract chords
+    chords_list = []
+    for element in chordified.flatten():
+        if isinstance(element, chord.Chord):
+            chord_data = {
+                'offset': float(element.offset),
+                'duration': float(element.quarterLength),
+                'pitches': [p.nameWithOctave for p in element.pitches],
+                'root': element.root().name if element.root() else None,
+                'bass': element.bass().name if element.bass() else None,
+                'quality': element.quality if hasattr(element, 'quality') else 'unknown'
+            }
+
+            # Try to get Roman numeral in the key
+            try:
+                rn = m21.roman.romanNumeralFromChord(element, key_sig)
+                chord_data['roman_numeral'] = str(rn.figure)
+            except:
+                chord_data['roman_numeral'] = None
+
+            chords_list.append(chord_data)
+
+    # Identify common progressions
+    progressions = []
+    roman_numerals = [c.get('roman_numeral') for c in chords_list if c.get('roman_numeral')]
+
+    # Check for common patterns
+    common_patterns = {
+        'authentic_cadence': ['V', 'I'],
+        'plagal_cadence': ['IV', 'I'],
+        'half_cadence': ['I', 'V'],
+        'deceptive_cadence': ['V', 'vi'],
+        'circle_of_fifths': ['ii', 'V', 'I'],
+        'extended_circle': ['vi', 'ii', 'V', 'I'],
+        'four_five_one': ['IV', 'V', 'I'],
+    }
+
+    for pattern_name, pattern in common_patterns.items():
+        # Look for pattern in the progression
+        pattern_len = len(pattern)
+        for i in range(len(roman_numerals) - pattern_len + 1):
+            segment = roman_numerals[i:i + pattern_len]
+            # Normalize for comparison (remove inversions)
+            normalized_segment = [rn.split('/')[0] for rn in segment if rn]
+            normalized_pattern = [p.split('/')[0] for p in pattern]
+
+            if normalized_segment == normalized_pattern:
+                progressions.append({
+                    'type': pattern_name,
+                    'location': i,
+                    'chords': segment
+                })
+
+    # Count unique chords
+    unique_chord_types = set()
+    for c in chords_list:
+        if c.get('roman_numeral'):
+            unique_chord_types.add(c['roman_numeral'].split('/')[0])
+
+    return {
+        'chords': chords_list,
+        'progressions': progressions,
+        'key': str(key_sig),
+        'num_chords': len(chords_list),
+        'unique_chords': len(unique_chord_types),
+        'roman_numerals': roman_numerals
+    }
+
+
+def functional_harmony_analysis(
+    score: stream.Score,
+    key_sig: Optional[Union[str, m21.key.Key]] = None
+) -> Dict[str, any]:
+    """
+    Analyze functional harmony (tonic, dominant, subdominant relationships).
+
+    Classifies chords by their function in the key and analyzes harmonic rhythm.
+
+    Args:
+        score: The score to analyze
+        key_sig: The key signature (detected automatically if not provided)
+
+    Returns:
+        Dictionary containing:
+        - 'functions': List of harmonic functions for each chord
+        - 'harmonic_rhythm': Analysis of how often harmonies change
+        - 'tonic_percentage': Percentage of time spent on tonic
+        - 'dominant_percentage': Percentage on dominant
+        - 'subdominant_percentage': Percentage on subdominant
+        - 'key': The key being analyzed
+
+    Example:
+        >>> from cancrizans import functional_harmony_analysis
+        >>> from music21 import stream, note, key
+        >>> score = stream.Score()
+        >>> part = stream.Part()
+        >>> part.append(note.Note('C4', quarterLength=1.0))
+        >>> score.append(part)
+        >>> result = functional_harmony_analysis(score, 'C')
+        >>> 'functions' in result
+        True
+    """
+    # First get chord progressions
+    chord_analysis = analyze_chord_progressions(score, key_sig)
+
+    if 'error' in chord_analysis:
+        return chord_analysis
+
+    key_str = chord_analysis['key']
+    chords_list = chord_analysis['chords']
+
+    # Classify functions
+    functions = []
+    tonic_duration = 0.0
+    dominant_duration = 0.0
+    subdominant_duration = 0.0
+    other_duration = 0.0
+
+    for chord_data in chords_list:
+        rn = chord_data.get('roman_numeral', '')
+        duration = chord_data.get('duration', 0.0)
+
+        # Remove inversion notation
+        base_rn = rn.split('/')[0] if rn else ''
+
+        # Classify function
+        function = 'other'
+        if base_rn in ['I', 'i', 'vi', 'VI']:
+            function = 'tonic'
+            tonic_duration += duration
+        elif base_rn in ['V', 'v', 'VII', 'vii', 'viio']:
+            function = 'dominant'
+            dominant_duration += duration
+        elif base_rn in ['IV', 'iv', 'ii', 'II']:
+            function = 'subdominant'
+            subdominant_duration += duration
+        else:
+            other_duration += duration
+
+        functions.append({
+            'offset': chord_data['offset'],
+            'roman_numeral': rn,
+            'function': function,
+            'duration': duration
+        })
+
+    # Calculate percentages
+    total_duration = tonic_duration + dominant_duration + subdominant_duration + other_duration
+
+    tonic_pct = (tonic_duration / total_duration * 100) if total_duration > 0 else 0
+    dominant_pct = (dominant_duration / total_duration * 100) if total_duration > 0 else 0
+    subdominant_pct = (subdominant_duration / total_duration * 100) if total_duration > 0 else 0
+
+    # Analyze harmonic rhythm (how often chords change)
+    if len(chords_list) > 1:
+        changes = []
+        for i in range(1, len(chords_list)):
+            time_diff = chords_list[i]['offset'] - chords_list[i-1]['offset']
+            changes.append(time_diff)
+
+        avg_harmonic_rhythm = sum(changes) / len(changes) if changes else 0
+        min_change = min(changes) if changes else 0
+        max_change = max(changes) if changes else 0
+    else:
+        avg_harmonic_rhythm = 0
+        min_change = 0
+        max_change = 0
+
+    return {
+        'functions': functions,
+        'harmonic_rhythm': {
+            'average': avg_harmonic_rhythm,
+            'min': min_change,
+            'max': max_change
+        },
+        'tonic_percentage': tonic_pct,
+        'dominant_percentage': dominant_pct,
+        'subdominant_percentage': subdominant_pct,
+        'other_percentage': (other_duration / total_duration * 100) if total_duration > 0 else 0,
+        'key': key_str,
+        'num_functions': len(functions)
+    }
+
+
+def analyze_nonchord_tones(
+    score: stream.Score,
+    key_sig: Optional[Union[str, m21.key.Key]] = None
+) -> Dict[str, any]:
+    """
+    Analyze non-chord tones (passing tones, neighbor tones, suspensions, etc.).
+
+    Identifies notes that are not part of the prevailing harmony and classifies
+    their type based on melodic motion and metric position.
+
+    Args:
+        score: The score to analyze
+        key_sig: The key signature (detected automatically if not provided)
+
+    Returns:
+        Dictionary containing:
+        - 'nonchord_tones': List of identified non-chord tones with types
+        - 'summary': Count of each type
+        - 'total_notes': Total number of notes analyzed
+        - 'nonchord_percentage': Percentage of notes that are non-chord tones
+
+    Types identified:
+    - 'passing': Passing tone (stepwise approach and departure)
+    - 'neighbor': Neighbor tone (stepwise approach and return)
+    - 'suspension': Suspension (prepared, held over, resolved down)
+    - 'anticipation': Anticipation (jumps to next chord tone early)
+    - 'escape': Escape tone (stepwise approach, leap away)
+    - 'appoggiatura': Appoggiatura (leap to, stepwise resolution)
+    - 'other': Cannot classify
+
+    Example:
+        >>> from cancrizans import analyze_nonchord_tones
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> part = stream.Part()
+        >>> part.append(note.Note('C4', quarterLength=1.0))
+        >>> part.append(note.Note('D4', quarterLength=1.0))
+        >>> part.append(note.Note('E4', quarterLength=1.0))
+        >>> score.append(part)
+        >>> result = analyze_nonchord_tones(score)
+        >>> 'nonchord_tones' in result
+        True
+    """
+    # Get chord analysis
+    chord_analysis = analyze_chord_progressions(score, key_sig)
+
+    if 'error' in chord_analysis:
+        return chord_analysis
+
+    chords_list = chord_analysis['chords']
+
+    # Get all notes from all parts
+    all_notes = []
+    for part in score.parts:
+        for n in part.flatten().notes:
+            if isinstance(n, note.Note):
+                all_notes.append({
+                    'offset': float(n.offset),
+                    'pitch': n.pitch.midi,
+                    'pitch_name': n.pitch.name,
+                    'duration': float(n.quarterLength)
+                })
+
+    # Sort notes by offset
+    all_notes.sort(key=lambda x: x['offset'])
+
+    nonchord_tones = []
+    summary = {
+        'passing': 0,
+        'neighbor': 0,
+        'suspension': 0,
+        'anticipation': 0,
+        'escape': 0,
+        'appoggiatura': 0,
+        'other': 0
+    }
+
+    # For each note, check if it's in the current chord
+    for i, note_data in enumerate(all_notes):
+        note_offset = note_data['offset']
+        note_name = note_data['pitch_name']
+
+        # Find the chord active at this offset
+        current_chord = None
+        for chord_data in chords_list:
+            if chord_data['offset'] <= note_offset < chord_data['offset'] + chord_data['duration']:
+                current_chord = chord_data
+                break
+
+        if current_chord is None:
+            continue
+
+        # Check if note is in the chord
+        chord_pitch_names = [p.rstrip('0123456789') for p in current_chord['pitches']]  # Remove octave
+
+        if note_name not in chord_pitch_names:
+            # This is a non-chord tone - classify it
+            nct_type = 'other'
+
+            # Get previous and next notes if they exist
+            prev_note = all_notes[i-1] if i > 0 else None
+            next_note = all_notes[i+1] if i < len(all_notes) - 1 else None
+
+            if prev_note and next_note:
+                # Calculate intervals
+                prev_interval = note_data['pitch'] - prev_note['pitch']
+                next_interval = next_note['pitch'] - note_data['pitch']
+
+                # Passing tone: stepwise in same direction
+                if abs(prev_interval) <= 2 and abs(next_interval) <= 2:
+                    if (prev_interval > 0 and next_interval > 0) or (prev_interval < 0 and next_interval < 0):
+                        nct_type = 'passing'
+                    # Neighbor tone: stepwise approach and return
+                    elif prev_interval * next_interval < 0 and abs(prev_interval) == abs(next_interval):
+                        nct_type = 'neighbor'
+
+                # Escape tone: stepwise approach, leap away
+                if abs(prev_interval) <= 2 and abs(next_interval) > 2:
+                    nct_type = 'escape'
+
+                # Appoggiatura: leap to, stepwise away
+                if abs(prev_interval) > 2 and abs(next_interval) <= 2:
+                    nct_type = 'appoggiatura'
+
+                # Suspension: prepared (same pitch before), resolved down by step
+                if prev_interval == 0 and next_interval == -1:
+                    nct_type = 'suspension'
+
+                # Anticipation: resolved by staying on same pitch
+                if next_interval == 0:
+                    nct_type = 'anticipation'
+
+            nonchord_tones.append({
+                'offset': note_offset,
+                'pitch': note_data['pitch'],
+                'pitch_name': note_name,
+                'type': nct_type,
+                'chord': current_chord.get('roman_numeral', 'unknown')
+            })
+
+            summary[nct_type] += 1
+
+    total_notes = len(all_notes)
+    num_nonchord = len(nonchord_tones)
+    nonchord_pct = (num_nonchord / total_notes * 100) if total_notes > 0 else 0
+
+    return {
+        'nonchord_tones': nonchord_tones,
+        'summary': summary,
+        'total_notes': total_notes,
+        'total_nonchord_tones': num_nonchord,
+        'nonchord_percentage': nonchord_pct
+    }
+
+
+def generate_figured_bass(
+    score: stream.Score,
+    key_sig: Optional[Union[str, m21.key.Key]] = None
+) -> Dict[str, any]:
+    """
+    Generate figured bass notation from a score.
+
+    Analyzes the harmonic structure and generates figured bass symbols
+    that would be written below the bass line in baroque notation.
+
+    Args:
+        score: The score to analyze
+        key_sig: The key signature (detected automatically if not provided)
+
+    Returns:
+        Dictionary containing:
+        - 'figures': List of figured bass symbols with offsets
+        - 'bass_line': The bass line notes
+        - 'key': The key being analyzed
+
+    Figured bass symbols:
+    - '': Root position triad (assumed, often not notated)
+    - '6': First inversion triad
+    - '6/4' or '64': Second inversion triad
+    - '7': Root position seventh chord
+    - '6/5' or '65': First inversion seventh
+    - '4/3' or '43': Second inversion seventh
+    - '4/2' or '42' or '2': Third inversion seventh
+    - '#', 'b', natural sign: Chromatic alterations
+
+    Example:
+        >>> from cancrizans import generate_figured_bass
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> bass = stream.Part()
+        >>> bass.append(note.Note('C3', quarterLength=1.0))
+        >>> upper = stream.Part()
+        >>> upper.append(note.Note('E4', quarterLength=1.0))
+        >>> score.append(bass)
+        >>> score.append(upper)
+        >>> result = generate_figured_bass(score)
+        >>> 'figures' in result
+        True
+    """
+    # Get chord analysis
+    chord_analysis = analyze_chord_progressions(score, key_sig)
+
+    if 'error' in chord_analysis:
+        return chord_analysis
+
+    chords_list = chord_analysis['chords']
+
+    # Extract bass line (lowest part)
+    if len(score.parts) == 0:
+        return {
+            'error': 'No parts in score',
+            'figures': [],
+            'bass_line': [],
+            'key': str(key_sig) if key_sig else 'C'
+        }
+
+    bass_part = score.parts[-1]  # Assume lowest part is bass
+    bass_notes = []
+    for n in bass_part.flatten().notes:
+        if isinstance(n, note.Note):
+            bass_notes.append({
+                'offset': float(n.offset),
+                'pitch': n.pitch.nameWithOctave,
+                'duration': float(n.quarterLength)
+            })
+
+    # Generate figured bass symbols
+    figures = []
+
+    for chord_data in chords_list:
+        bass_note = chord_data.get('bass')
+        root_note = chord_data.get('root')
+
+        if not bass_note or not root_note:
+            continue
+
+        # Determine inversion
+        figure = ''
+
+        # Count chord members
+        num_pitches = len(chord_data['pitches'])
+
+        # Simple logic for triads and seventh chords
+        if bass_note == root_note:
+            # Root position
+            if num_pitches >= 4:
+                figure = '7'  # Seventh chord
+            else:
+                figure = ''  # Root position triad (often omitted)
+        else:
+            # Inverted
+            try:
+                # Find which chord member is in bass
+                pitch_classes = [m21.pitch.Pitch(p).pitchClass for p in chord_data['pitches']]
+                bass_pc = m21.pitch.Pitch(bass_note).pitchClass
+                root_pc = m21.pitch.Pitch(root_note).pitchClass
+
+                # Calculate position
+                if num_pitches >= 4:
+                    # Seventh chord inversions
+                    if bass_pc == root_pc:
+                        figure = '7'
+                    else:
+                        # Count up from bass to determine inversion
+                        sorted_pcs = sorted(set(pitch_classes))
+                        bass_pos = sorted_pcs.index(bass_pc)
+
+                        if bass_pos == 1:
+                            figure = '6/5'
+                        elif bass_pos == 2:
+                            figure = '4/3'
+                        elif bass_pos == 3:
+                            figure = '4/2'
+                else:
+                    # Triad inversions
+                    sorted_pcs = sorted(set(pitch_classes))
+                    bass_pos = sorted_pcs.index(bass_pc)
+
+                    if bass_pos == 1:
+                        figure = '6'
+                    elif bass_pos == 2:
+                        figure = '6/4'
+            except:
+                figure = '?'
+
+        figures.append({
+            'offset': chord_data['offset'],
+            'figure': figure,
+            'bass_note': bass_note,
+            'roman_numeral': chord_data.get('roman_numeral'),
+            'duration': chord_data['duration']
+        })
+
+    return {
+        'figures': figures,
+        'bass_line': bass_notes,
+        'key': chord_analysis['key'],
+        'num_figures': len(figures)
+    }
+
+
+# ============================================================================
+# Phase 10: Advanced Pattern Analysis
+# ============================================================================
+
+def detect_motifs(
+    score: stream.Score,
+    min_length: int = 3,
+    max_length: int = 8,
+    min_occurrences: int = 2,
+    allow_transposition: bool = True,
+    allow_rhythmic_variation: bool = False
+) -> Dict[str, any]:
+    """
+    Detect recurring melodic and rhythmic motifs in a score.
+
+    Identifies patterns that occur multiple times, tracking their
+    transformations (transposition, inversion, augmentation, etc.)
+
+    Args:
+        score: The score to analyze
+        min_length: Minimum number of notes in a motif
+        max_length: Maximum number of notes in a motif
+        min_occurrences: Minimum number of times a motif must appear
+        allow_transposition: Consider transposed versions as same motif
+        allow_rhythmic_variation: Allow rhythmic variations of motifs
+
+    Returns:
+        Dictionary containing:
+        - 'motifs': List of identified motifs with locations
+        - 'num_motifs': Total number of unique motifs found
+        - 'total_occurrences': Total occurrences across all motifs
+        - 'most_common': The most frequently occurring motif
+
+    Example:
+        >>> from cancrizans import detect_motifs
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> part = stream.Part()
+        >>> for p in ['C4', 'D4', 'E4', 'C4', 'D4', 'E4']:
+        ...     part.append(note.Note(p, quarterLength=1.0))
+        >>> score.append(part)
+        >>> result = detect_motifs(score)
+        >>> result['num_motifs'] > 0
+        True
+    """
+    motifs = []
+    motif_dict = {}  # Pattern signature -> motif data
+
+    # Extract all melodic lines from all parts
+    for part_idx, part in enumerate(score.parts):
+        notes_list = list(part.flatten().notes)
+
+        if len(notes_list) < min_length:
+            continue
+
+        # Try all possible motif lengths
+        for motif_len in range(min_length, min(max_length + 1, len(notes_list) + 1)):
+            # Sliding window through the part
+            for start_idx in range(len(notes_list) - motif_len + 1):
+                motif_notes = notes_list[start_idx:start_idx + motif_len]
+
+                # Extract pattern signature
+                if not motif_notes:
+                    continue
+
+                # Melodic contour (intervals between notes)
+                intervals = []
+                rhythms = []
+                pitches = []
+
+                for i, n in enumerate(motif_notes):
+                    if isinstance(n, note.Note):
+                        pitches.append(n.pitch.midi)
+                        rhythms.append(float(n.quarterLength))
+                        if i > 0 and isinstance(motif_notes[i-1], note.Note):
+                            interval = n.pitch.midi - motif_notes[i-1].pitch.midi
+                            intervals.append(interval)
+                    elif isinstance(n, chord.Chord):
+                        # Use highest note of chord
+                        pitches.append(max(p.midi for p in n.pitches))
+                        rhythms.append(float(n.quarterLength))
+                        if i > 0:
+                            prev_pitch = pitches[i-1]
+                            interval = pitches[i] - prev_pitch
+                            intervals.append(interval)
+
+                if not intervals:
+                    continue
+
+                # Create signature based on settings
+                if allow_transposition:
+                    # Use interval pattern (independent of pitch)
+                    if allow_rhythmic_variation:
+                        signature = tuple(intervals)
+                    else:
+                        signature = (tuple(intervals), tuple(rhythms))
+                else:
+                    # Use actual pitches
+                    if allow_rhythmic_variation:
+                        signature = tuple(pitches)
+                    else:
+                        signature = (tuple(pitches), tuple(rhythms))
+
+                # Record occurrence
+                if signature not in motif_dict:
+                    motif_dict[signature] = {
+                        'intervals': intervals,
+                        'rhythms': rhythms,
+                        'pitches': pitches,
+                        'occurrences': []
+                    }
+
+                motif_dict[signature]['occurrences'].append({
+                    'part': part_idx,
+                    'offset': float(motif_notes[0].offset),
+                    'pitches': pitches,
+                    'duration': sum(rhythms)
+                })
+
+    # Filter by minimum occurrences
+    for signature, data in motif_dict.items():
+        if len(data['occurrences']) >= min_occurrences:
+            motifs.append({
+                'intervals': data['intervals'],
+                'rhythms': data['rhythms'],
+                'example_pitches': data['pitches'],
+                'occurrences': data['occurrences'],
+                'num_occurrences': len(data['occurrences'])
+            })
+
+    # Sort by frequency
+    motifs.sort(key=lambda x: x['num_occurrences'], reverse=True)
+
+    total_occurrences = sum(m['num_occurrences'] for m in motifs)
+    most_common = motifs[0] if motifs else None
+
+    return {
+        'motifs': motifs,
+        'num_motifs': len(motifs),
+        'total_occurrences': total_occurrences,
+        'most_common': most_common
+    }
+
+
+def identify_melodic_sequences(
+    score: stream.Score,
+    min_repetitions: int = 2,
+    max_transposition: int = 12
+) -> Dict[str, any]:
+    """
+    Identify melodic sequences (repeated patterns at different pitch levels).
+
+    Detects sequential patterns where a melodic fragment is repeated at
+    different transpositions, common in baroque and classical music.
+
+    Args:
+        score: The score to analyze
+        min_repetitions: Minimum number of sequential repetitions
+        max_transposition: Maximum interval of transposition in semitones
+
+    Returns:
+        Dictionary containing:
+        - 'sequences': List of identified sequences
+        - 'num_sequences': Total number of sequences found
+        - 'types': Classification (ascending, descending, mixed)
+
+    Example:
+        >>> from cancrizans import identify_melodic_sequences
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> part = stream.Part()
+        >>> # C-D-E, then D-E-F# (sequence up by step)
+        >>> for p in ['C4', 'D4', 'E4', 'D4', 'E4', 'F#4']:
+        ...     part.append(note.Note(p, quarterLength=1.0))
+        >>> score.append(part)
+        >>> result = identify_melodic_sequences(score)
+        >>> 'sequences' in result
+        True
+    """
+    sequences = []
+
+    for part_idx, part in enumerate(score.parts):
+        notes_list = list(part.flatten().notes)
+
+        if len(notes_list) < min_repetitions * 2:
+            continue
+
+        # Try different segment lengths
+        for seg_len in range(2, len(notes_list) // min_repetitions + 1):
+            # Try each starting position
+            for start in range(len(notes_list) - seg_len * min_repetitions + 1):
+                # Extract first segment
+                seg1_notes = notes_list[start:start + seg_len]
+
+                if not all(isinstance(n, note.Note) for n in seg1_notes):
+                    continue
+
+                seg1_intervals = []
+                for i in range(1, len(seg1_notes)):
+                    seg1_intervals.append(
+                        seg1_notes[i].pitch.midi - seg1_notes[i-1].pitch.midi
+                    )
+
+                if not seg1_intervals:
+                    continue
+
+                # Look for repetitions
+                transpositions = []
+                positions = [start]
+
+                # Check subsequent segments
+                next_pos = start + seg_len
+                while next_pos + seg_len <= len(notes_list):
+                    seg_notes = notes_list[next_pos:next_pos + seg_len]
+
+                    if not all(isinstance(n, note.Note) for n in seg_notes):
+                        break
+
+                    # Calculate intervals
+                    seg_intervals = []
+                    for i in range(1, len(seg_notes)):
+                        seg_intervals.append(
+                            seg_notes[i].pitch.midi - seg_notes[i-1].pitch.midi
+                        )
+
+                    # Check if intervals match (same melodic contour)
+                    if seg_intervals == seg1_intervals:
+                        # Calculate transposition
+                        trans = seg_notes[0].pitch.midi - seg1_notes[0].pitch.midi
+
+                        if abs(trans) <= max_transposition:
+                            transpositions.append(trans)
+                            positions.append(next_pos)
+                            next_pos += seg_len
+                        else:
+                            break
+                    else:
+                        break
+
+                # Check if we found enough repetitions
+                if len(transpositions) >= min_repetitions - 1:
+                    # Classify sequence type
+                    if all(t > 0 for t in transpositions):
+                        seq_type = 'ascending'
+                    elif all(t < 0 for t in transpositions):
+                        seq_type = 'descending'
+                    elif all(t == transpositions[0] for t in transpositions):
+                        seq_type = 'consistent'
+                    else:
+                        seq_type = 'mixed'
+
+                    sequences.append({
+                        'part': part_idx,
+                        'start_offset': float(seg1_notes[0].offset),
+                        'segment_length': seg_len,
+                        'num_repetitions': len(transpositions) + 1,
+                        'transpositions': transpositions,
+                        'positions': positions,
+                        'type': seq_type,
+                        'intervals': seg1_intervals
+                    })
+
+    # Count sequence types
+    type_counts = {}
+    for seq in sequences:
+        seq_type = seq['type']
+        type_counts[seq_type] = type_counts.get(seq_type, 0) + 1
+
+    return {
+        'sequences': sequences,
+        'num_sequences': len(sequences),
+        'types': type_counts
+    }
+
+
+def detect_imitation_points(
+    score: stream.Score,
+    min_length: int = 3,
+    max_delay: float = 8.0,
+    similarity_threshold: float = 0.8
+) -> Dict[str, any]:
+    """
+    Detect points where voices imitate each other (fugal entries, canonic imitation).
+
+    Identifies when one voice imitates material from another voice,
+    classifying the type of imitation (exact, tonal, rhythmic).
+
+    Args:
+        score: The score to analyze
+        min_length: Minimum number of notes for imitation
+        max_delay: Maximum delay in quarter notes between voices
+        similarity_threshold: Threshold for fuzzy matching (0-1)
+
+    Returns:
+        Dictionary containing:
+        - 'imitation_points': List of imitation entries
+        - 'num_imitations': Total number of imitations found
+        - 'imitation_types': Count by type (exact, tonal, rhythmic)
+
+    Example:
+        >>> from cancrizans import detect_imitation_points
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> part1 = stream.Part()
+        >>> part2 = stream.Part()
+        >>> for p in ['C4', 'D4', 'E4']:
+        ...     part1.append(note.Note(p, quarterLength=1.0))
+        ...     n = note.Note(p, quarterLength=1.0)
+        ...     n.offset = 2.0
+        ...     part2.append(n)
+        >>> score.append(part1)
+        >>> score.append(part2)
+        >>> result = detect_imitation_points(score)
+        >>> 'imitation_points' in result
+        True
+    """
+    imitation_points = []
+
+    parts_list = list(score.parts)
+
+    if len(parts_list) < 2:
+        return {
+            'imitation_points': [],
+            'num_imitations': 0,
+            'imitation_types': {}
+        }
+
+    # Compare each pair of voices
+    for i in range(len(parts_list)):
+        for j in range(i + 1, len(parts_list)):
+            part1 = parts_list[i]
+            part2 = parts_list[j]
+
+            notes1 = list(part1.flatten().notes)
+            notes2 = list(part2.flatten().notes)
+
+            if len(notes1) < min_length or len(notes2) < min_length:
+                continue
+
+            # Try each position in part1 as potential subject
+            for start1 in range(len(notes1) - min_length + 1):
+                subject_notes = notes1[start1:start1 + min_length]
+
+                if not all(isinstance(n, note.Note) for n in subject_notes):
+                    continue
+
+                subject_intervals = []
+                subject_rhythms = []
+                subject_pitches = []
+
+                for k in range(len(subject_notes)):
+                    n = subject_notes[k]
+                    subject_pitches.append(n.pitch.midi)
+                    subject_rhythms.append(float(n.quarterLength))
+                    if k > 0:
+                        subject_intervals.append(
+                            n.pitch.midi - subject_notes[k-1].pitch.midi
+                        )
+
+                subject_offset = float(subject_notes[0].offset)
+
+                # Look for imitation in part2
+                for start2 in range(len(notes2) - min_length + 1):
+                    answer_notes = notes2[start2:start2 + min_length]
+
+                    if not all(isinstance(n, note.Note) for n in answer_notes):
+                        continue
+
+                    answer_offset = float(answer_notes[0].offset)
+                    delay = answer_offset - subject_offset
+
+                    # Check delay constraint
+                    if delay < 0 or delay > max_delay:
+                        continue
+
+                    answer_intervals = []
+                    answer_rhythms = []
+                    answer_pitches = []
+
+                    for k in range(len(answer_notes)):
+                        n = answer_notes[k]
+                        answer_pitches.append(n.pitch.midi)
+                        answer_rhythms.append(float(n.quarterLength))
+                        if k > 0:
+                            answer_intervals.append(
+                                n.pitch.midi - answer_notes[k-1].pitch.midi
+                            )
+
+                    # Classify imitation type
+                    imitation_type = None
+                    similarity = 0.0
+
+                    # Exact imitation (same pitches and rhythms)
+                    if subject_pitches == answer_pitches and subject_rhythms == answer_rhythms:
+                        imitation_type = 'exact'
+                        similarity = 1.0
+
+                    # Tonal imitation (same intervals, different pitches)
+                    elif subject_intervals == answer_intervals and subject_rhythms == answer_rhythms:
+                        imitation_type = 'tonal'
+                        # Calculate similarity based on interval matching
+                        if subject_intervals:
+                            matches = sum(1 for a, b in zip(subject_intervals, answer_intervals) if a == b)
+                            similarity = matches / len(subject_intervals)
+                        else:
+                            similarity = 0.0
+
+                    # Rhythmic imitation (same rhythms, different pitches/intervals)
+                    elif subject_rhythms == answer_rhythms:
+                        imitation_type = 'rhythmic'
+                        if subject_rhythms:
+                            matches = sum(1 for a, b in zip(subject_rhythms, answer_rhythms) if abs(a - b) < 0.01)
+                            similarity = matches / len(subject_rhythms)
+                        else:
+                            similarity = 0.0
+
+                    # Approximate imitation
+                    else:
+                        # Calculate interval similarity
+                        if len(subject_intervals) == len(answer_intervals):
+                            interval_matches = sum(1 for a, b in zip(subject_intervals, answer_intervals) if a == b)
+                            interval_sim = interval_matches / len(subject_intervals) if subject_intervals else 0
+
+                            rhythm_matches = sum(1 for a, b in zip(subject_rhythms, answer_rhythms) if abs(a - b) < 0.01)
+                            rhythm_sim = rhythm_matches / len(subject_rhythms) if subject_rhythms else 0
+
+                            similarity = (interval_sim + rhythm_sim) / 2
+
+                            if similarity >= similarity_threshold:
+                                imitation_type = 'approximate'
+
+                    # Record imitation if found
+                    if imitation_type and similarity >= similarity_threshold:
+                        imitation_points.append({
+                            'subject_part': i,
+                            'answer_part': j,
+                            'subject_offset': subject_offset,
+                            'answer_offset': answer_offset,
+                            'delay': delay,
+                            'length': min_length,
+                            'type': imitation_type,
+                            'similarity': similarity,
+                            'transposition': answer_pitches[0] - subject_pitches[0]
+                        })
+
+    # Count by type
+    type_counts = {}
+    for im in imitation_points:
+        im_type = im['type']
+        type_counts[im_type] = type_counts.get(im_type, 0) + 1
+
+    return {
+        'imitation_points': imitation_points,
+        'num_imitations': len(imitation_points),
+        'imitation_types': type_counts
+    }
+
+
+def analyze_thematic_development(
+    score: stream.Score,
+    theme: Optional[stream.Stream] = None,
+    detect_fragmentation: bool = True,
+    detect_augmentation: bool = True,
+    detect_diminution: bool = True
+) -> Dict[str, any]:
+    """
+    Analyze how themes develop and transform throughout a piece.
+
+    Tracks thematic material and identifies transformations like
+    fragmentation, augmentation, diminution, and recombination.
+
+    Args:
+        score: The score to analyze
+        theme: Optional theme to track (uses first motif if not provided)
+        detect_fragmentation: Detect theme fragments
+        detect_augmentation: Detect augmented versions
+        detect_diminution: Detect diminished versions
+
+    Returns:
+        Dictionary containing:
+        - 'theme': The reference theme
+        - 'occurrences': All occurrences and transformations
+        - 'transformations': Count by transformation type
+        - 'development_timeline': Chronological list of appearances
+
+    Example:
+        >>> from cancrizans import analyze_thematic_development
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> part = stream.Part()
+        >>> for p in ['C4', 'D4', 'E4', 'F4']:
+        ...     part.append(note.Note(p, quarterLength=1.0))
+        >>> score.append(part)
+        >>> result = analyze_thematic_development(score)
+        >>> 'theme' in result
+        True
+    """
+    # If no theme provided, use first motif
+    theme_notes = None  # Track original theme pitches if available
+    if theme is None:
+        motif_result = detect_motifs(score, min_length=3, max_length=6, min_occurrences=1)
+        if not motif_result['motifs']:
+            return {
+                'theme': None,
+                'occurrences': [],
+                'transformations': {},
+                'development_timeline': []
+            }
+
+        # Use the most common motif as theme
+        first_motif = motif_result['motifs'][0]
+        theme_intervals = first_motif['intervals']
+        theme_rhythms = first_motif['rhythms']
+    else:
+        # Extract intervals and rhythms from provided theme
+        theme_notes = list(theme.flatten().notes)
+        theme_intervals = []
+        theme_rhythms = []
+
+        for i, n in enumerate(theme_notes):
+            if isinstance(n, note.Note):
+                theme_rhythms.append(float(n.quarterLength))
+                if i > 0 and isinstance(theme_notes[i-1], note.Note):
+                    theme_intervals.append(
+                        n.pitch.midi - theme_notes[i-1].pitch.midi
+                    )
+
+    occurrences = []
+    transformations = {
+        'original': 0,
+        'transposed': 0,
+        'inverted': 0,
+        'retrograde': 0,
+        'augmented': 0,
+        'diminished': 0,
+        'fragmented': 0
+    }
+
+    # Search for theme and its transformations
+    for part_idx, part in enumerate(score.parts):
+        notes_list = list(part.flatten().notes)
+
+        theme_len = len(theme_intervals) + 1
+
+        # Look for exact and transformed versions
+        for start in range(len(notes_list) - theme_len + 1):
+            segment = notes_list[start:start + theme_len]
+
+            if not all(isinstance(n, note.Note) for n in segment):
+                continue
+
+            seg_intervals = []
+            seg_rhythms = []
+
+            for i in range(len(segment)):
+                n = segment[i]
+                seg_rhythms.append(float(n.quarterLength))
+                if i > 0:
+                    seg_intervals.append(
+                        n.pitch.midi - segment[i-1].pitch.midi
+                    )
+
+            # Check for various transformations
+            transformation = None
+
+            # Original or transposed
+            if seg_intervals == theme_intervals and seg_rhythms == theme_rhythms:
+                if theme_notes and segment[0].pitch.midi == theme_notes[0].pitch.midi:
+                    transformation = 'original'
+                else:
+                    transformation = 'transposed'
+
+            # Inverted
+            elif seg_intervals == [-i for i in theme_intervals] and seg_rhythms == theme_rhythms:
+                transformation = 'inverted'
+
+            # Retrograde
+            elif seg_intervals == theme_intervals[::-1] and seg_rhythms == theme_rhythms[::-1]:
+                transformation = 'retrograde'
+
+            # Augmented (rhythms doubled)
+            elif detect_augmentation and seg_intervals == theme_intervals:
+                if all(abs(sr - 2*tr) < 0.01 for sr, tr in zip(seg_rhythms, theme_rhythms)):
+                    transformation = 'augmented'
+
+            # Diminished (rhythms halved)
+            elif detect_diminution and seg_intervals == theme_intervals:
+                if all(abs(sr - tr/2) < 0.01 for sr, tr in zip(seg_rhythms, theme_rhythms)):
+                    transformation = 'diminished'
+
+            if transformation:
+                occurrences.append({
+                    'part': part_idx,
+                    'offset': float(segment[0].offset),
+                    'transformation': transformation,
+                    'pitches': [n.pitch.midi for n in segment]
+                })
+                transformations[transformation] += 1
+
+        # Look for fragments
+        if detect_fragmentation and len(theme_intervals) > 2:
+            for frag_len in range(2, len(theme_intervals)):
+                for theme_start in range(len(theme_intervals) - frag_len + 1):
+                    theme_fragment = theme_intervals[theme_start:theme_start + frag_len]
+
+                    for start in range(len(notes_list) - frag_len):
+                        segment = notes_list[start:start + frag_len + 1]
+
+                        if not all(isinstance(n, note.Note) for n in segment):
+                            continue
+
+                        seg_intervals = []
+                        for i in range(1, len(segment)):
+                            seg_intervals.append(
+                                segment[i].pitch.midi - segment[i-1].pitch.midi
+                            )
+
+                        if seg_intervals == theme_fragment:
+                            occurrences.append({
+                                'part': part_idx,
+                                'offset': float(segment[0].offset),
+                                'transformation': 'fragmented',
+                                'pitches': [n.pitch.midi for n in segment],
+                                'fragment_length': frag_len
+                            })
+                            transformations['fragmented'] += 1
+
+    # Create timeline
+    timeline = sorted(occurrences, key=lambda x: x['offset'])
+
+    return {
+        'theme': {
+            'intervals': theme_intervals,
+            'rhythms': theme_rhythms
+        },
+        'occurrences': occurrences,
+        'transformations': transformations,
+        'development_timeline': timeline,
+        'total_occurrences': len(occurrences)
+    }
+
+
+# ============================================================================
+# Phase 12: Performance Analysis
+# ============================================================================
+
+def analyze_articulation(
+    score: stream.Score,
+    style: str = 'baroque'
+) -> Dict[str, any]:
+    """
+    Analyze articulation patterns and suggest appropriate articulations.
+
+    Examines note patterns, intervals, and rhythms to suggest period-appropriate
+    articulations (staccato, legato, tenuto, accent, etc.)
+
+    Args:
+        score: The score to analyze
+        style: Performance style ('baroque', 'classical', 'romantic')
+
+    Returns:
+        Dictionary containing:
+        - 'suggestions': List of articulation suggestions with locations
+        - 'patterns': Detected articulation patterns
+        - 'style_notes': Style-specific performance notes
+
+    Example:
+        >>> from cancrizans import analyze_articulation
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> part = stream.Part()
+        >>> for p in ['C4', 'D4', 'E4', 'F4']:
+        ...     part.append(note.Note(p, quarterLength=1.0))
+        >>> score.append(part)
+        >>> result = analyze_articulation(score)
+        >>> 'suggestions' in result
+        True
+    """
+    suggestions = []
+    patterns = []
+
+    # Style-specific rules
+    if style == 'baroque':
+        # Baroque: detached except in slurs, light articulation
+        articulation_rules = {
+            'stepwise': 'legato',  # Stepwise motion often legato
+            'leaps': 'detached',    # Leaps often detached
+            'repeated': 'staccato', # Repeated notes staccato
+            'syncopated': 'accent'  # Syncopations accented
+        }
+        style_notes = [
+            'Use light, detached articulation as default',
+            'Slur stepwise passages in slow movements',
+            'Detach notes in fast passages',
+            'Use inequality (notes inégales) in French style'
+        ]
+    elif style == 'classical':
+        articulation_rules = {
+            'stepwise': 'legato',
+            'leaps': 'legato',
+            'repeated': 'non-legato',
+            'syncopated': 'accent'
+        }
+        style_notes = [
+            'Generally more legato than baroque',
+            'Use clear phrase articulation',
+            'Light staccato for quick passages',
+            'Accent structural downbeats'
+        ]
+    else:  # romantic
+        articulation_rules = {
+            'stepwise': 'legato',
+            'leaps': 'legato',
+            'repeated': 'various',
+            'syncopated': 'tenuto'
+        }
+        style_notes = [
+            'Generally legato unless marked otherwise',
+            'Use expressive tenuto and accent',
+            'Rubato and flexible phrasing',
+            'Rich dynamic shaping'
+        ]
+
+    # Analyze each part
+    for part_idx, part in enumerate(score.parts):
+        notes_list = list(part.flatten().notes)
+
+        for i, n in enumerate(notes_list):
+            if not isinstance(n, note.Note):
+                continue
+
+            # Check for patterns
+            pattern_type = None
+            suggested_articulation = None
+
+            # Repeated notes
+            if i > 0 and isinstance(notes_list[i-1], note.Note):
+                if n.pitch.midi == notes_list[i-1].pitch.midi:
+                    pattern_type = 'repeated'
+                    suggested_articulation = articulation_rules['repeated']
+
+                # Stepwise motion
+                interval = abs(n.pitch.midi - notes_list[i-1].pitch.midi)
+                if interval <= 2:
+                    pattern_type = 'stepwise'
+                    suggested_articulation = articulation_rules['stepwise']
+                elif interval > 2:
+                    pattern_type = 'leaps'
+                    suggested_articulation = articulation_rules['leaps']
+
+            # Syncopation (note starts on weak beat)
+            if n.offset % 1.0 != 0:  # Not on strong beat
+                pattern_type = 'syncopated'
+                suggested_articulation = articulation_rules['syncopated']
+
+            # Short notes suggest staccato
+            if n.quarterLength < 0.5:
+                suggested_articulation = 'staccato'
+
+            if suggested_articulation:
+                suggestions.append({
+                    'part': part_idx,
+                    'offset': float(n.offset),
+                    'pitch': n.pitch.nameWithOctave,
+                    'pattern': pattern_type,
+                    'articulation': suggested_articulation
+                })
+
+                if pattern_type not in [p['type'] for p in patterns]:
+                    patterns.append({
+                        'type': pattern_type,
+                        'suggested_articulation': suggested_articulation
+                    })
+
+    return {
+        'suggestions': suggestions,
+        'patterns': patterns,
+        'style': style,
+        'style_notes': style_notes,
+        'num_suggestions': len(suggestions)
+    }
+
+
+def suggest_dynamics(
+    score: stream.Score,
+    style: str = 'baroque',
+    terraced: bool = True
+) -> Dict[str, any]:
+    """
+    Suggest dynamic markings based on musical structure.
+
+    Analyzes phrase structure, harmonic progression, and melodic contour
+    to suggest period-appropriate dynamics.
+
+    Args:
+        score: The score to analyze
+        style: Performance style ('baroque', 'classical', 'romantic')
+        terraced: Use terraced dynamics (baroque) vs. gradual (romantic)
+
+    Returns:
+        Dictionary containing:
+        - 'dynamics': List of suggested dynamic markings with locations
+        - 'ranges': Recommended dynamic range for the piece
+        - 'notes': Performance notes about dynamics
+
+    Example:
+        >>> from cancrizans import suggest_dynamics
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> part = stream.Part()
+        >>> for p in ['C4', 'E4', 'G4', 'C5']:
+        ...     part.append(note.Note(p, quarterLength=1.0))
+        >>> score.append(part)
+        >>> result = suggest_dynamics(score)
+        >>> 'dynamics' in result
+        True
+    """
+    dynamics = []
+
+    # Style-specific dynamic ranges
+    if style == 'baroque':
+        dynamic_range = ['pp', 'p', 'mp', 'mf', 'f', 'ff']
+        default_dynamic = 'mf'
+        notes = [
+            'Use terraced dynamics (sudden changes)',
+            'Echo effects common (f-p alternation)',
+            'Dynamic changes align with texture changes',
+            'Forte for full ensemble, piano for soloists'
+        ]
+    elif style == 'classical':
+        dynamic_range = ['pp', 'p', 'mp', 'mf', 'f', 'ff']
+        default_dynamic = 'mf'
+        notes = [
+            'Mix of terraced and gradual dynamics',
+            'Use crescendo/diminuendo for phrase shaping',
+            'Dynamic contrasts at formal boundaries',
+            'Subito piano after forte climax'
+        ]
+    else:  # romantic
+        dynamic_range = ['ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff']
+        default_dynamic = 'mp'
+        notes = [
+            'Wide dynamic range with gradual changes',
+            'Extended crescendos and diminuendos',
+            'Expressive dynamic nuance',
+            'Emphasis on climactic points'
+        ]
+
+    # Analyze phrase structure and suggest dynamics
+    for part_idx, part in enumerate(score.parts):
+        notes_list = list(part.flatten().notes)
+
+        if not notes_list:
+            continue
+
+        # Start with default dynamic
+        dynamics.append({
+            'part': part_idx,
+            'offset': 0.0,
+            'dynamic': default_dynamic,
+            'reason': 'opening'
+        })
+
+        # Analyze melodic contour for dynamic suggestions
+        for i in range(1, len(notes_list)):
+            if not isinstance(notes_list[i], note.Note):
+                continue
+
+            current_note = notes_list[i]
+            prev_note = notes_list[i-1]
+
+            # Rising sequence suggests crescendo
+            if isinstance(prev_note, note.Note):
+                interval = current_note.pitch.midi - prev_note.pitch.midi
+
+                # High point suggests forte
+                if i > 2 and i < len(notes_list) - 2:
+                    # Check if this is a local maximum
+                    next_note = notes_list[i+1]
+                    if isinstance(next_note, note.Note):
+                        if (current_note.pitch.midi > prev_note.pitch.midi and
+                            current_note.pitch.midi > next_note.pitch.midi):
+                            # Local maximum - suggest forte
+                            dynamics.append({
+                                'part': part_idx,
+                                'offset': float(current_note.offset),
+                                'dynamic': 'f' if terraced else 'crescendo',
+                                'reason': 'melodic peak'
+                            })
+
+                # Low point suggests piano
+                if i > 2 and i < len(notes_list) - 2:
+                    next_note = notes_list[i+1]
+                    if isinstance(next_note, note.Note):
+                        if (current_note.pitch.midi < prev_note.pitch.midi and
+                            current_note.pitch.midi < next_note.pitch.midi):
+                            # Local minimum
+                            dynamics.append({
+                                'part': part_idx,
+                                'offset': float(current_note.offset),
+                                'dynamic': 'p' if terraced else 'diminuendo',
+                                'reason': 'melodic valley'
+                            })
+
+        # End with appropriate dynamic
+        if notes_list:
+            final_dynamic = 'p' if style == 'baroque' else 'pp'
+            dynamics.append({
+                'part': part_idx,
+                'offset': float(notes_list[-1].offset),
+                'dynamic': final_dynamic,
+                'reason': 'closing'
+            })
+
+    return {
+        'dynamics': dynamics,
+        'dynamic_range': dynamic_range,
+        'default_dynamic': default_dynamic,
+        'style': style,
+        'terraced': terraced,
+        'notes': notes,
+        'num_dynamics': len(dynamics)
+    }
+
+
+def detect_ornament_opportunities(
+    score: stream.Score,
+    style: str = 'baroque'
+) -> Dict[str, any]:
+    """
+    Detect locations suitable for baroque ornaments and suggest types.
+
+    Identifies structural positions where trills, mordents, turns, and
+    appoggiaturas would be stylistically appropriate.
+
+    Args:
+        score: The score to analyze
+        style: Ornamentation style ('baroque', 'classical', 'romantic')
+
+    Returns:
+        Dictionary containing:
+        - 'ornaments': List of suggested ornaments with locations
+        - 'ornament_types': Count by ornament type
+        - 'rules': Style-specific ornamentation rules
+
+    Example:
+        >>> from cancrizans import detect_ornament_opportunities
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> part = stream.Part()
+        >>> for p in ['C4', 'D4', 'C4', 'B3', 'C4']:
+        ...     part.append(note.Note(p, quarterLength=1.0))
+        >>> score.append(part)
+        >>> result = detect_ornament_opportunities(score)
+        >>> 'ornaments' in result
+        True
+    """
+    ornaments = []
+    ornament_counts = {
+        'trill': 0,
+        'mordent': 0,
+        'turn': 0,
+        'appoggiatura': 0,
+        'acciaccatura': 0
+    }
+
+    # Style-specific rules
+    if style == 'baroque':
+        rules = [
+            'Trills on cadential notes (especially leading tone)',
+            'Mordents on short notes and repeated notes',
+            'Turns on longer notes with stepwise motion',
+            'Appoggiaturas on downbeats',
+            'Ornament final cadence extensively'
+        ]
+    elif style == 'classical':
+        rules = [
+            'Trills at cadences and structural points',
+            'Turns in melodic phrases',
+            'Appoggiaturas for expression',
+            'More restrained than baroque'
+        ]
+    else:  # romantic
+        rules = [
+            'Ornaments used sparingly',
+            'Expressive rather than structural',
+            'Often written out rather than indicated'
+        ]
+
+    # Analyze each part for ornament opportunities
+    for part_idx, part in enumerate(score.parts):
+        notes_list = list(part.flatten().notes)
+
+        for i, n in enumerate(notes_list):
+            if not isinstance(n, note.Note):
+                continue
+
+            # Trill opportunities
+            # 1. Penultimate note of phrase (if long enough)
+            if i == len(notes_list) - 2 and n.quarterLength >= 1.0:
+                ornaments.append({
+                    'part': part_idx,
+                    'offset': float(n.offset),
+                    'pitch': n.pitch.nameWithOctave,
+                    'type': 'trill',
+                    'reason': 'cadential note'
+                })
+                ornament_counts['trill'] += 1
+
+            # 2. Long notes (potential for trill)
+            if n.quarterLength >= 2.0 and i < len(notes_list) - 1:
+                ornaments.append({
+                    'part': part_idx,
+                    'offset': float(n.offset),
+                    'pitch': n.pitch.nameWithOctave,
+                    'type': 'trill',
+                    'reason': 'long note'
+                })
+                ornament_counts['trill'] += 1
+
+            # Mordent opportunities
+            # Short notes with stepwise motion
+            if n.quarterLength <= 0.5 and i > 0 and i < len(notes_list) - 1:
+                prev_note = notes_list[i-1]
+                next_note = notes_list[i+1]
+
+                if isinstance(prev_note, note.Note) and isinstance(next_note, note.Note):
+                    # Check for stepwise motion
+                    if abs(n.pitch.midi - prev_note.pitch.midi) <= 2:
+                        ornaments.append({
+                            'part': part_idx,
+                            'offset': float(n.offset),
+                            'pitch': n.pitch.nameWithOctave,
+                            'type': 'mordent',
+                            'reason': 'short note with stepwise motion'
+                        })
+                        ornament_counts['mordent'] += 1
+
+            # Turn opportunities
+            # Notes approached and left by step
+            if i > 0 and i < len(notes_list) - 1:
+                prev_note = notes_list[i-1]
+                next_note = notes_list[i+1]
+
+                if isinstance(prev_note, note.Note) and isinstance(next_note, note.Note):
+                    prev_interval = n.pitch.midi - prev_note.pitch.midi
+                    next_interval = next_note.pitch.midi - n.pitch.midi
+
+                    # Approached and left by step in opposite directions
+                    if (abs(prev_interval) <= 2 and abs(next_interval) <= 2 and
+                        prev_interval * next_interval < 0 and  # Opposite directions
+                        n.quarterLength >= 1.0):
+                        ornaments.append({
+                            'part': part_idx,
+                            'offset': float(n.offset),
+                            'pitch': n.pitch.nameWithOctave,
+                            'type': 'turn',
+                            'reason': 'stepwise approach and departure'
+                        })
+                        ornament_counts['turn'] += 1
+
+            # Appoggiatura opportunities
+            # Downbeat with leap
+            if n.offset % 4.0 == 0 and i > 0:  # Strong downbeat
+                prev_note = notes_list[i-1]
+                if isinstance(prev_note, note.Note):
+                    interval = abs(n.pitch.midi - prev_note.pitch.midi)
+                    if interval > 2:  # Leap
+                        ornaments.append({
+                            'part': part_idx,
+                            'offset': float(n.offset),
+                            'pitch': n.pitch.nameWithOctave,
+                            'type': 'appoggiatura',
+                            'reason': 'downbeat after leap'
+                        })
+                        ornament_counts['appoggiatura'] += 1
+
+    return {
+        'ornaments': ornaments,
+        'ornament_types': ornament_counts,
+        'style': style,
+        'rules': rules,
+        'num_ornaments': len(ornaments)
+    }
+
+
+def analyze_tempo_relationships(
+    score: stream.Score,
+    historical_context: str = 'baroque'
+) -> Dict[str, any]:
+    """
+    Analyze proportional tempo relationships and suggest metronome markings.
+
+    Examines note values, rhythmic patterns, and historical conventions
+    to suggest appropriate tempos.
+
+    Args:
+        score: The score to analyze
+        historical_context: Historical period ('baroque', 'classical', 'romantic')
+
+    Returns:
+        Dictionary containing:
+        - 'suggested_tempo': Recommended tempo marking
+        - 'metronome_range': Suggested metronome marking range
+        - 'proportions': Proportional relationships if multiple sections
+        - 'context': Historical context notes
+
+    Example:
+        >>> from cancrizans import analyze_tempo_relationships
+        >>> from music21 import stream, note
+        >>> score = stream.Score()
+        >>> part = stream.Part()
+        >>> for p in ['C4', 'D4', 'E4', 'F4']:
+        ...     part.append(note.Note(p, quarterLength=1.0))
+        >>> score.append(part)
+        >>> result = analyze_tempo_relationships(score)
+        >>> 'suggested_tempo' in result
+        True
+    """
+    # Analyze rhythmic density
+    all_durations = []
+    shortest_note = float('inf')
+    longest_note = 0.0
+
+    for part in score.parts:
+        for n in part.flatten().notes:
+            dur = float(n.quarterLength)
+            all_durations.append(dur)
+            shortest_note = min(shortest_note, dur)
+            longest_note = max(longest_note, dur)
+
+    if not all_durations:
+        return {
+            'suggested_tempo': None,
+            'metronome_range': None,
+            'proportions': [],
+            'context': []
+        }
+
+    avg_duration = sum(all_durations) / len(all_durations)
+
+    # Determine tempo based on historical context and note values
+    if historical_context == 'baroque':
+        context_notes = [
+            'Baroque tempos based on tactus (heartbeat ~60-80 bpm)',
+            'Faster notes imply slower tempo for clarity',
+            'Dance movements have specific tempo conventions',
+            'Consider affekt (emotional character)',
+            'French overture: dotted rhythms majestic and slow'
+        ]
+
+        # Baroque tempo suggestions based on note values
+        if shortest_note <= 0.25:  # 16th notes present
+            suggested_tempo = 'Moderato'
+            metronome_range = (60, 80)
+        elif shortest_note <= 0.5:  # 8th notes
+            suggested_tempo = 'Allegro moderato'
+            metronome_range = (80, 100)
+        else:  # Quarters and longer
+            suggested_tempo = 'Andante'
+            metronome_range = (72, 92)
+
+    elif historical_context == 'classical':
+        context_notes = [
+            'Classical tempos more varied than baroque',
+            'Consider movement type (allegro, andante, minuet)',
+            'Proportional relationships between movements',
+            'Mozart: graceful, not rushed',
+            'Haydn: spirited, witty'
+        ]
+
+        if shortest_note <= 0.125:  # 32nd notes
+            suggested_tempo = 'Allegro'
+            metronome_range = (120, 144)
+        elif shortest_note <= 0.25:  # 16th notes
+            suggested_tempo = 'Allegro moderato'
+            metronome_range = (100, 120)
+        elif shortest_note <= 0.5:  # 8th notes
+            suggested_tempo = 'Andante'
+            metronome_range = (76, 92)
+        else:
+            suggested_tempo = 'Adagio'
+            metronome_range = (60, 76)
+
+    else:  # romantic
+        context_notes = [
+            'Romantic tempos extremely flexible',
+            'Rubato expected',
+            'Expressive tempo modifications',
+            'Wide range of character indications',
+            'Consider emotional content over strict tempo'
+        ]
+
+        # Romantic tempos based on character
+        if avg_duration < 0.5:
+            suggested_tempo = 'Vivace'
+            metronome_range = (132, 160)
+        elif avg_duration < 1.0:
+            suggested_tempo = 'Moderato'
+            metronome_range = (88, 112)
+        else:
+            suggested_tempo = 'Lento'
+            metronome_range = (52, 68)
+
+    # Check for tempo changes (would analyze time signature changes, etc.)
+    proportions = []
+
+    return {
+        'suggested_tempo': suggested_tempo,
+        'metronome_range': metronome_range,
+        'shortest_note': shortest_note,
+        'longest_note': longest_note,
+        'avg_duration': avg_duration,
+        'proportions': proportions,
+        'historical_context': historical_context,
+        'context': context_notes
+    }
+
+
+# ============================================================================
+# Phase 13: Extended Canon Types
+# ============================================================================
+
+def canon_per_tonos(
+    theme: stream.Stream,
+    num_iterations: int = 12,
+    modulation_interval: int = 1
+) -> stream.Score:
+    """
+    Create a Canon per tonos (circle canon) that modulates through keys.
+
+    Creates a canon that cycles through all keys, returning to the starting key,
+    creating an infinite loop capability. Common in baroque music.
+
+    Args:
+        theme: The initial theme to transform
+        num_iterations: Number of modulations (12 for all keys)
+        modulation_interval: Semitone interval for each modulation
+
+    Returns:
+        Score containing the circle canon
+
+    Example:
+        >>> from cancrizans import canon_per_tonos
+        >>> from music21 import stream, note
+        >>> theme = stream.Stream()
+        >>> for p in ['C4', 'D4', 'E4']:
+        ...     theme.append(note.Note(p, quarterLength=1.0))
+        >>> result = canon_per_tonos(theme, num_iterations=4)
+        >>> len(result.parts) >= 1
+        True
+    """
+    score = stream.Score()
+    theme_part = stream.Part(id='original_theme')
+
+    # Copy original theme
+    for element in theme.flatten().notesAndRests:
+        theme_part.append(element)
+
+    score.append(theme_part)
+
+    # Create modulated versions
+    current_offset = 0.0
+    theme_duration = theme.duration.quarterLength
+
+    for i in range(1, num_iterations):
+        transposition = i * modulation_interval
+        part = stream.Part(id=f'transposed_{transposition}')
+
+        # Transpose and add to score
+        for element in theme.flatten().notesAndRests:
+            if isinstance(element, note.Note):
+                new_note = note.Note(
+                    pitch=element.pitch.transpose(transposition),
+                    quarterLength=element.quarterLength
+                )
+                new_note.offset = current_offset + element.offset
+                part.append(new_note)
+            elif isinstance(element, chord.Chord):
+                new_chord = chord.Chord(
+                    [p.transpose(transposition) for p in element.pitches],
+                    quarterLength=element.quarterLength
+                )
+                new_chord.offset = current_offset + element.offset
+                part.append(new_chord)
+
+        current_offset += theme_duration
+        score.append(part)
+
+    return score
+
+
+def canon_in_hypodiapasson(
+    theme: stream.Stream,
+    num_voices: int = 2,
+    delays: Optional[List[float]] = None
+) -> stream.Score:
+    """
+    Create a Canon in hypodiapasson (canon at the octave below).
+
+    Voice enters an octave lower, with support for multiple voice entries.
+    Common in Renaissance and Baroque contrapuntal works.
+
+    Args:
+        theme: The initial theme
+        num_voices: Number of voices (each enters octave below previous)
+        delays: Optional list of delays for each voice entry
+
+    Returns:
+        Score with voices at descending octaves
+
+    Example:
+        >>> from cancrizans import canon_in_hypodiapasson
+        >>> from music21 import stream, note
+        >>> theme = stream.Stream()
+        >>> for p in ['C4', 'D4', 'E4']:
+        ...     theme.append(note.Note(p, quarterLength=1.0))
+        >>> result = canon_in_hypodiapasson(theme, num_voices=3)
+        >>> len(result.parts) == 3
+        True
+    """
+    score = stream.Score()
+
+    if delays is None:
+        # Default: each voice enters 2 beats after previous
+        delays = [i * 2.0 for i in range(num_voices)]
+
+    for voice_idx in range(num_voices):
+        part = stream.Part(id=f'voice_{voice_idx}')
+        octave_transpose = -voice_idx * 12  # Each voice one octave lower
+        delay = delays[voice_idx] if voice_idx < len(delays) else 0.0
+
+        for element in theme.flatten().notesAndRests:
+            if isinstance(element, note.Note):
+                new_note = note.Note(
+                    pitch=element.pitch.transpose(octave_transpose),
+                    quarterLength=element.quarterLength
+                )
+                new_note.offset = element.offset + delay
+                part.append(new_note)
+            elif isinstance(element, chord.Chord):
+                new_chord = chord.Chord(
+                    [p.transpose(octave_transpose) for p in element.pitches],
+                    quarterLength=element.quarterLength
+                )
+                new_chord.offset = element.offset + delay
+                part.append(new_chord)
+
+        score.append(part)
+
+    return score
+
+
+def enhanced_canon_contrario_motu(
+    theme: stream.Stream,
+    axis_pitch: Optional[Union[str, int]] = None,
+    auto_detect_axis: bool = True
+) -> stream.Score:
+    """
+    Enhanced Canon in contrario motu (canon by contrary motion/inversion).
+
+    Improves existing inversion capabilities with automatic axis selection.
+
+    Args:
+        theme: The theme to invert
+        axis_pitch: Axis of inversion (auto-detected if not provided)
+        auto_detect_axis: Automatically detect optimal inversion axis
+
+    Returns:
+        Score with original and inverted voices
+
+    Example:
+        >>> from cancrizans import enhanced_canon_contrario_motu
+        >>> from music21 import stream, note
+        >>> theme = stream.Stream()
+        >>> for p in ['C4', 'D4', 'E4']:
+        ...     theme.append(note.Note(p, quarterLength=1.0))
+        >>> result = enhanced_canon_contrario_motu(theme)
+        >>> len(result.parts) == 2
+        True
+    """
+    score = stream.Score()
+
+    # Add original theme
+    original_part = stream.Part(id='original')
+    for element in theme.flatten().notesAndRests:
+        original_part.append(element)
+    score.append(original_part)
+
+    # Auto-detect axis if requested
+    if auto_detect_axis and axis_pitch is None:
+        # Use median pitch as axis
+        pitches = [n.pitch.midi for n in theme.flatten().notes if isinstance(n, note.Note)]
+        if pitches:
+            median_pitch = sorted(pitches)[len(pitches) // 2]
+            # Convert MIDI number to Pitch object
+            axis_pitch = m21.pitch.Pitch(midi=median_pitch)
+        else:
+            axis_pitch = 'C4'  # Default to middle C
+
+    # Create inverted voice using existing invert function
+    inverted = invert(theme, axis_pitch=axis_pitch)
+    inverted_part = stream.Part(id='inverted')
+    for element in inverted.flatten().notesAndRests:
+        inverted_part.append(element)
+    score.append(inverted_part)
+
+    return score
+
+
+def advanced_crab_canon(
+    theme: stream.Stream,
+    transformations: Optional[List[str]] = None,
+    voice_orientations: Optional[List[str]] = None
+) -> stream.Score:
+    """
+    Create advanced crab canon variants with multiple orientations.
+
+    Supports combined retrograde + inversion, asymmetric crab canons, and
+    multiple voices reading from different orientations.
+
+    Args:
+        theme: The theme to transform
+        transformations: List of transformations to apply
+        voice_orientations: Orientation for each voice ('forward', 'backward', 'both')
+
+    Returns:
+        Score with multiple crab canon voices
+
+    Example:
+        >>> from cancrizans import advanced_crab_canon
+        >>> from music21 import stream, note
+        >>> theme = stream.Stream()
+        >>> for p in ['C4', 'D4', 'E4']:
+        ...     theme.append(note.Note(p, quarterLength=1.0))
+        >>> result = advanced_crab_canon(theme)
+        >>> len(result.parts) >= 2
+        True
+    """
+    score = stream.Score()
+
+    if transformations is None:
+        transformations = ['original', 'retrograde', 'inverted', 'retrograde_inverted']
+
+    if voice_orientations is None:
+        voice_orientations = ['forward', 'backward']
+
+    # Create voice for each transformation
+    for transform_type in transformations:
+        if transform_type == 'original':
+            part = stream.Part(id='original')
+            for element in theme.flatten().notesAndRests:
+                part.append(element)
+            score.append(part)
+
+        elif transform_type == 'retrograde':
+            retro = retrograde(theme)
+            part = stream.Part(id='retrograde')
+            for element in retro.flatten().notesAndRests:
+                part.append(element)
+            score.append(part)
+
+        elif transform_type == 'inverted':
+            inv = invert(theme)
+            part = stream.Part(id='inverted')
+            for element in inv.flatten().notesAndRests:
+                part.append(element)
+            score.append(part)
+
+        elif transform_type == 'retrograde_inverted':
+            # Combine retrograde and inversion
+            inv = invert(theme)
+            retro_inv = retrograde(inv)
+            part = stream.Part(id='retrograde_inverted')
+            for element in retro_inv.flatten().notesAndRests:
+                part.append(element)
+            score.append(part)
+
+    return score
+

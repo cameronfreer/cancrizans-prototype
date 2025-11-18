@@ -4,10 +4,10 @@
 
 Cancrizans is a comprehensive toolkit for analyzing, verifying, and rendering palindromic musical structures, with a focus on Bach's *Canon Cancrizans* from *The Musical Offering* (BWV 1079).
 
-[![Python Tests](https://img.shields.io/badge/tests-311%20passed-brightgreen)](tests/)
+[![Python Tests](https://img.shields.io/badge/tests-472%20passed-brightgreen)](tests/)
 [![Coverage](https://img.shields.io/badge/coverage-99%25%20(100%25%20reachable)-brightgreen)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org)
-[![Version](https://img.shields.io/badge/version-0.18.0-blue)](cancrizans/__init__.py)
+[![Version](https://img.shields.io/badge/version-0.26.0-blue)](cancrizans/__init__.py)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Music](https://img.shields.io/badge/music-Public%20Domain-green)](data/)
 
@@ -44,7 +44,9 @@ The name comes from the sideways movement of crabs, referencing the backward mot
 
 ### 🐍 Python Library & CLI
 - **Core transformations**: retrograde, inversion, augmentation, diminution, mirror canon
+- **Advanced canon types**: table canon, mensuration canon, spiral canon, puzzle canon solver (NEW!)
 - **Analysis tools**: interval, harmonic, and rhythm analysis
+- **Music theory analysis**: voice leading, cadence detection, modulation detection, species counterpoint
 - **Palindrome verification**: automated structural analysis with pairwise mapping
 - **Export formats**: MIDI, MusicXML, LilyPond (.ly), ABC notation (.abc), WAV (optional)
 - **Visualizations**: piano roll and symmetry plots with matplotlib
@@ -53,8 +55,9 @@ The name comes from the sideways movement of crabs, referencing the backward mot
 - **Quality validation**: Automated scoring and recommendations for generated canons
 - **Research tools**: Batch processing, multi-format export (CSV/JSON/LaTeX/Markdown)
 - **Performance optimization**: Caching decorators (@memoize, @lru_cache, @disk_cache)
-- **Transformation chains**: Compose multiple transformations with fluent builder pattern (NEW!)
-- **World-class testing**: 285 tests, 97% coverage, 100% pass rate
+- **Transformation chains**: Compose multiple transformations with fluent builder pattern
+- **Advanced MIDI features**: Velocity curves, tempo curves, multi-instrument export, MIDI analysis
+- **World-class testing**: 472 tests, 97% coverage, 100% pass rate
 
 ### 🌐 Web Interface (PWA)
 - **✏️ Interactive Composer**: Create your own crab canons!
@@ -135,23 +138,33 @@ The name comes from the sideways movement of crabs, referencing the backward mot
 git clone https://github.com/yourusername/cancrizans.git
 cd cancrizans
 
-# Install with pip (development mode)
-pip install -e .
+# Install with uv (recommended)
+uv sync
 
 # Install with optional audio support
-pip install -e ".[audio]"
+uv sync --extra audio
 
 # Install development dependencies
-pip install -e ".[dev]"
+uv sync --extra dev
+
+# Or install all optional dependencies
+uv sync --all-extras
 ```
 
 ### Web Interface
 
 ```bash
 cd web
+
+# Using pnpm (recommended)
+pnpm install
+pnpm dev  # Development server at http://localhost:3000
+pnpm build  # Build for production
+
+# Or using npm
 npm install
-npm run dev  # Development server at http://localhost:3000
-npm run build  # Build for production
+npm run dev
+npm run build
 ```
 
 ## Quick Start
@@ -281,23 +294,23 @@ table_chain = TransformationChain.table_canon()  # retrograde + inversion
 
 ## Testing
 
-The project includes a comprehensive test suite with 285 tests (100% pass rate, 97% coverage) covering core functionality:
+The project includes a comprehensive test suite with 455 tests (100% pass rate, 97% coverage) covering core functionality:
 
 ```bash
 # Run all tests
-pytest
+uv run pytest
 
 # Run with coverage report
-pytest --cov=cancrizans --cov-report=html
+uv run pytest --cov=cancrizans --cov-report=html
 
 # Run specific test file
-pytest tests/test_generator.py
+uv run pytest tests/test_generator.py
 
 # Run CLI integration tests
-pytest tests/test_cli_integration.py
+uv run pytest tests/test_cli_integration.py
 
 # Run tests in verbose mode
-pytest -v
+uv run pytest -v
 ```
 
 **Test Coverage:**
@@ -521,16 +534,16 @@ Run the test suite:
 
 ```bash
 # Install test dependencies
-pip install -e ".[dev]"
+uv sync --extra dev
 
 # Run all tests
-pytest
+uv run pytest
 
 # Run with coverage
-pytest --cov=cancrizans --cov-report=html
+uv run pytest --cov=cancrizans --cov-report=html
 
 # Run specific test file
-pytest cancrizans/tests/test_palindrome.py -v
+uv run pytest cancrizans/tests/test_palindrome.py -v
 ```
 
 All tests run offline and require no external resources.

@@ -150,7 +150,7 @@ $ python -m cancrizans render --midi out.mid --xml out.xml --roll roll.png --mir
 
 ### ✅ 4. Tests
 ```bash
-$ python -m pytest cancrizans/tests/ -v
+$ uv run pytest cancrizans/tests/ -v
 ```
 **Result:** 26 passed in 1.00s
 
@@ -202,19 +202,19 @@ $ python -m pytest cancrizans/tests/ -v
 **Local Testing:**
 ```bash
 # Install
-pip install -e .
+uv sync --extra dev
 
 # Run tests
-python -m pytest
+uv run pytest
 
 # Try CLI
-python -m cancrizans analyze data/bach_crab_canon_real.musicxml
-python -m cancrizans render --midi out.mid --roll roll.png
-python -m cancrizans synthesize --tempo 84
+uv run python -m cancrizans analyze data/bach_crab_canon_real.musicxml
+uv run python -m cancrizans render --midi out.mid --roll roll.png
+uv run python -m cancrizans synthesize --tempo 84
 
 # Run Jupyter notebook
 cd notebooks
-jupyter notebook bach_crab_canon_exploration.ipynb
+uv run jupyter notebook bach_crab_canon_exploration.ipynb
 
 # Launch web UI
 cd web

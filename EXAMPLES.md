@@ -18,7 +18,7 @@ The authentic Bach Crab Canon (BWV 1079) analyzed:
 ### Installation
 
 ```bash
-pip install -e .
+uv sync
 ```
 
 ### Examples

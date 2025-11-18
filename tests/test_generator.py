@@ -268,3 +268,229 @@ class TestGeneratorEdgeCases:
         assert all(n.pitch.midi >= 36 for n in notes_after_first)
         # Verify we generated notes
         assert len(notes) > 0
+
+
+class TestAdvancedGenerators:
+    """Test advanced generation methods."""
+
+    def test_markov_canon_generation(self):
+        """Test Markov chain canon generation."""
+        gen = CanonGenerator(seed=42)
+        training = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5']
+        canon = gen.generate_markov_canon(training, length=12, order=1)
+
+        assert isinstance(canon, stream.Score)
+        assert len(canon.parts) == 2
+
+    def test_markov_second_order(self):
+        """Test second-order Markov chain."""
+        gen = CanonGenerator(seed=42)
+        training = ['C4', 'D4', 'E4', 'D4', 'C4', 'D4', 'E4', 'F4', 'G4']
+        canon = gen.generate_markov_canon(training, length=10, order=2)
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 10
+
+    def test_markov_insufficient_training(self):
+        """Test Markov with insufficient training data."""
+        gen = CanonGenerator()
+        training = ['C4', 'D4']  # Too short for order=2
+
+        with pytest.raises(ValueError):
+            gen.generate_markov_canon(training, length=10, order=2)
+
+    def test_contour_canon_generation(self):
+        """Test melodic contour canon generation."""
+        gen = CanonGenerator(seed=42)
+        contour = [0, 1, 2, 3, 2, 1, 0]  # Arch shape
+        canon = gen.generate_contour_canon(contour, root='D4')
+
+        assert isinstance(canon, stream.Score)
+        assert len(canon.parts) == 2
+
+    def test_contour_with_scale(self):
+        """Test contour with specific scale."""
+        gen = CanonGenerator(seed=42)
+        contour = [0, 1, -1, 2, -2]
+        major_scale = [0, 2, 4, 5, 7, 9, 11, 12]
+        canon = gen.generate_contour_canon(contour, root='C4', scale=major_scale)
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) > 0
+
+    def test_contour_range_clamping(self):
+        """Test that contour keeps pitches in range."""
+        gen = CanonGenerator(seed=42)
+        # Large contour that could go out of range
+        contour = [5, 10, 15, -20, 10]
+        canon = gen.generate_contour_canon(contour, root='C4')
+
+        notes = list(canon.parts[0].flatten().notes)
+        assert all(36 <= n.pitch.midi <= 84 for n in notes)
+
+    def test_motif_canon_sequence(self):
+        """Test motif canon with sequence development."""
+        gen = CanonGenerator(seed=42)
+        motif = ['C4', 'E4', 'G4']
+        canon = gen.generate_motif_canon(motif, 'sequence', 4, 2)
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 12  # 3 notes × 4 repetitions
+
+    def test_motif_canon_variation(self):
+        """Test motif canon with rhythmic variation."""
+        gen = CanonGenerator(seed=42)
+        motif = ['C4', 'D4', 'E4']
+        canon = gen.generate_motif_canon(motif, 'variation', 3)
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        # Should have varied durations
+        durations = [n.quarterLength for n in notes]
+        assert len(set(durations)) > 1  # More than one unique duration
+
+    def test_motif_canon_fragmentation(self):
+        """Test motif canon with fragmentation."""
+        gen = CanonGenerator(seed=42)
+        motif = ['C4', 'D4', 'E4', 'F4']
+        canon = gen.generate_motif_canon(motif, 'fragmentation', 3)
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) > 0
+
+    def test_template_canon_passacaglia(self):
+        """Test passacaglia template."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_template_canon('passacaglia', 'D3', 8)
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 8
+
+    def test_template_canon_chaconne(self):
+        """Test chaconne template."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_template_canon('chaconne', 'C3', 8)
+
+        assert isinstance(canon, stream.Score)
+        assert len(canon.parts) == 2
+
+    def test_template_canon_all_types(self):
+        """Test all template types."""
+        gen = CanonGenerator(seed=42)
+        templates = ['passacaglia', 'chaconne', 'ostinato', 'romanesca']
+
+        for template in templates:
+            canon = gen.generate_template_canon(template, 'D3', 8)
+            assert isinstance(canon, stream.Score)
+            assert len(canon.parts) == 2
+
+    def test_constrained_canon_generation(self):
+        """Test constrained canon generation."""
+        gen = CanonGenerator(seed=42)
+        constraints = {
+            'max_leap': 5,
+            'prefer_steps': 0.8,
+            'avoid_tritone': True
+        }
+        canon = gen.generate_constrained_canon(16, 'G4', constraints)
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 16
+
+    def test_constrained_canon_no_constraints(self):
+        """Test constrained canon with default constraints."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_constrained_canon(12, 'C4')
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 12
+
+    def test_constrained_canon_max_leap(self):
+        """Test that max_leap constraint is respected."""
+        gen = CanonGenerator(seed=100)
+        constraints = {'max_leap': 3, 'prefer_steps': 0.5}
+        canon = gen.generate_constrained_canon(20, 'C4', constraints)
+
+        notes = list(canon.parts[0].flatten().notes)
+        # Check that no interval exceeds max_leap
+        for i in range(len(notes) - 1):
+            interval = abs(notes[i+1].pitch.midi - notes[i].pitch.midi)
+            # Allow for octave adjustments, but local steps should be small
+            if interval < 12:  # Within one octave
+                assert interval <= 3
+
+    def test_constrained_canon_with_scale(self):
+        """Test constrained canon with scale constraint."""
+        gen = CanonGenerator(seed=42)
+        major_scale = [0, 2, 4, 5, 7, 9, 11]
+        constraints = {'scale': major_scale}
+        canon = gen.generate_constrained_canon(12, 'C4', constraints)
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) > 0
+
+    def test_constrained_canon_range(self):
+        """Test that constrained canon stays in range."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_constrained_canon(50, 'C4')
+
+        notes = list(canon.parts[0].flatten().notes)
+        assert all(36 <= n.pitch.midi <= 84 for n in notes)
+
+
+class TestGeneratorEdgeCases:
+    """Test edge cases for advanced generators."""
+
+    def test_markov_canon_restart_on_dead_end(self):
+        """Test Markov handles dead ends by restarting."""
+        gen = CanonGenerator(seed=42)
+        # Small training set that will hit dead ends
+        training = ['C4', 'D4', 'C4', 'D4']
+        canon = gen.generate_markov_canon(training, length=20, order=1)
+
+        notes = list(canon.parts[0].flatten().notes)
+        # Should still generate requested length despite dead ends
+        assert len(notes) == 20
+
+    def test_contour_empty_contour(self):
+        """Test contour with empty list."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_contour_canon([], root='C4')
+
+        notes = list(canon.parts[0].flatten().notes)
+        # Should have at least the root note
+        assert len(notes) >= 1
+
+    def test_motif_single_note(self):
+        """Test motif with single note."""
+        gen = CanonGenerator(seed=42)
+        motif = ['C4']
+        canon = gen.generate_motif_canon(motif, 'sequence', 5, 2)
+
+        assert isinstance(canon, stream.Score)
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 5
+
+    def test_template_short_length(self):
+        """Test template with very short length."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_template_canon('passacaglia', 'D3', 2)
+
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 2
+
+    def test_constrained_canon_minimal_length(self):
+        """Test constrained canon with length=1."""
+        gen = CanonGenerator(seed=42)
+        canon = gen.generate_constrained_canon(1, 'C4')
+
+        notes = list(canon.parts[0].flatten().notes)
+        assert len(notes) == 1
