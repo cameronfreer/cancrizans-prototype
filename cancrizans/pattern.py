@@ -5,21 +5,22 @@ This module provides sophisticated pattern detection, motif tracking,
 and thematic development analysis capabilities.
 """
 
-from typing import List, Tuple, Dict, Optional, Set, Any
 from dataclasses import dataclass
-from music21 import stream, note, pitch, interval
+from typing import Any
+
 import numpy as np
+from music21 import note, stream
 
 
 @dataclass
 class Motif:
     """Represents a musical motif with its properties."""
-    pitches: List[int]  # MIDI pitch numbers
-    rhythms: List[float]  # Durations in quarter notes
-    intervals: List[int]  # Intervallic content in semitones
+    pitches: list[int]  # MIDI pitch numbers
+    rhythms: list[float]  # Durations in quarter notes
+    intervals: list[int]  # Intervallic content in semitones
     offset: float  # Position in the score
     length: float  # Total duration
-    occurrences: List[float]  # List of offsets where this motif appears
+    occurrences: list[float]  # List of offsets where this motif appears
 
     def __hash__(self):
         return hash((tuple(self.intervals), tuple(self.rhythms)))
@@ -47,7 +48,7 @@ def detect_motifs(
     max_length: int = 8,
     min_occurrences: int = 2,
     fuzzy_match: bool = True
-) -> List[Motif]:
+) -> list[Motif]:
     """
     Detect recurring melodic and rhythmic motifs in a musical stream.
 
@@ -99,7 +100,7 @@ def detect_motifs(
             offsets.append(offset)
 
     # Find patterns using sliding window
-    pattern_candidates: Dict[Tuple, List[float]] = {}
+    pattern_candidates: dict[tuple, list[float]] = {}
 
     for length in range(min_length, min(max_length + 1, len(pitches))):
         for i in range(len(pitches) - length + 1):
@@ -152,7 +153,7 @@ def identify_melodic_sequences(
     score_or_stream: stream.Stream,
     min_repetitions: int = 2,
     max_transposition: int = 12
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Identify melodic sequences (repeated patterns at different pitch levels).
 
@@ -269,7 +270,7 @@ def detect_imitation_points(
     score: stream.Score,
     time_window: float = 4.0,
     similarity_threshold: float = 0.7
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Find points where voices imitate each other in counterpoint.
 
@@ -402,7 +403,7 @@ def detect_imitation_points(
 def analyze_thematic_development(
     score_or_stream: stream.Stream,
     theme_length: int = 8
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Analyze how themes evolve and develop throughout a piece.
 
@@ -509,7 +510,7 @@ def analyze_thematic_development(
     }
 
 
-def _calculate_similarity(seq1: List, seq2: List) -> float:
+def _calculate_similarity(seq1: list, seq2: list) -> float:
     """Calculate similarity between two sequences (0.0-1.0)."""
     if not seq1 or not seq2:
         return 0.0
@@ -527,7 +528,7 @@ def _calculate_similarity(seq1: List, seq2: List) -> float:
 def find_contour_similarities(
     score_or_stream: stream.Stream,
     min_length: int = 4
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Find melodic contours that share similar shapes regardless of exact intervals.
 
@@ -580,7 +581,7 @@ def find_contour_similarities(
         return tuple(contour)
 
     # Find matching contours
-    contour_matches: Dict[Tuple, List[float]] = {}
+    contour_matches: dict[tuple, list[float]] = {}
 
     for length in range(min_length, min(12, len(pitches))):
         for i in range(len(pitches) - length + 1):

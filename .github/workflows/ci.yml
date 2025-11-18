@@ -99,6 +99,90 @@ jobs:
         mypy cancrizans --ignore-missing-imports --no-error-summary || echo "::warning::mypy found type issues (non-blocking)"
       continue-on-error: true
 
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache Python dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-quality-${{ hashFiles('pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-quality-
+          ${{ runner.os }}-pip-
+
+    - name: Install ruff
+      run: |
+        python -m pip install --upgrade pip
+        pip install ruff
+
+    - name: Run ruff linter
+      run: |
+        ruff check cancrizans tests --output-format=github || echo "::warning::ruff found code quality issues (non-blocking)"
+      continue-on-error: true
+
+    - name: Run ruff formatter check
+      run: |
+        ruff format --check cancrizans tests || echo "::warning::Code formatting issues found (non-blocking)"
+      continue-on-error: true
+
+  security:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache Python dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-security-${{ hashFiles('pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-security-
+          ${{ runner.os }}-pip-
+
+    - name: Install security tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install bandit[toml] safety
+
+    - name: Run bandit security scanner
+      run: |
+        bandit -r cancrizans -f json -o bandit-report.json || echo "::warning::Security issues found (non-blocking)"
+        bandit -r cancrizans || true
+      continue-on-error: true
+
+    - name: Check dependencies for vulnerabilities
+      run: |
+        safety check --json || echo "::warning::Vulnerable dependencies found (non-blocking)"
+        safety check || true
+      continue-on-error: true
+
+    - name: Upload security reports
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: security-reports
+        path: bandit-report.json
+        retention-days: 30
+
   build:
     name: Build package
     runs-on: ubuntu-latest
@@ -143,7 +227,7 @@ jobs:
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
-    needs: [test]
+    needs: [test, lint, code-quality, security]
 
     steps:
     - name: Checkout code
@@ -181,3 +265,39 @@ jobs:
         cancrizans --help
         cancrizans scales --list-tunings | head -20
         cancrizans microtonal-canon --help
+
+  ci-success:
+    name: CI Success
+    runs-on: ubuntu-latest
+    needs: [test, lint, code-quality, security, build, integration-tests]
+    if: always()
+
+    steps:
+    - name: Check CI status
+      run: |
+        echo "CI Pipeline Status Summary:"
+        echo "=========================="
+        echo "Test: ${{ needs.test.result }}"
+        echo "Lint: ${{ needs.lint.result }}"
+        echo "Code Quality: ${{ needs.code-quality.result }}"
+        echo "Security: ${{ needs.security.result }}"
+        echo "Build: ${{ needs.build.result }}"
+        echo "Integration Tests: ${{ needs.integration-tests.result }}"
+
+        # Fail if any required job failed
+        if [ "${{ needs.test.result }}" != "success" ]; then
+          echo "::error::Tests failed"
+          exit 1
+        fi
+
+        if [ "${{ needs.build.result }}" != "success" ]; then
+          echo "::error::Build failed"
+          exit 1
+        fi
+
+        if [ "${{ needs.integration-tests.result }}" != "success" ]; then
+          echo "::error::Integration tests failed"
+          exit 1
+        fi
+
+        echo "::notice::All required CI checks passed!"
