@@ -608,3 +608,414 @@ def find_contour_similarities(
     results.sort(key=lambda x: x['occurrences'], reverse=True)
 
     return results
+
+
+def analyze_fugue_structure(
+    score: stream.Score,
+    subject_length: int = 8
+) -> dict[str, Any]:
+    """
+    Analyze fugue structure: subject, answer, episodes, stretto sections.
+
+    Detects the main subject, its answers (real or tonal), counter-subjects,
+    episodes, and stretto passages.
+
+    Args:
+        score: Musical score (typically a fugue)
+        subject_length: Expected length of the subject in notes
+
+    Returns:
+        Dictionary containing:
+        - 'subject': Main subject motif
+        - 'answers': List of answer entries (with voice and offset)
+        - 'counter_subjects': Counter-subject motifs
+        - 'episodes': Episode sections (non-imitative development)
+        - 'stretto_sections': Stretto passages (overlapping entries)
+        - 'exposition_end': Estimated offset where exposition ends
+
+    Example:
+        >>> analysis = analyze_fugue_structure(fugue_score, subject_length=6)
+        >>> print(f"Found {len(analysis['answers'])} fugue answers")
+        >>> print(f"Stretto sections: {len(analysis['stretto_sections'])}")
+    """
+    if not isinstance(score, stream.Score) or len(score.parts) < 2:
+        return {
+            'subject': None,
+            'answers': [],
+            'counter_subjects': [],
+            'episodes': [],
+            'stretto_sections': [],
+            'exposition_end': 0.0
+        }
+
+    # Extract the presumed subject (first melodic statement in first voice)
+    first_voice = score.parts[0]
+    subject_notes = []
+    for n in first_voice.flatten().notes:
+        if isinstance(n, note.Note):
+            subject_notes.append({
+                'pitch': n.pitch.midi,
+                'offset': n.offset,
+                'duration': n.quarterLength
+            })
+        if len(subject_notes) >= subject_length:
+            break
+
+    if len(subject_notes) < subject_length:
+        subject_length = len(subject_notes)
+
+    # Extract subject intervals
+    subject_intervals = [
+        subject_notes[i+1]['pitch'] - subject_notes[i]['pitch']
+        for i in range(len(subject_notes) - 1)
+    ]
+
+    # Find answers in other voices
+    answers = []
+    imitations = detect_imitation_points(score, time_window=8.0, similarity_threshold=0.6)
+
+    for im in imitations:
+        if im['similarity'] >= 0.7 and im['offset'] < 20.0:  # Within exposition
+            answer_type = 'real' if abs(im.get('transposition', 0) - 7) > 2 else 'tonal'
+            answers.append({
+                'voice': im['follower_voice'],
+                'offset': im['offset'],
+                'type': answer_type,
+                'similarity': im['similarity']
+            })
+
+    # Detect counter-subjects (material accompanying subject/answer)
+    counter_subjects = []
+    motifs = detect_motifs(score, min_length=4, max_length=8, min_occurrences=2)
+
+    # Counter-subjects typically appear when subject appears
+    for motif in motifs[:3]:  # Check top 3 motifs
+        if len(motif.occurrences) >= 2:
+            # Check if this motif appears during subject/answer entries
+            appears_with_subject = any(
+                abs(motif.offset - ans['offset']) < 2.0
+                for ans in answers
+            )
+            if appears_with_subject:
+                counter_subjects.append(motif)
+
+    # Estimate exposition end (when all voices have entered)
+    exposition_end = 0.0
+    if answers:
+        exposition_end = max(ans['offset'] for ans in answers) + subject_length
+
+    # Detect episodes (sections without clear subject/answer)
+    episodes = []
+    if exposition_end > 0:
+        # Look for gaps in subject appearances after exposition
+        all_subject_offsets = [0.0] + [ans['offset'] for ans in answers]
+        all_subject_offsets.sort()
+
+        for i in range(len(all_subject_offsets) - 1):
+            gap = all_subject_offsets[i+1] - all_subject_offsets[i]
+            if gap > subject_length * 2:  # Significant gap
+                episodes.append({
+                    'start': all_subject_offsets[i] + subject_length,
+                    'end': all_subject_offsets[i+1],
+                    'duration': gap - subject_length
+                })
+
+    # Detect stretto (overlapping subject entries)
+    stretto_sections = []
+    for i, im in enumerate(imitations):
+        if im['delay'] < subject_length * 0.75:  # Entries overlap
+            stretto_sections.append({
+                'offset': im['offset'],
+                'voices': [im['leader_voice'], im['follower_voice']],
+                'overlap': subject_length - im['delay']
+            })
+
+    return {
+        'subject': {
+            'intervals': subject_intervals,
+            'length': subject_length,
+            'first_occurrence': subject_notes[0]['offset'] if subject_notes else 0.0
+        },
+        'answers': answers,
+        'counter_subjects': counter_subjects,
+        'episodes': episodes,
+        'stretto_sections': stretto_sections,
+        'exposition_end': exposition_end
+    }
+
+
+def calculate_voice_independence(
+    score: stream.Score,
+    time_window: float = 4.0
+) -> dict[str, Any]:
+    """
+    Calculate voice independence metrics for polyphonic music.
+
+    Analyzes rhythmic independence, melodic independence, and harmonic
+    interdependence between voices.
+
+    Args:
+        score: Musical score with multiple parts
+        time_window: Size of analysis window in quarter notes
+
+    Returns:
+        Dictionary containing:
+        - 'rhythmic_independence': Score 0.0-1.0 (1.0 = completely independent)
+        - 'melodic_independence': Score 0.0-1.0
+        - 'contour_independence': Score 0.0-1.0
+        - 'harmonic_density': Average number of simultaneous notes
+        - 'voice_crossing_count': Number of times voices cross
+        - 'per_voice_activity': Activity level for each voice
+
+    Example:
+        >>> metrics = calculate_voice_independence(fugue)
+        >>> print(f"Rhythmic independence: {metrics['rhythmic_independence']:.2f}")
+        >>> print(f"Voice crossings: {metrics['voice_crossing_count']}")
+    """
+    if not isinstance(score, stream.Score) or len(score.parts) < 2:
+        return {
+            'rhythmic_independence': 0.0,
+            'melodic_independence': 0.0,
+            'contour_independence': 0.0,
+            'harmonic_density': 0.0,
+            'voice_crossing_count': 0,
+            'per_voice_activity': []
+        }
+
+    num_voices = len(score.parts)
+
+    # Extract note events from each voice
+    voices_data = []
+    for part in score.parts:
+        voice_notes = []
+        for n in part.flatten().notes:
+            if isinstance(n, note.Note):
+                voice_notes.append({
+                    'offset': n.offset,
+                    'pitch': n.pitch.midi,
+                    'duration': n.quarterLength,
+                    'end': n.offset + n.quarterLength
+                })
+        voices_data.append(voice_notes)
+
+    # Calculate rhythmic independence
+    # (measure how often voices attack at different times)
+    rhythmic_coincidences = 0
+    total_attacks = sum(len(v) for v in voices_data)
+
+    for i in range(len(voices_data)):
+        for j in range(i + 1, len(voices_data)):
+            for note1 in voices_data[i]:
+                for note2 in voices_data[j]:
+                    if abs(note1['offset'] - note2['offset']) < 0.25:
+                        rhythmic_coincidences += 1
+
+    rhythmic_independence = 1.0 - (rhythmic_coincidences / max(total_attacks, 1))
+    rhythmic_independence = max(0.0, min(1.0, rhythmic_independence))
+
+    # Calculate melodic independence
+    # (measure correlation of melodic motion)
+    melodic_independence = 0.0
+    comparisons = 0
+
+    for i in range(len(voices_data)):
+        for j in range(i + 1, len(voices_data)):
+            # Compare melodic contours
+            contour1 = _extract_contour_from_notes(voices_data[i])
+            contour2 = _extract_contour_from_notes(voices_data[j])
+
+            if contour1 and contour2:
+                # Measure dissimilarity
+                sim = _calculate_similarity(contour1, contour2)
+                melodic_independence += (1.0 - sim)
+                comparisons += 1
+
+    if comparisons > 0:
+        melodic_independence /= comparisons
+
+    # Calculate contour independence (similar to melodic but focuses on shape)
+    contour_independence = melodic_independence  # Simplified for now
+
+    # Calculate harmonic density
+    # (average number of simultaneous notes)
+    score_duration = max(
+        max((n['end'] for n in voice), default=0.0)
+        for voice in voices_data
+        if voice
+    )
+
+    if score_duration > 0:
+        time_points = np.arange(0, score_duration, 0.5)
+        density_samples = []
+
+        for t in time_points:
+            active_count = 0
+            for voice in voices_data:
+                for n in voice:
+                    if n['offset'] <= t < n['end']:
+                        active_count += 1
+                        break
+            density_samples.append(active_count)
+
+        harmonic_density = np.mean(density_samples) if density_samples else 0.0
+    else:
+        harmonic_density = 0.0
+
+    # Count voice crossings
+    voice_crossing_count = 0
+    for i in range(len(voices_data)):
+        for j in range(i + 1, len(voices_data)):
+            # Sample at regular intervals
+            for offset in np.arange(0, score_duration, 1.0):
+                # Get pitches at this time
+                pitch_i = _get_pitch_at_time(voices_data[i], offset)
+                pitch_j = _get_pitch_at_time(voices_data[j], offset)
+
+                if pitch_i is not None and pitch_j is not None:
+                    # Check if relative order changed from previous
+                    prev_offset = offset - 1.0
+                    if prev_offset >= 0:
+                        prev_pitch_i = _get_pitch_at_time(voices_data[i], prev_offset)
+                        prev_pitch_j = _get_pitch_at_time(voices_data[j], prev_offset)
+
+                        if (prev_pitch_i is not None and prev_pitch_j is not None and
+                                (pitch_i > pitch_j) != (prev_pitch_i > prev_pitch_j)):
+                            voice_crossing_count += 1
+
+    # Calculate per-voice activity
+    per_voice_activity = []
+    for voice in voices_data:
+        if voice:
+            total_duration = sum(n['duration'] for n in voice)
+            activity = total_duration / score_duration if score_duration > 0 else 0.0
+        else:
+            activity = 0.0
+        per_voice_activity.append(activity)
+
+    return {
+        'rhythmic_independence': float(rhythmic_independence),
+        'melodic_independence': float(melodic_independence),
+        'contour_independence': float(contour_independence),
+        'harmonic_density': float(harmonic_density),
+        'voice_crossing_count': int(voice_crossing_count),
+        'per_voice_activity': per_voice_activity,
+        'num_voices': num_voices
+    }
+
+
+def _extract_contour_from_notes(notes: list[dict]) -> list[int]:
+    """Extract melodic contour from list of note dictionaries."""
+    if len(notes) < 2:
+        return []
+
+    contour = []
+    for i in range(len(notes) - 1):
+        if notes[i+1]['pitch'] > notes[i]['pitch']:
+            contour.append(1)
+        elif notes[i+1]['pitch'] < notes[i]['pitch']:
+            contour.append(-1)
+        else:
+            contour.append(0)
+
+    return contour
+
+
+def _get_pitch_at_time(notes: list[dict], offset: float) -> int | None:
+    """Get the pitch of the note sounding at a given offset."""
+    for n in notes:
+        if n['offset'] <= offset < n['end']:
+            return n['pitch']
+    return None
+
+
+def calculate_pattern_complexity(
+    score_or_stream: stream.Stream
+) -> dict[str, float]:
+    """
+    Calculate complexity metrics for musical patterns.
+
+    Measures various aspects of pattern complexity including interval variety,
+    rhythmic complexity, and melodic range.
+
+    Args:
+        score_or_stream: Musical score or stream to analyze
+
+    Returns:
+        Dictionary with complexity metrics:
+        - 'interval_complexity': Variety of intervals used (0.0-1.0)
+        - 'rhythmic_complexity': Variety of rhythmic values (0.0-1.0)
+        - 'range_complexity': Melodic range utilization (0.0-1.0)
+        - 'direction_changes': Number of melodic direction changes
+        - 'overall_complexity': Weighted average (0.0-1.0)
+
+    Example:
+        >>> complexity = calculate_pattern_complexity(melody)
+        >>> print(f"Overall complexity: {complexity['overall_complexity']:.2f}")
+    """
+    # Extract notes
+    notes_list = []
+    if isinstance(score_or_stream, stream.Score):
+        for part in score_or_stream.parts:
+            notes_list.extend(part.flatten().notes)
+    else:
+        notes_list = list(score_or_stream.flatten().notes)
+
+    if len(notes_list) < 2:
+        return {
+            'interval_complexity': 0.0,
+            'rhythmic_complexity': 0.0,
+            'range_complexity': 0.0,
+            'direction_changes': 0,
+            'overall_complexity': 0.0
+        }
+
+    # Extract pitches and durations
+    pitches = []
+    durations = []
+    for n in notes_list:
+        if isinstance(n, note.Note):
+            pitches.append(n.pitch.midi)
+            durations.append(n.quarterLength)
+
+    # Calculate interval complexity (variety of intervals)
+    intervals = [abs(pitches[i+1] - pitches[i]) for i in range(len(pitches) - 1)]
+    unique_intervals = len(set(intervals))
+    max_possible_intervals = 12  # Within an octave
+    interval_complexity = min(1.0, unique_intervals / max_possible_intervals)
+
+    # Calculate rhythmic complexity (variety of durations)
+    unique_durations = len(set(durations))
+    max_expected_durations = 8  # Common rhythmic values
+    rhythmic_complexity = min(1.0, unique_durations / max_expected_durations)
+
+    # Calculate range complexity (how much of the range is used)
+    if pitches:
+        pitch_range = max(pitches) - min(pitches)
+        expected_range = 24  # Two octaves
+        range_complexity = min(1.0, pitch_range / expected_range)
+    else:
+        range_complexity = 0.0
+
+    # Count direction changes
+    direction_changes = 0
+    for i in range(1, len(pitches) - 1):
+        prev_direction = pitches[i] - pitches[i-1]
+        next_direction = pitches[i+1] - pitches[i]
+        if prev_direction * next_direction < 0:  # Sign change
+            direction_changes += 1
+
+    # Calculate overall complexity (weighted average)
+    overall_complexity = (
+        interval_complexity * 0.3 +
+        rhythmic_complexity * 0.3 +
+        range_complexity * 0.2 +
+        min(1.0, direction_changes / len(pitches)) * 0.2
+    )
+
+    return {
+        'interval_complexity': float(interval_complexity),
+        'rhythmic_complexity': float(rhythmic_complexity),
+        'range_complexity': float(range_complexity),
+        'direction_changes': int(direction_changes),
+        'overall_complexity': float(overall_complexity)
+    }

@@ -53,6 +53,9 @@ from cancrizans.canon import (
     detect_imitation_points,
     analyze_thematic_development,
     find_contour_similarities,
+    analyze_fugue_structure,
+    calculate_voice_independence,
+    calculate_pattern_complexity,
     # Phase 12: Performance Analysis
     analyze_articulation,
     suggest_dynamics,
@@ -174,6 +177,9 @@ __all__ = [
     "detect_imitation_points",
     "analyze_thematic_development",
     "find_contour_similarities",
+    "analyze_fugue_structure",
+    "calculate_voice_independence",
+    "calculate_pattern_complexity",
     # Phase 12: Performance Analysis
     "analyze_articulation",
     "suggest_dynamics",
