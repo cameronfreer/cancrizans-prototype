@@ -3,7 +3,7 @@ Core transformations for canonical music analysis: retrograde, inversion,
 augmentation, diminution, time alignment, and palindrome verification.
 """
 
-from typing import TypeVar, Union, List, Tuple, Dict, Optional
+from typing import TypeVar, Union, List, Tuple, Dict, Optional, Any
 import music21 as m21
 from music21 import stream, note, chord
 import numpy as np
@@ -4162,4 +4162,439 @@ def advanced_crab_canon(
             score.append(part)
 
     return score
+
+
+# ============================================================================
+# PHASE 20: MICROTONAL CANON INTEGRATION
+# ============================================================================
+
+
+def create_microtonal_canon(
+    theme: stream.Stream,
+    tuning_system: 'microtonal.TuningSystem',
+    canon_type: str = 'retrograde',
+    tonic_midi: int = 60,
+    apply_pitch_bends: bool = True
+) -> stream.Score:
+    """
+    Create a canon using a specific microtonal tuning system.
+
+    This function generates a canon (retrograde, inverted, etc.) where the
+    melodic intervals are adjusted to match a specific microtonal tuning
+    system, such as just intonation, quarter-tone scales, or historical
+    temperaments.
+
+    Args:
+        theme: The melodic theme to use for the canon
+        tuning_system: Microtonal tuning system from microtonal.TuningSystem enum
+        canon_type: Type of canon transformation:
+            - 'retrograde': Time-reversed canon
+            - 'inversion': Melodically inverted canon
+            - 'augmentation': Augmented rhythm canon
+            - 'stretto': Overlapping voices canon
+        tonic_midi: MIDI pitch of the tonic (default C4 = 60)
+        apply_pitch_bends: If True, add pitch bend data for microtonal playback
+
+    Returns:
+        Score containing the original theme and microtonally-adjusted canon voice
+
+    Example:
+        >>> from cancrizans.canon import create_microtonal_canon
+        >>> from cancrizans.microtonal import TuningSystem
+        >>> from music21 import note, stream
+        >>>
+        >>> # Create simple theme
+        >>> theme = stream.Stream()
+        >>> theme.append(note.Note('C4', quarterLength=1))
+        >>> theme.append(note.Note('E4', quarterLength=1))
+        >>> theme.append(note.Note('G4', quarterLength=1))
+        >>>
+        >>> # Create retrograde canon in just intonation
+        >>> canon = create_microtonal_canon(
+        ...     theme,
+        ...     TuningSystem.JUST_INTONATION_5,
+        ...     canon_type='retrograde'
+        ... )
+        >>> len(canon.parts)
+        2
+    """
+    from cancrizans import microtonal
+
+    # Create the canon transformation
+    if canon_type == 'retrograde':
+        transformed = retrograde(theme)
+    elif canon_type == 'inversion':
+        transformed = invert(theme)
+    elif canon_type == 'augmentation':
+        transformed = augmentation(theme)
+    elif canon_type == 'stretto':
+        transformed = stretto(theme, theme, time_delay=2.0)
+        # stretto returns a Score, extract the second part
+        if len(transformed.parts) > 1:
+            transformed = transformed.parts[1]
+    else:
+        raise ValueError(f"Unknown canon_type: {canon_type}")
+
+    # Create microtonal scale
+    scale = microtonal.create_tuning_system_scale(tuning_system, tonic_midi)
+
+    # Apply microtonal adjustments to the transformed voice
+    microtonally_adjusted = _apply_microtonal_tuning(
+        transformed,
+        scale,
+        apply_pitch_bends
+    )
+
+    # Create score with both voices
+    score = stream.Score()
+    score.metadata = m21.metadata.Metadata()
+    score.metadata.title = f"Microtonal {canon_type.title()} Canon ({tuning_system.value})"
+
+    # Add original theme
+    theme_part = stream.Part(id='theme')
+    for element in theme.flatten().notesAndRests:
+        theme_part.append(element)
+    score.append(theme_part)
+
+    # Add microtonally-adjusted canon voice
+    canon_part = stream.Part(id=f'{canon_type}_microtonal')
+    for element in microtonally_adjusted.flatten().notesAndRests:
+        canon_part.append(element)
+    score.append(canon_part)
+
+    return score
+
+
+def _apply_microtonal_tuning(
+    melody: stream.Stream,
+    scale: 'microtonal.MicrotonalScale',
+    apply_pitch_bends: bool = True
+) -> stream.Stream:
+    """
+    Apply microtonal tuning adjustments to a melody.
+
+    Adjusts each note's pitch to the nearest degree in the microtonal scale
+    and optionally adds pitch bend data for accurate MIDI playback.
+
+    Args:
+        melody: Musical stream to adjust
+        scale: Microtonal scale to use
+        apply_pitch_bends: Whether to add pitch bend MIDI data
+
+    Returns:
+        Stream with microtonally-adjusted pitches
+    """
+    from cancrizans import microtonal
+
+    result = stream.Stream()
+
+    for element in melody.flatten().notesAndRests:
+        new_el = element.__class__()
+
+        if isinstance(element, note.Note):
+            # Find nearest scale degree
+            original_midi = element.pitch.midi
+            scale_degree, cent_deviation = microtonal.find_nearest_scale_degree(
+                original_midi,
+                scale
+            )
+
+            # Set microtone for the note
+            new_el.pitch = element.pitch
+            new_el.pitch.microtone = cent_deviation
+
+            # Add pitch bend if requested
+            if apply_pitch_bends:
+                bend_value = microtonal.calculate_pitch_bend_for_microtone(
+                    cent_deviation,
+                    bend_range_semitones=2
+                )
+                # Store bend value in editorial (for later MIDI export)
+                new_el.editorial.pitchBend = bend_value
+
+        elif isinstance(element, chord.Chord):
+            # Apply to each note in chord
+            new_pitches = []
+            for pitch in element.pitches:
+                original_midi = pitch.midi
+                scale_degree, cent_deviation = microtonal.find_nearest_scale_degree(
+                    original_midi,
+                    scale
+                )
+                new_pitch = pitch.__class__()
+                new_pitch.midi = pitch.midi
+                new_pitch.microtone = cent_deviation
+                new_pitches.append(new_pitch)
+            new_el.pitches = new_pitches
+
+        new_el.quarterLength = element.quarterLength
+        new_el.offset = element.offset
+        result.insert(element.offset, new_el)
+
+    return result
+
+
+def analyze_microtonal_intervals(
+    score_or_stream: Union[stream.Score, stream.Stream],
+    tuning_system: Optional['microtonal.TuningSystem'] = None
+) -> Dict[str, any]:
+    """
+    Analyze intervals in a score using microtonal interval analysis.
+
+    Extends the standard interval_analysis() function to consider
+    microtonal deviations and categorize intervals according to
+    various tuning systems (just intonation ratios, equal divisions, etc.).
+
+    Args:
+        score_or_stream: Musical score or stream to analyze
+        tuning_system: Optional tuning system for interval categorization
+
+    Returns:
+        Dictionary containing:
+        - 'cents_histogram': Histogram of intervals in cents
+        - 'average_cents': Average interval size in cents
+        - 'just_ratios': Detected just intonation ratios (if applicable)
+        - 'complexity_score': Harmonic complexity measure
+        - 'tuning_deviation': Deviation from specified tuning system (if provided)
+
+    Example:
+        >>> from cancrizans.canon import analyze_microtonal_intervals
+        >>> from cancrizans.microtonal import TuningSystem
+        >>> analysis = analyze_microtonal_intervals(
+        ...     my_score,
+        ...     tuning_system=TuningSystem.JUST_INTONATION_5
+        ... )
+        >>> print(f"Average interval: {analysis['average_cents']:.2f} cents")
+    """
+    from cancrizans import microtonal
+
+    # Get all notes
+    if isinstance(score_or_stream, stream.Score):
+        notes_list = score_or_stream.flatten().notes
+    else:
+        notes_list = score_or_stream.flatten().notes
+
+    if len(notes_list) < 2:
+        return {
+            'cents_histogram': {},
+            'average_cents': 0.0,
+            'just_ratios': [],
+            'complexity_score': 0.0,
+            'tuning_deviation': 0.0
+        }
+
+    # Calculate intervals in cents
+    intervals_cents = []
+    for i in range(len(notes_list) - 1):
+        if isinstance(notes_list[i], note.Note) and isinstance(notes_list[i+1], note.Note):
+            pitch1 = notes_list[i].pitch.midi + (notes_list[i].pitch.microtone.cents if notes_list[i].pitch.microtone else 0) / 100.0
+            pitch2 = notes_list[i+1].pitch.midi + (notes_list[i+1].pitch.microtone.cents if notes_list[i+1].pitch.microtone else 0) / 100.0
+            interval_semitones = pitch2 - pitch1
+            interval_cents = interval_semitones * 100.0
+            intervals_cents.append(interval_cents)
+
+    # Create histogram (rounded to nearest cent)
+    cents_histogram: Dict[int, int] = {}
+    for cent in intervals_cents:
+        rounded = int(round(cent))
+        cents_histogram[rounded] = cents_histogram.get(rounded, 0) + 1
+
+    # Calculate average
+    average_cents = float(np.mean(intervals_cents)) if intervals_cents else 0.0
+
+    # Detect just intonation ratios
+    just_ratios = []
+    common_ratios = [
+        ((3, 2), 701.96),    # Perfect fifth
+        ((4, 3), 498.04),    # Perfect fourth
+        ((5, 4), 386.31),    # Major third (5-limit)
+        ((6, 5), 315.64),    # Minor third (5-limit)
+        ((9, 8), 203.91),    # Major second (Pythagorean)
+        ((16, 15), 111.73),  # Minor second (5-limit)
+    ]
+
+    for interval_cents in intervals_cents:
+        for ratio, target_cents in common_ratios:
+            if abs(interval_cents - target_cents) < 10:  # Within 10 cents
+                just_ratios.append({
+                    'ratio': ratio,
+                    'cents': interval_cents,
+                    'deviation': interval_cents - target_cents
+                })
+                break
+
+    # Calculate harmonic complexity (based on interval variety)
+    unique_intervals = len(set(int(round(c)) for c in intervals_cents))
+    total_intervals = len(intervals_cents)
+    complexity_score = float(unique_intervals / total_intervals if total_intervals > 0 else 0.0)
+
+    # Calculate deviation from tuning system if provided
+    tuning_deviation = 0.0
+    if tuning_system:
+        scale = microtonal.create_tuning_system_scale(tuning_system, tonic_midi=60)
+        deviations = []
+        for interval_cents in intervals_cents:
+            # Find closest scale interval
+            min_dev = float('inf')
+            for i in range(len(scale.intervals_cents)):
+                for j in range(len(scale.intervals_cents)):
+                    scale_interval = abs(scale.intervals_cents[j] - scale.intervals_cents[i])
+                    dev = abs(abs(interval_cents) - scale_interval)
+                    min_dev = min(min_dev, dev)
+            deviations.append(min_dev)
+        tuning_deviation = float(np.mean(deviations)) if deviations else 0.0
+
+    return {
+        'cents_histogram': cents_histogram,
+        'average_cents': average_cents,
+        'just_ratios': just_ratios,
+        'complexity_score': complexity_score,
+        'tuning_deviation': tuning_deviation,
+        'total_intervals': len(intervals_cents)
+    }
+
+
+def generate_world_music_canon(
+    scale_type: 'microtonal.ScaleType',
+    length: int = 16,
+    canon_type: str = 'retrograde',
+    octave_range: int = 2
+) -> stream.Score:
+    """
+    Generate a canon using a world music scale (maqam, raga, gamelan, etc.).
+
+    Creates an algorithmically-generated melody in a specified world music
+    scale and applies canon transformations, preserving the microtonal
+    characteristics of the scale.
+
+    Args:
+        scale_type: World music scale from microtonal.ScaleType enum
+        length: Number of notes in the generated melody
+        canon_type: Type of canon ('retrograde', 'inversion', 'augmentation')
+        octave_range: Number of octaves for melody generation (1-4)
+
+    Returns:
+        Score containing original and canon voices in the world music scale
+
+    Example:
+        >>> from cancrizans.canon import generate_world_music_canon
+        >>> from cancrizans.microtonal import ScaleType
+        >>>
+        >>> # Generate Arabic maqam canon
+        >>> canon = generate_world_music_canon(
+        ...     ScaleType.MAQAM_HIJAZ,
+        ...     length=12,
+        ...     canon_type='retrograde'
+        ... )
+    """
+    from cancrizans import microtonal
+    import random
+
+    # Create the world music scale
+    scale = microtonal.create_world_music_scale(scale_type, tonic_midi=60)
+
+    # Generate melody using scale degrees
+    theme = stream.Stream()
+    current_offset = 0.0
+
+    # Random walk through scale with some musical logic
+    current_degree = 0
+    for _ in range(length):
+        # Choose duration (favor quarter and half notes)
+        duration = random.choice([0.5, 1.0, 1.0, 2.0])
+
+        # Create note from scale degree
+        octave_offset = random.randint(0, octave_range)
+        scale_degree = current_degree % len(scale.intervals_cents)
+        midi_pitch = scale.tonic_midi + octave_offset * 12
+
+        # Apply microtonal adjustment
+        cents = scale.intervals_cents[scale_degree]
+        midi_pitch += int(cents / 100.0)
+        microtone_cents = cents % 100.0
+
+        n = note.Note()
+        n.pitch.midi = midi_pitch
+        n.pitch.microtone = microtone_cents
+        n.quarterLength = duration
+
+        theme.insert(current_offset, n)
+        current_offset += duration
+
+        # Move to next scale degree (random walk with bias toward steps)
+        step = random.choice([-2, -1, -1, 0, 1, 1, 2])
+        current_degree = (current_degree + step) % len(scale.intervals_cents)
+
+    # Create canon using the generated theme
+    return create_microtonal_canon(
+        theme,
+        scale.tuning_system,
+        canon_type=canon_type,
+        tonic_midi=scale.tonic_midi
+    )
+
+
+def cross_cultural_canon_analysis(
+    score: stream.Score,
+    test_scales: Optional[List['microtonal.ScaleType']] = None
+) -> Dict[str, Any]:
+    """
+    Analyze a canon against multiple world music scales.
+
+    Tests a canon's compatibility with various world music scales
+    to identify which cultural tuning systems it most closely resembles.
+    Useful for cross-cultural musicological analysis.
+
+    Args:
+        score: Musical score to analyze
+        test_scales: List of ScaleType enums to test (default: all major scales)
+
+    Returns:
+        Dictionary mapping scale names to compatibility scores and analysis
+
+    Example:
+        >>> analysis = cross_cultural_canon_analysis(my_canon)
+        >>> best_match = max(analysis.items(), key=lambda x: x[1]['compatibility'])
+        >>> print(f"Best match: {best_match[0]}")
+    """
+    from cancrizans import microtonal
+
+    if test_scales is None:
+        # Test against major world music scales
+        test_scales = [
+            microtonal.ScaleType.MAQAM_HIJAZ,
+            microtonal.ScaleType.MAQAM_BAYATI,
+            microtonal.ScaleType.RAGA_BHAIRAV,
+            microtonal.ScaleType.RAGA_KAFI,
+            microtonal.ScaleType.PELOG,
+            microtonal.ScaleType.SLENDRO,
+            microtonal.ScaleType.IN_SCALE,
+            microtonal.ScaleType.YO_SCALE,
+        ]
+
+    results: Dict[str, Any] = {}
+
+    for scale_type in test_scales:
+        scale = microtonal.create_world_music_scale(scale_type, tonic_midi=60)
+
+        # Analyze intervals
+        interval_analysis = analyze_microtonal_intervals(score, scale.tuning_system)
+
+        # Calculate compatibility score (inverse of tuning deviation)
+        deviation = interval_analysis.get('tuning_deviation', float('inf'))
+        compatibility = 1.0 / (1.0 + deviation) if deviation < float('inf') else 0.0
+
+        # Get consonance profile
+        consonance_profile = microtonal.create_consonance_profile(scale)
+
+        results[scale_type.value] = {
+            'compatibility': compatibility,
+            'tuning_deviation': deviation,
+            'average_cents': interval_analysis['average_cents'],
+            'complexity_score': interval_analysis['complexity_score'],
+            'scale_consonance': consonance_profile['average_consonance'],
+            'just_ratios_found': len(interval_analysis['just_ratios'])
+        }
+
+    return results
 

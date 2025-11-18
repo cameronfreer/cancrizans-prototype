@@ -2081,3 +2081,165 @@ def cross_cultural_canon_analysis(s: stream.Stream) -> Dict[str, Any]:
     analysis['possible_scales'].sort(key=lambda x: x['match_quality'], reverse=True)
 
     return analysis
+
+
+# ============================================================================
+# HELPER FUNCTIONS FOR CANON INTEGRATION
+# ============================================================================
+
+
+def create_tuning_system_scale(
+    tuning_system: TuningSystem,
+    tonic_midi: int = 60
+) -> MicrotonalScale:
+    """
+    Create a microtonal scale from a tuning system enum.
+
+    Convenience function that maps TuningSystem enum values to their
+    corresponding scale creation functions.
+
+    Args:
+        tuning_system: TuningSystem enum value
+        tonic_midi: MIDI pitch of the tonic (default C4 = 60)
+
+    Returns:
+        MicrotonalScale object
+
+    Example:
+        >>> scale = create_tuning_system_scale(TuningSystem.JUST_INTONATION_7, 60)
+        >>> len(scale.intervals_cents)
+        12
+    """
+    # Equal temperaments
+    if tuning_system == TuningSystem.EQUAL_12:
+        return create_equal_temperament(12, tonic_midi)
+    elif tuning_system == TuningSystem.EQUAL_19:
+        return create_equal_temperament(19, tonic_midi)
+    elif tuning_system == TuningSystem.EQUAL_24:
+        return create_equal_temperament(24, tonic_midi)
+    elif tuning_system == TuningSystem.EQUAL_31:
+        return create_equal_temperament(31, tonic_midi)
+    elif tuning_system == TuningSystem.EQUAL_53:
+        return create_equal_temperament(53, tonic_midi)
+    elif tuning_system == TuningSystem.EQUAL_17:
+        return create_equal_temperament(17, tonic_midi)
+    elif tuning_system == TuningSystem.EQUAL_22:
+        return create_equal_temperament(22, tonic_midi)
+    elif tuning_system == TuningSystem.EQUAL_34:
+        return create_equal_temperament(34, tonic_midi)
+    elif tuning_system == TuningSystem.EQUAL_41:
+        return create_equal_temperament(41, tonic_midi)
+    elif tuning_system == TuningSystem.EQUAL_72:
+        return create_equal_temperament(72, tonic_midi)
+
+    # Just intonation
+    elif tuning_system == TuningSystem.JUST_INTONATION_5:
+        return create_just_intonation_5_limit(tonic_midi)
+    elif tuning_system == TuningSystem.JUST_INTONATION_7:
+        return create_just_intonation_7_limit(tonic_midi)
+    elif tuning_system == TuningSystem.JUST_INTONATION_11:
+        return create_just_intonation_11_limit(tonic_midi)
+    elif tuning_system == TuningSystem.PARTCH_43:
+        return create_partch_43_tone(tonic_midi)
+
+    # Historical temperaments
+    elif tuning_system == TuningSystem.PYTHAGOREAN:
+        return create_pythagorean_scale(tonic_midi)
+    elif tuning_system == TuningSystem.MEANTONE:
+        return create_meantone_scale(0.25, tonic_midi)
+    elif tuning_system == TuningSystem.WERCKMEISTER_III:
+        return create_werckmeister_iii(tonic_midi)
+    elif tuning_system == TuningSystem.KIRNBERGER_III:
+        return create_kirnberger_iii(tonic_midi)
+    elif tuning_system == TuningSystem.VALOTTI:
+        return create_valotti(tonic_midi)
+    elif tuning_system == TuningSystem.YOUNG:
+        return create_young(tonic_midi)
+    elif tuning_system == TuningSystem.WERCKMEISTER_I:
+        return create_werckmeister_i(tonic_midi)
+    elif tuning_system == TuningSystem.WERCKMEISTER_II:
+        return create_werckmeister_ii(tonic_midi)
+    elif tuning_system == TuningSystem.WERCKMEISTER_IV:
+        return create_werckmeister_iv(tonic_midi)
+    elif tuning_system == TuningSystem.WERCKMEISTER_V:
+        return create_werckmeister_v(tonic_midi)
+    elif tuning_system == TuningSystem.WERCKMEISTER_VI:
+        return create_werckmeister_vi(tonic_midi)
+    elif tuning_system == TuningSystem.KIRNBERGER_II:
+        return create_kirnberger_ii(tonic_midi)
+    elif tuning_system == TuningSystem.NEIDHARDT_I:
+        return create_neidhardt_i(tonic_midi)
+    elif tuning_system == TuningSystem.NEIDHARDT_III:
+        return create_neidhardt_iii(tonic_midi)
+    elif tuning_system == TuningSystem.RAMEAU:
+        return create_rameau(tonic_midi)
+    elif tuning_system == TuningSystem.KELLNER:
+        return create_kellner(tonic_midi)
+
+    # Wendy Carlos scales
+    elif tuning_system == TuningSystem.ALPHA:
+        return alpha_scale(tonic_midi)
+    elif tuning_system == TuningSystem.BETA:
+        return beta_scale(tonic_midi)
+    elif tuning_system == TuningSystem.GAMMA:
+        return gamma_scale(tonic_midi)
+    elif tuning_system == TuningSystem.LAMBDA:
+        return create_lambda_scale(tonic_midi)
+
+    # Exotic tunings
+    elif tuning_system == TuningSystem.BOHLEN_PIERCE:
+        return bohlen_pierce_scale(tonic_midi)
+    elif tuning_system == TuningSystem.GOLDEN_RATIO:
+        return create_golden_ratio_scale(tonic_midi, num_steps=13)
+    elif tuning_system == TuningSystem.HARMONIC_SERIES:
+        return create_harmonic_series_scale(tonic_midi, num_partials=16)
+    elif tuning_system == TuningSystem.STRETCHED_OCTAVE:
+        return create_stretched_octave_scale(tonic_midi)
+    elif tuning_system == TuningSystem.PHI_BASED:
+        return create_golden_ratio_scale(tonic_midi, num_steps=13)
+
+    else:
+        raise ValueError(f"Unsupported tuning system: {tuning_system}")
+
+
+def find_nearest_scale_degree(
+    midi_pitch: float,
+    scale: MicrotonalScale
+) -> Tuple[int, float]:
+    """
+    Find the nearest scale degree and cent deviation for a given MIDI pitch.
+
+    Args:
+        midi_pitch: MIDI pitch number (can include fractional cents)
+        scale: Microtonal scale to search
+
+    Returns:
+        Tuple of (scale_degree_index, cent_deviation)
+        - scale_degree_index: Index into scale.intervals_cents
+        - cent_deviation: Deviation in cents from that scale degree
+
+    Example:
+        >>> scale = create_just_intonation_5_limit(60)
+        >>> degree, deviation = find_nearest_scale_degree(64.5, scale)
+        >>> abs(deviation) < 50  # Should be within a semitone
+        True
+    """
+    # Calculate pitch relative to tonic in cents
+    pitch_cents = (midi_pitch - scale.tonic_midi) * 100.0
+
+    # Normalize to one octave
+    octave_cents = pitch_cents % 1200.0
+
+    # Find nearest scale degree
+    min_distance = float('inf')
+    nearest_degree = 0
+    nearest_deviation = 0.0
+
+    for i, scale_cent in enumerate(scale.intervals_cents):
+        distance = abs(octave_cents - scale_cent)
+        if distance < min_distance:
+            min_distance = distance
+            nearest_degree = i
+            nearest_deviation = octave_cents - scale_cent
+
+    return nearest_degree, nearest_deviation
