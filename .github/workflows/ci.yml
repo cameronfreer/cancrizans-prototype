@@ -27,8 +27,11 @@ jobs:
     - name: Cache Python dependencies
       uses: actions/cache@v4
       with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml') }}
+        path: |
+          ~/.cache/pip
+          ~/.cache/uv
+          .pytest_cache
+        key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml', 'requirements*.txt') }}
         restore-keys: |
           ${{ runner.os }}-pip-${{ matrix.python-version }}-
           ${{ runner.os }}-pip-
@@ -80,13 +83,15 @@ jobs:
         path: htmlcov/
         retention-days: 30
 
-    - name: Test Summary
+    - name: Parse and summarize test results
       if: always()
       run: |
-        echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
-        echo "Python Version: ${{ matrix.python-version }}" >> $GITHUB_STEP_SUMMARY
         if [ -f test-results.xml ]; then
-          echo "Test results uploaded as artifact" >> $GITHUB_STEP_SUMMARY
+          python scripts/parse_test_results.py test-results.xml >> $GITHUB_STEP_SUMMARY || true
+        else
+          echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "Python Version: ${{ matrix.python-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ Test results XML not found" >> $GITHUB_STEP_SUMMARY
         fi
 
   lint:
