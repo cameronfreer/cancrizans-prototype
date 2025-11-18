@@ -1,0 +1,282 @@
+name: Code Metrics Tracking
+
+on:
+  push:
+    branches: [ main ]
+  schedule:
+    # Weekly on Saturdays at 10:00 UTC
+    - cron: '0 10 * * 6'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  collect-metrics:
+    name: Collect Code Metrics
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for trends
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Install metric tools
+        run: |
+          pip install radon lizard pygount scc
+
+      - name: Collect metrics
+        run: |
+          mkdir -p metrics/history
+
+          python << 'EOF' > metrics/current_metrics.json
+          import json
+          import subprocess
+          from datetime import datetime
+          from pathlib import Path
+
+          metrics = {
+              'timestamp': datetime.now().isoformat(),
+              'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip()[:8],
+          }
+
+          # Lines of code with scc
+          try:
+              result = subprocess.run(
+                  ['scc', '--format', 'json', 'cancrizans/'],
+                  capture_output=True, text=True, check=False
+              )
+              if result.returncode == 0:
+                  scc_data = json.loads(result.stdout)
+                  total_lines = sum(f.get('Code', 0) for f in scc_data)
+                  total_comments = sum(f.get('Comments', 0) for f in scc_data)
+                  total_blanks = sum(f.get('Blanks', 0) for f in scc_data)
+
+                  metrics['lines_of_code'] = total_lines
+                  metrics['comment_lines'] = total_comments
+                  metrics['blank_lines'] = total_blanks
+                  metrics['total_lines'] = total_lines + total_comments + total_blanks
+                  metrics['comment_ratio'] = round(total_comments / total_lines * 100, 2) if total_lines > 0 else 0
+          except Exception as e:
+              print(f"Error with scc: {e}")
+
+          # File counts
+          py_files = list(Path('cancrizans').rglob('*.py'))
+          test_files = list(Path('tests').rglob('*.py'))
+
+          metrics['python_files'] = len(py_files)
+          metrics['test_files'] = len(test_files)
+          metrics['test_ratio'] = round(len(test_files) / len(py_files), 2) if py_files else 0
+
+          # Complexity with radon
+          try:
+              result = subprocess.run(
+                  ['radon', 'cc', 'cancrizans/', '-a', '-s', '-j'],
+                  capture_output=True, text=True, check=False
+              )
+              if result.returncode == 0:
+                  # Parse average complexity from output
+                  lines = result.stdout.strip().split('\n')
+                  for line in lines:
+                      if 'Average complexity' in line:
+                          # Extract the number
+                          import re
+                          match = re.search(r'(\d+\.\d+)', line)
+                          if match:
+                              metrics['avg_complexity'] = float(match.group(1))
+          except Exception as e:
+              print(f"Error with radon: {e}")
+
+          # Maintainability index
+          try:
+              result = subprocess.run(
+                  ['radon', 'mi', 'cancrizans/', '-s', '-j'],
+                  capture_output=True, text=True, check=False
+              )
+              if result.returncode == 0:
+                  mi_data = json.loads(result.stdout)
+                  mi_values = []
+                  for file_path, data in mi_data.items():
+                      if isinstance(data, dict) and 'mi' in data:
+                          mi_values.append(data['mi'])
+                  if mi_values:
+                      metrics['maintainability_index'] = round(sum(mi_values) / len(mi_values), 2)
+          except Exception as e:
+              print(f"Error calculating MI: {e}")
+
+          # Function/class counts with lizard
+          try:
+              result = subprocess.run(
+                  ['lizard', 'cancrizans/', '-l', 'python'],
+                  capture_output=True, text=True, check=False
+              )
+              if result.returncode == 0:
+                  # Parse lizard output
+                  lines = result.stdout.strip().split('\n')
+                  for line in lines:
+                      if 'Total nloc' in line:
+                          parts = line.split()
+                          if len(parts) >= 2:
+                              metrics['logical_lines'] = int(parts[-1])
+                      elif 'functions' in line.lower():
+                          parts = line.split()
+                          metrics['function_count'] = int(parts[0])
+          except Exception as e:
+              print(f"Error with lizard: {e}")
+
+          # Git stats
+          try:
+              # Count commits
+              commits = subprocess.check_output(['git', 'rev-list', '--count', 'HEAD']).decode().strip()
+              metrics['total_commits'] = int(commits)
+
+              # Count contributors
+              contributors = subprocess.check_output(['git', 'log', '--format=%an']).decode().strip()
+              unique_contributors = len(set(contributors.split('\n')))
+              metrics['contributors'] = unique_contributors
+          except Exception as e:
+              print(f"Error with git stats: {e}")
+
+          # Save metrics
+          print(json.dumps(metrics, indent=2))
+
+          with open('metrics/current_metrics.json', 'w') as f:
+              json.dump(metrics, f, indent=2)
+
+          # Append to history
+          history_file = Path('metrics/history/metrics.jsonl')
+          with open(history_file, 'a') as f:
+              f.write(json.dumps(metrics) + '\n')
+          EOF
+
+      - name: Generate metrics report
+        run: |
+          python << 'EOF' > metrics/README.md
+          import json
+          from pathlib import Path
+          from datetime import datetime
+
+          # Load current metrics
+          with open('metrics/current_metrics.json') as f:
+              current = json.load(f)
+
+          print("# 📊 Code Metrics Report")
+          print(f"\n**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}")
+          print(f"**Commit:** `{current.get('commit', 'unknown')}`\n")
+
+          print("## Current Metrics\n")
+
+          # Code Size
+          print("### 📝 Code Size\n")
+          print(f"- **Total Lines:** {current.get('total_lines', 'N/A'):,}")
+          print(f"- **Lines of Code:** {current.get('lines_of_code', 'N/A'):,}")
+          print(f"- **Comment Lines:** {current.get('comment_lines', 'N/A'):,}")
+          print(f"- **Blank Lines:** {current.get('blank_lines', 'N/A'):,}")
+          print(f"- **Comment Ratio:** {current.get('comment_ratio', 'N/A')}%")
+          print()
+
+          # Files
+          print("### 📁 Files\n")
+          print(f"- **Python Files:** {current.get('python_files', 'N/A')}")
+          print(f"- **Test Files:** {current.get('test_files', 'N/A')}")
+          print(f"- **Test/Code Ratio:** {current.get('test_ratio', 'N/A')}")
+          if 'function_count' in current:
+              print(f"- **Functions:** {current['function_count']}")
+          print()
+
+          # Quality
+          print("### 🎯 Quality Metrics\n")
+          if 'avg_complexity' in current:
+              complexity = current['avg_complexity']
+              if complexity < 5:
+                  grade = "A (Excellent)"
+              elif complexity < 10:
+                  grade = "B (Good)"
+              elif complexity < 15:
+                  grade = "C (Fair)"
+              else:
+                  grade = "D (Needs Improvement)"
+              print(f"- **Average Complexity:** {complexity} ({grade})")
+
+          if 'maintainability_index' in current:
+              mi = current['maintainability_index']
+              if mi >= 80:
+                  status = "Excellent"
+              elif mi >= 60:
+                  status = "Good"
+              elif mi >= 40:
+                  status = "Fair"
+              else:
+                  status = "Needs Improvement"
+              print(f"- **Maintainability Index:** {mi} ({status})")
+          print()
+
+          # Development
+          print("### 👥 Development Activity\n")
+          print(f"- **Total Commits:** {current.get('total_commits', 'N/A'):,}")
+          print(f"- **Contributors:** {current.get('contributors', 'N/A')}")
+          print()
+
+          # Trends (if history exists)
+          history_file = Path('metrics/history/metrics.jsonl')
+          if history_file.exists():
+              print("## 📈 Trends\n")
+
+              with open(history_file) as f:
+                  history = [json.loads(line) for line in f]
+
+              if len(history) >= 2:
+                  previous = history[-2] if len(history) > 1 else history[0]
+
+                  # Calculate changes
+                  changes = {}
+                  for key in ['lines_of_code', 'python_files', 'test_files', 'total_commits']:
+                      if key in current and key in previous:
+                          delta = current[key] - previous[key]
+                          if delta > 0:
+                              changes[key] = f"+{delta}"
+                          elif delta < 0:
+                              changes[key] = str(delta)
+                          else:
+                              changes[key] = "±0"
+
+                  if changes:
+                      print("**Since Last Measurement:**\n")
+                      if 'lines_of_code' in changes:
+                          print(f"- Lines of Code: {changes['lines_of_code']}")
+                      if 'python_files' in changes:
+                          print(f"- Python Files: {changes['python_files']}")
+                      if 'test_files' in changes:
+                          print(f"- Test Files: {changes['test_files']}")
+                      if 'total_commits' in changes:
+                          print(f"- Commits: {changes['total_commits']}")
+                      print()
+
+          print("---")
+          print("\n*Metrics are collected automatically. Historical data is tracked in `metrics/history/`.*")
+          EOF
+
+          cat metrics/README.md
+
+      - name: Post to step summary
+        run: |
+          cat metrics/README.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Commit metrics
+        if: github.event_name == 'push' || github.event_name == 'schedule'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if [ -d metrics ] && [ -n "$(git status --porcelain metrics/)" ]; then
+            git add metrics/
+            git commit -m "chore: Update code metrics [skip ci]"
+            git push
+            echo "✅ Metrics updated and committed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ No changes to metrics" >> $GITHUB_STEP_SUMMARY
+          fi

@@ -1,0 +1,292 @@
+name: Artifact Management
+
+on:
+  schedule:
+    # Daily at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Artifact action'
+        required: true
+        type: choice
+        options:
+          - analyze
+          - cleanup-old
+          - cleanup-large
+        default: 'analyze'
+      days_old:
+        description: 'Delete artifacts older than (days)'
+        required: false
+        default: '30'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  manage-artifacts:
+    name: Manage Workflow Artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests python-dateutil
+
+      - name: Analyze artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python << 'EOF' > artifact_report.md
+          import os
+          import requests
+          from datetime import datetime, timedelta
+          from dateutil import parser
+          from collections import defaultdict
+
+          token = os.environ['GH_TOKEN']
+          repo = os.environ['GITHUB_REPOSITORY']
+
+          headers = {
+              'Authorization': f'token {token}',
+              'Accept': 'application/vnd.github+json'
+          }
+
+          print("# 📦 Artifact Management Report")
+          print(f"\n**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}\n")
+
+          try:
+              # Get artifacts
+              url = f'https://api.github.com/repos/{repo}/actions/artifacts'
+              params = {'per_page': 100}
+              response = requests.get(url, headers=headers, params=params)
+              response.raise_for_status()
+              data = response.json()
+
+              artifacts = data.get('artifacts', [])
+
+              # Fetch more pages if needed
+              page_count = 1
+              while 'next' in response.links and page_count < 10:
+                  response = requests.get(response.links['next']['url'], headers=headers)
+                  response.raise_for_status()
+                  data = response.json()
+                  artifacts.extend(data.get('artifacts', []))
+                  page_count += 1
+
+              print(f"## Overview\n")
+              print(f"- **Total Artifacts:** {len(artifacts)}")
+
+              # Calculate total size
+              total_size = sum(a.get('size_in_bytes', 0) for a in artifacts)
+              total_size_mb = total_size / (1024 * 1024)
+              total_size_gb = total_size / (1024 * 1024 * 1024)
+
+              if total_size_gb > 1:
+                  print(f"- **Total Size:** {total_size_gb:.2f} GB")
+              else:
+                  print(f"- **Total Size:** {total_size_mb:.2f} MB")
+
+              # Categorize by name pattern
+              by_type = defaultdict(lambda: {'count': 0, 'size': 0})
+              large_artifacts = []
+              old_artifacts = []
+              now = datetime.now()
+
+              for artifact in artifacts:
+                  name = artifact.get('name', '')
+                  size = artifact.get('size_in_bytes', 0)
+                  created = parser.parse(artifact.get('created_at', ''))
+                  age_days = (now - created).days
+
+                  # Categorize by type
+                  if 'test' in name.lower():
+                      artifact_type = 'Test Results'
+                  elif 'coverage' in name.lower():
+                      artifact_type = 'Coverage Reports'
+                  elif 'benchmark' in name.lower():
+                      artifact_type = 'Benchmarks'
+                  elif 'security' in name.lower() or 'audit' in name.lower():
+                      artifact_type = 'Security Reports'
+                  elif 'dist' in name.lower() or 'package' in name.lower():
+                      artifact_type = 'Packages'
+                  elif 'preview' in name.lower():
+                      artifact_type = 'PR Previews'
+                  else:
+                      artifact_type = 'Other'
+
+                  by_type[artifact_type]['count'] += 1
+                  by_type[artifact_type]['size'] += size
+
+                  # Track large artifacts (>100MB)
+                  if size > 100 * 1024 * 1024:
+                      large_artifacts.append((name, size, age_days))
+
+                  # Track old artifacts (>30 days)
+                  if age_days > 30:
+                      old_artifacts.append((name, size, age_days))
+
+              print("\n## Artifacts by Type\n")
+              print("| Type | Count | Size (MB) |")
+              print("|------|-------|-----------|")
+              for artifact_type, stats in sorted(by_type.items(), key=lambda x: x[1]['size'], reverse=True):
+                  size_mb = stats['size'] / (1024 * 1024)
+                  print(f"| {artifact_type} | {stats['count']} | {size_mb:.2f} |")
+
+              # Large artifacts
+              if large_artifacts:
+                  print("\n## 📊 Large Artifacts (>100MB)\n")
+                  large_artifacts.sort(key=lambda x: x[1], reverse=True)
+                  print("| Name | Size (MB) | Age (days) |")
+                  print("|------|-----------|------------|")
+                  for name, size, age in large_artifacts[:10]:
+                      size_mb = size / (1024 * 1024)
+                      print(f"| `{name[:40]}...` | {size_mb:.2f} | {age} |")
+
+              # Old artifacts
+              if old_artifacts:
+                  print(f"\n## 🕒 Old Artifacts (>30 days)\n")
+                  print(f"- **Count:** {len(old_artifacts)}")
+                  old_size = sum(a[1] for a in old_artifacts) / (1024 * 1024)
+                  print(f"- **Total Size:** {old_size:.2f} MB")
+
+                  old_artifacts.sort(key=lambda x: x[2], reverse=True)
+                  print("\n| Name | Age (days) | Size (MB) |")
+                  print("|------|------------|-----------|")
+                  for name, size, age in old_artifacts[:10]:
+                      size_mb = size / (1024 * 1024)
+                      print(f"| `{name[:40]}...` | {age} | {size_mb:.2f} |")
+
+              # Recommendations
+              print("\n## 💡 Recommendations\n")
+
+              if total_size_gb > 2:
+                  print(f"- ⚠️ **High storage usage** ({total_size_gb:.2f} GB) - recommend cleanup")
+
+              if len(old_artifacts) > 20:
+                  print(f"- 🧹 **{len(old_artifacts)} old artifacts** - consider cleanup")
+
+              if len(large_artifacts) > 10:
+                  print(f"- 📦 **{len(large_artifacts)} large artifacts** - review necessity")
+
+              if not (total_size_gb > 2 or len(old_artifacts) > 20 or len(large_artifacts) > 10):
+                  print("- ✅ Artifact storage is well managed")
+
+              print("\n---")
+              print("\n*This report helps monitor artifact storage and identify cleanup opportunities.*")
+
+          except Exception as e:
+              print(f"Error analyzing artifacts: {e}")
+              import traceback
+              print(f"\nTraceback:\n{traceback.format_exc()}")
+          EOF
+
+          cat artifact_report.md
+
+      - name: Post to step summary
+        run: |
+          cat artifact_report.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup artifacts
+        if: github.event.inputs.action == 'cleanup-old' || github.event.inputs.action == 'cleanup-large'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTION: ${{ github.event.inputs.action }}
+          DAYS_OLD: ${{ github.event.inputs.days_old || '30' }}
+        run: |
+          python << 'EOF'
+          import os
+          import requests
+          from datetime import datetime, timedelta
+          from dateutil import parser
+
+          token = os.environ['GH_TOKEN']
+          repo = os.environ['GITHUB_REPOSITORY']
+          action = os.environ.get('ACTION', 'cleanup-old')
+          days_old = int(os.environ.get('DAYS_OLD', '30'))
+
+          headers = {
+              'Authorization': f'token {token}',
+              'Accept': 'application/vnd.github+json'
+          }
+
+          # Get artifacts
+          url = f'https://api.github.com/repos/{repo}/actions/artifacts'
+          params = {'per_page': 100}
+          response = requests.get(url, headers=headers, params=params)
+          response.raise_for_status()
+          data = response.json()
+
+          artifacts = data.get('artifacts', [])
+
+          # Fetch more pages
+          page_count = 1
+          while 'next' in response.links and page_count < 10:
+              response = requests.get(response.links['next']['url'], headers=headers)
+              response.raise_for_status()
+              data = response.json()
+              artifacts.extend(data.get('artifacts', []))
+              page_count += 1
+
+          deleted_count = 0
+          deleted_size = 0
+          now = datetime.now()
+
+          for artifact in artifacts:
+              artifact_id = artifact.get('id')
+              name = artifact.get('name', '')
+              size = artifact.get('size_in_bytes', 0)
+              created = parser.parse(artifact.get('created_at', ''))
+              age_days = (now - created).days
+
+              should_delete = False
+
+              if action == 'cleanup-old' and age_days > days_old:
+                  should_delete = True
+              elif action == 'cleanup-large' and size > 100 * 1024 * 1024:  # >100MB
+                  should_delete = True
+
+              if should_delete and artifact_id:
+                  try:
+                      delete_url = f'https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}'
+                      del_response = requests.delete(delete_url, headers=headers)
+
+                      if del_response.status_code == 204:
+                          deleted_count += 1
+                          deleted_size += size
+                          print(f"Deleted: {name} ({age_days} days old, {size/(1024*1024):.2f} MB)")
+                      else:
+                          print(f"Failed to delete {artifact_id}: {del_response.status_code}")
+                  except Exception as e:
+                      print(f"Error deleting artifact {artifact_id}: {e}")
+
+              # Limit deletions per run
+              if deleted_count >= 50:
+                  print(f"\nReached deletion limit of 50 artifacts")
+                  break
+
+          deleted_size_mb = deleted_size / (1024 * 1024)
+          deleted_size_gb = deleted_size / (1024 * 1024 * 1024)
+
+          if deleted_size_gb > 1:
+              print(f"\n✅ Deleted {deleted_count} artifacts, freed {deleted_size_gb:.2f} GB")
+          else:
+              print(f"\n✅ Deleted {deleted_count} artifacts, freed {deleted_size_mb:.2f} MB")
+          EOF
+
+      - name: Upload artifact report
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-management-report-${{ github.run_number }}
+          path: artifact_report.md
+          retention-days: 30

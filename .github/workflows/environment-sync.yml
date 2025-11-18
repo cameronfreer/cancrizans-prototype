@@ -1,0 +1,229 @@
+name: Environment Synchronization
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'pyproject.toml'
+      - 'requirements*.txt'
+      - '.python-version'
+  pull_request:
+    paths:
+      - 'pyproject.toml'
+      - 'requirements*.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync-environments:
+    name: Sync Development Environments
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Install tools
+        run: |
+          pip install pip-tools
+
+      - name: Check environment consistency
+        id: check
+        run: |
+          echo "### 🔄 Environment Sync Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          ISSUES=0
+
+          # Check if pyproject.toml and requirements.txt are in sync
+          if [ -f "requirements.txt" ]; then
+            echo "**Checking requirements.txt consistency...**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # Generate requirements from pyproject.toml
+            pip-compile pyproject.toml -o requirements-generated.txt --no-header 2>/dev/null || true
+
+            if [ -f "requirements-generated.txt" ]; then
+              if ! diff -q requirements.txt requirements-generated.txt > /dev/null 2>&1; then
+                echo "⚠️ requirements.txt may be out of sync with pyproject.toml" >> $GITHUB_STEP_SUMMARY
+                ISSUES=$((ISSUES + 1))
+              else
+                echo "✅ requirements.txt is in sync" >> $GITHUB_STEP_SUMMARY
+              fi
+            fi
+          else
+            echo "ℹ️ No requirements.txt found (using pyproject.toml only)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "issues=$ISSUES" >> $GITHUB_OUTPUT
+
+      - name: Validate Docker environment
+        run: |
+          echo "### 🐳 Docker Environment Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f "Dockerfile" ]; then
+            echo "**Checking Dockerfile...**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # Check if Dockerfile uses same Python version
+            DOCKERFILE_PYTHON=$(grep -E "FROM python:" Dockerfile | head -1 | sed -E 's/.*python:([0-9.]+).*/\1/')
+            PYPROJECT_PYTHON=$(grep "requires-python" pyproject.toml | sed -E 's/.*>=([0-9.]+).*/\1/')
+
+            if [ -n "$DOCKERFILE_PYTHON" ] && [ -n "$PYPROJECT_PYTHON" ]; then
+              DOCKER_MAJOR=$(echo $DOCKERFILE_PYTHON | cut -d. -f1-2)
+              PYPROJECT_MAJOR=$(echo $PYPROJECT_PYTHON | cut -d. -f1-2)
+
+              if [ "$DOCKER_MAJOR" = "$PYPROJECT_MAJOR" ]; then
+                echo "✅ Dockerfile Python version matches ($DOCKER_MAJOR)" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "⚠️ Dockerfile ($DOCKER_MAJOR) != pyproject.toml ($PYPROJECT_MAJOR)" >> $GITHUB_STEP_SUMMARY
+              fi
+            fi
+
+            # Check if dev container uses same version
+            if [ -f ".devcontainer/devcontainer.json" ]; then
+              echo "✅ Dev container configuration exists" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "ℹ️ No Dockerfile found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check CI environment consistency
+        run: |
+          echo "### ⚙️ CI Environment Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check Python versions across workflows
+          WORKFLOW_VERSIONS=$(grep -h "python-version:" .github/workflows/*.yml | grep -E "'[0-9.]+'" | sed -E "s/.*'([0-9.]+)'.*/\1/" | sort -u)
+
+          echo "**Python versions in CI workflows:**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "$WORKFLOW_VERSIONS" | while read version; do
+            if [ -n "$version" ]; then
+              echo "- Python $version" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Count workflows with different versions
+          VERSION_COUNT=$(echo "$WORKFLOW_VERSIONS" | grep -c "^[0-9]" || echo "0")
+          if [ "$VERSION_COUNT" -gt 3 ]; then
+            echo "⚠️ Multiple Python versions in use ($VERSION_COUNT)" >> $GITHUB_STEP_SUMMARY
+            echo "Consider standardizing on fewer versions." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ Consistent Python version usage" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Generate dependency graph
+        run: |
+          echo "### 📦 Dependency Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          pip install pipdeptree
+
+          # Generate dependency tree
+          pipdeptree > dependency-tree.txt
+
+          # Count direct dependencies
+          DIRECT_DEPS=$(grep -E "^[a-zA-Z]" pyproject.toml | grep -c "=" || echo "0")
+          echo "- **Direct Dependencies:** $DIRECT_DEPS" >> $GITHUB_STEP_SUMMARY
+
+          # Count total installed packages
+          TOTAL_PKGS=$(pip list | wc -l)
+          echo "- **Total Packages:** $TOTAL_PKGS" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check for outdated dependencies
+        id: outdated
+        continue-on-error: true
+        run: |
+          echo "### 📅 Outdated Dependencies" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check for outdated packages
+          OUTDATED=$(pip list --outdated --format=json)
+
+          if [ "$OUTDATED" = "[]" ]; then
+            echo "✅ All dependencies are up to date" >> $GITHUB_STEP_SUMMARY
+          else
+            OUTDATED_COUNT=$(echo "$OUTDATED" | python -c "import sys, json; print(len(json.load(sys.stdin)))")
+            echo "⚠️ **$OUTDATED_COUNT outdated dependencies found**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "<details>" >> $GITHUB_STEP_SUMMARY
+            echo "<summary>View outdated packages</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            pip list --outdated | head -20 >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+            echo "outdated_count=$OUTDATED_COUNT" >> $GITHUB_OUTPUT
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Validate environment files
+        run: |
+          echo "### ✅ Environment File Validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check pyproject.toml syntax
+          if python -c "import tomllib; tomllib.load(open('pyproject.toml', 'rb'))"; then
+            echo "✅ pyproject.toml is valid TOML" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ pyproject.toml has syntax errors" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Check for environment variable examples
+          if [ -f ".env.example" ] || [ -f ".env.template" ]; then
+            echo "✅ Environment variable template exists" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ No .env.example file (may not be needed)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload dependency reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-reports-${{ github.run_number }}
+          path: |
+            dependency-tree.txt
+            requirements-generated.txt
+          retention-days: 30
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && steps.check.outputs.issues > 0
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issues = '${{ steps.check.outputs.issues }}';
+
+            const comment = `## 🔄 Environment Sync Report
+
+            ⚠️ **${issues} environment sync issue(s) detected**
+
+            Please review the [workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+
+            Common fixes:
+            - Run \`pip-compile pyproject.toml -o requirements.txt\` to sync requirements
+            - Update Dockerfile Python version to match pyproject.toml
+            - Ensure CI workflows use consistent Python versions
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });

@@ -1,0 +1,322 @@
+name: Deployment Readiness Check
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  readiness-check:
+    name: Deployment Readiness
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Check configuration files
+        id: config
+        run: |
+          echo "### 📋 Configuration Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          PASSED=0
+          FAILED=0
+
+          # Check pyproject.toml
+          if [ -f "pyproject.toml" ]; then
+            echo "✅ pyproject.toml exists" >> $GITHUB_STEP_SUMMARY
+            PASSED=$((PASSED + 1))
+
+            # Validate version format
+            VERSION=$(grep "^version" pyproject.toml | cut -d'"' -f2)
+            if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "✅ Version format valid: $VERSION" >> $GITHUB_STEP_SUMMARY
+              PASSED=$((PASSED + 1))
+            else
+              echo "❌ Invalid version format: $VERSION" >> $GITHUB_STEP_SUMMARY
+              FAILED=$((FAILED + 1))
+            fi
+          else
+            echo "❌ pyproject.toml missing" >> $GITHUB_STEP_SUMMARY
+            FAILED=$((FAILED + 1))
+          fi
+
+          # Check README
+          if [ -f "README.md" ]; then
+            echo "✅ README.md exists" >> $GITHUB_STEP_SUMMARY
+            PASSED=$((PASSED + 1))
+          else
+            echo "❌ README.md missing" >> $GITHUB_STEP_SUMMARY
+            FAILED=$((FAILED + 1))
+          fi
+
+          # Check LICENSE
+          if [ -f "LICENSE" ] || [ -f "LICENSE.txt" ] || [ -f "LICENSE.md" ]; then
+            echo "✅ LICENSE file exists" >> $GITHUB_STEP_SUMMARY
+            PASSED=$((PASSED + 1))
+          else
+            echo "⚠️ LICENSE file missing" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Check CHANGELOG
+          if [ -f "CHANGELOG.md" ] || [ -f "CHANGES.md" ]; then
+            echo "✅ CHANGELOG exists" >> $GITHUB_STEP_SUMMARY
+            PASSED=$((PASSED + 1))
+          else
+            echo "⚠️ CHANGELOG missing" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "config_passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "config_failed=$FAILED" >> $GITHUB_OUTPUT
+
+      - name: Check code quality
+        id: quality
+        run: |
+          echo "### 🎯 Code Quality Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          PASSED=0
+          FAILED=0
+
+          # Run tests
+          if pytest tests/ -x -q; then
+            echo "✅ Tests passing" >> $GITHUB_STEP_SUMMARY
+            PASSED=$((PASSED + 1))
+          else
+            echo "❌ Tests failing" >> $GITHUB_STEP_SUMMARY
+            FAILED=$((FAILED + 1))
+          fi
+
+          # Check coverage
+          coverage run -m pytest tests/ -x -q
+          COVERAGE=$(coverage report | grep TOTAL | awk '{print $4}' | sed 's/%//')
+          if [ -n "$COVERAGE" ] && [ "$COVERAGE" -ge 70 ]; then
+            echo "✅ Coverage: ${COVERAGE}% (>= 70%)" >> $GITHUB_STEP_SUMMARY
+            PASSED=$((PASSED + 1))
+          else
+            echo "⚠️ Coverage: ${COVERAGE}% (< 70%)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Check for type hints
+          if mypy cancrizans --ignore-missing-imports --no-error-summary 2>/dev/null; then
+            echo "✅ Type checking passed" >> $GITHUB_STEP_SUMMARY
+            PASSED=$((PASSED + 1))
+          else
+            echo "⚠️ Type checking has issues" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "quality_passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "quality_failed=$FAILED" >> $GITHUB_OUTPUT
+
+      - name: Check security
+        id: security
+        run: |
+          echo "### 🔒 Security Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          PASSED=0
+          FAILED=0
+
+          # Install security tools
+          pip install pip-audit bandit
+
+          # Dependency vulnerabilities
+          if pip-audit --format json > /dev/null 2>&1; then
+            echo "✅ No dependency vulnerabilities" >> $GITHUB_STEP_SUMMARY
+            PASSED=$((PASSED + 1))
+          else
+            echo "❌ Dependency vulnerabilities found" >> $GITHUB_STEP_SUMMARY
+            FAILED=$((FAILED + 1))
+          fi
+
+          # Code security
+          if bandit -r cancrizans -f json -q; then
+            echo "✅ No code security issues" >> $GITHUB_STEP_SUMMARY
+            PASSED=$((PASSED + 1))
+          else
+            echo "⚠️ Code security issues found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "security_passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "security_failed=$FAILED" >> $GITHUB_OUTPUT
+
+      - name: Check build
+        id: build
+        run: |
+          echo "### 📦 Build Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          PASSED=0
+          FAILED=0
+
+          # Install build tools
+          pip install build twine
+
+          # Build package
+          if python -m build; then
+            echo "✅ Package builds successfully" >> $GITHUB_STEP_SUMMARY
+            PASSED=$((PASSED + 1))
+          else
+            echo "❌ Package build failed" >> $GITHUB_STEP_SUMMARY
+            FAILED=$((FAILED + 1))
+          fi
+
+          # Check package
+          if twine check dist/*; then
+            echo "✅ Package validation passed" >> $GITHUB_STEP_SUMMARY
+            PASSED=$((PASSED + 1))
+          else
+            echo "❌ Package validation failed" >> $GITHUB_STEP_SUMMARY
+            FAILED=$((FAILED + 1))
+          fi
+
+          # Check package metadata
+          if python -c "import tomllib; tomllib.load(open('pyproject.toml', 'rb'))"; then
+            echo "✅ pyproject.toml is valid TOML" >> $GITHUB_STEP_SUMMARY
+            PASSED=$((PASSED + 1))
+          else
+            echo "❌ pyproject.toml has syntax errors" >> $GITHUB_STEP_SUMMARY
+            FAILED=$((FAILED + 1))
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "build_passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "build_failed=$FAILED" >> $GITHUB_OUTPUT
+
+      - name: Check documentation
+        id: docs
+        continue-on-error: true
+        run: |
+          echo "### 📚 Documentation Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          PASSED=0
+
+          # Check for docs directory
+          if [ -d "docs/" ]; then
+            echo "✅ Documentation directory exists" >> $GITHUB_STEP_SUMMARY
+            PASSED=$((PASSED + 1))
+          else
+            echo "⚠️ No docs/ directory" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Check for examples
+          if [ -d "examples/" ] || grep -q "## Examples" README.md; then
+            echo "✅ Examples found" >> $GITHUB_STEP_SUMMARY
+            PASSED=$((PASSED + 1))
+          else
+            echo "⚠️ No examples found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "docs_passed=$PASSED" >> $GITHUB_OUTPUT
+
+      - name: Generate deployment readiness score
+        id: score
+        run: |
+          CONFIG_PASSED="${{ steps.config.outputs.config_passed || 0 }}"
+          CONFIG_FAILED="${{ steps.config.outputs.config_failed || 0 }}"
+          QUALITY_PASSED="${{ steps.quality.outputs.quality_passed || 0 }}"
+          QUALITY_FAILED="${{ steps.quality.outputs.quality_failed || 0 }}"
+          SECURITY_PASSED="${{ steps.security.outputs.security_passed || 0 }}"
+          SECURITY_FAILED="${{ steps.security.outputs.security_failed || 0 }}"
+          BUILD_PASSED="${{ steps.build.outputs.build_passed || 0 }}"
+          BUILD_FAILED="${{ steps.build.outputs.build_failed || 0 }}"
+          DOCS_PASSED="${{ steps.docs.outputs.docs_passed || 0 }}"
+
+          TOTAL_PASSED=$((CONFIG_PASSED + QUALITY_PASSED + SECURITY_PASSED + BUILD_PASSED + DOCS_PASSED))
+          TOTAL_FAILED=$((CONFIG_FAILED + QUALITY_FAILED + SECURITY_FAILED + BUILD_FAILED))
+
+          # Calculate score out of 100
+          MAX_SCORE=15  # Total possible checks
+          SCORE=$((TOTAL_PASSED * 100 / MAX_SCORE))
+
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 Deployment Readiness Score" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ $SCORE -ge 90 ]; then
+            GRADE="A"
+            STATUS="🟢 READY"
+            EMOJI="🌟"
+          elif [ $SCORE -ge 80 ]; then
+            GRADE="B"
+            STATUS="🟡 MOSTLY READY"
+            EMOJI="✅"
+          elif [ $SCORE -ge 70 ]; then
+            GRADE="C"
+            STATUS="🟡 NEEDS WORK"
+            EMOJI="⚠️"
+          elif [ $SCORE -ge 60 ]; then
+            GRADE="D"
+            STATUS="🔴 NOT READY"
+            EMOJI="⚠️"
+          else
+            GRADE="F"
+            STATUS="🔴 NOT READY"
+            EMOJI="❌"
+          fi
+
+          echo "### $EMOJI Score: ${SCORE}/100 (Grade: ${GRADE})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${STATUS}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Summary:**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Passed: ${TOTAL_PASSED} checks" >> $GITHUB_STEP_SUMMARY
+          echo "- ❌ Failed: ${TOTAL_FAILED} checks" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ $SCORE -ge 80 ]; then
+            echo "✅ This project is ready for deployment!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Address the failed checks before deploying." >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "score=$SCORE" >> $GITHUB_OUTPUT
+          echo "grade=$GRADE" >> $GITHUB_OUTPUT
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const score = '${{ steps.score.outputs.score }}';
+            const grade = '${{ steps.score.outputs.grade }}';
+
+            const comment = `## 🚀 Deployment Readiness Report
+
+            **Score:** ${score}/100 (Grade: ${grade})
+
+            This PR has been analyzed for deployment readiness. Check the workflow run for detailed results.
+
+            [View Full Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Fail if not ready
+        if: steps.score.outputs.score < 70
+        run: |
+          echo "❌ Deployment readiness score is below 70%. Address the issues before deploying."
+          exit 1
