@@ -50,6 +50,10 @@ out/
 *.wav
 *.png
 
+# Benchmark results
+benchmarks/results/
+benchmark_output.txt
+
 # Web
 web/node_modules/
 web/dist/
