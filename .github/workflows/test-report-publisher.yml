@@ -1,0 +1,281 @@
+name: Test Report Publisher
+
+on:
+  workflow_run:
+    workflows: ["CI", "Nightly Comprehensive Tests", "Comprehensive Test Matrix"]
+    types: [completed]
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  publish-test-results:
+    name: Publish Test Results
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion != 'skipped'
+
+    steps:
+      - name: Download test artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: ${{ github.event.workflow_run.id }}
+            });
+
+            const fs = require('fs');
+            const path = require('path');
+
+            // Download all test result artifacts
+            for (const artifact of artifacts.data.artifacts) {
+              if (artifact.name.includes('test-results') || artifact.name.includes('test-report')) {
+                const download = await github.rest.actions.downloadArtifact({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  artifact_id: artifact.id,
+                  archive_format: 'zip'
+                });
+
+                fs.mkdirSync('artifacts', { recursive: true });
+                fs.writeFileSync(`artifacts/${artifact.name}.zip`, Buffer.from(download.data));
+              }
+            }
+
+      - name: Extract artifacts
+        run: |
+          mkdir -p test-results
+          if [ -d artifacts ]; then
+            cd artifacts
+            for zip in *.zip; do
+              [ -f "$zip" ] && unzip -o "$zip" -d ../test-results/ || true
+            done
+            cd ..
+          fi
+
+      - name: Publish test results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always()
+        with:
+          files: |
+            test-results/**/*.xml
+          check_name: Test Results
+          comment_mode: always
+          compare_to_earlier_commit: true
+          report_individual_runs: true
+          deduplicate_classes_by_file_name: true
+
+      - name: Generate detailed report
+        if: always()
+        run: |
+          cat > test_summary.md << 'EOF'
+          # 📊 Test Report Summary
+
+          **Workflow:** ${{ github.event.workflow_run.name }}
+          **Status:** ${{ github.event.workflow_run.conclusion }}
+          **Triggered by:** @${{ github.event.workflow_run.triggering_actor.login }}
+
+          EOF
+
+          if [ -d test-results ]; then
+            python << 'PYEOF' >> test_summary.md
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          from collections import defaultdict
+
+          results = {
+              'total': 0,
+              'passed': 0,
+              'failed': 0,
+              'skipped': 0,
+              'errors': 0,
+              'duration': 0.0,
+              'by_file': defaultdict(lambda: {'total': 0, 'passed': 0, 'failed': 0, 'skipped': 0})
+          }
+
+          xml_files = list(Path('test-results').rglob('*.xml'))
+
+          for xml_file in xml_files:
+              try:
+                  tree = ET.parse(xml_file)
+                  root = tree.getroot()
+
+                  for testsuite in root.findall('.//testsuite'):
+                      results['total'] += int(testsuite.get('tests', 0))
+                      results['failed'] += int(testsuite.get('failures', 0))
+                      results['skipped'] += int(testsuite.get('skipped', 0))
+                      results['errors'] += int(testsuite.get('errors', 0))
+                      results['duration'] += float(testsuite.get('time', 0))
+
+                  for testcase in root.findall('.//testcase'):
+                      classname = testcase.get('classname', 'unknown')
+                      results['by_file'][classname]['total'] += 1
+
+                      if testcase.find('failure') is not None or testcase.find('error') is not None:
+                          results['by_file'][classname]['failed'] += 1
+                      elif testcase.find('skipped') is not None:
+                          results['by_file'][classname]['skipped'] += 1
+                      else:
+                          results['by_file'][classname]['passed'] += 1
+              except Exception as e:
+                  print(f"Error parsing {xml_file}: {e}")
+
+          results['passed'] = results['total'] - results['failed'] - results['skipped'] - results['errors']
+
+          print("\n## Summary\n")
+          print(f"- **Total Tests:** {results['total']}")
+          print(f"- **Passed:** ✅ {results['passed']}")
+          print(f"- **Failed:** ❌ {results['failed']}")
+          print(f"- **Skipped:** ⏭️ {results['skipped']}")
+          print(f"- **Errors:** ⚠️ {results['errors']}")
+          print(f"- **Duration:** {results['duration']:.2f}s")
+
+          if results['total'] > 0:
+              pass_rate = (results['passed'] / results['total']) * 100
+              print(f"- **Pass Rate:** {pass_rate:.1f}%")
+
+          # Show failed tests by file
+          if results['failed'] > 0:
+              print("\n## Failed Tests by Module\n")
+              failed_files = [(name, stats) for name, stats in results['by_file'].items() if stats['failed'] > 0]
+              failed_files.sort(key=lambda x: x[1]['failed'], reverse=True)
+
+              print("| Module | Failed | Total |")
+              print("|--------|--------|-------|")
+              for name, stats in failed_files[:10]:
+                  print(f"| `{name}` | {stats['failed']} | {stats['total']} |")
+          PYEOF
+          fi
+
+          cat test_summary.md
+
+      - name: Post to workflow summary
+        if: always()
+        run: |
+          if [ -f test_summary.md ]; then
+            cat test_summary.md >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Comment on PR
+        if: github.event.workflow_run.event == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            // Get PR number from workflow run
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.payload.workflow_run.id
+            });
+
+            // Try to find PR number
+            let prNumber = null;
+            const pulls = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open'
+            });
+
+            for (const pr of pulls.data) {
+              if (pr.head.sha === context.payload.workflow_run.head_sha) {
+                prNumber = pr.number;
+                break;
+              }
+            }
+
+            if (prNumber && fs.existsSync('test_summary.md')) {
+              const summary = fs.readFileSync('test_summary.md', 'utf8');
+
+              const comment = `## 🧪 Test Results
+
+              ${summary}
+
+              [View Full Workflow Run](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.payload.workflow_run.id})
+              `;
+
+              // Find existing comment
+              const comments = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber
+              });
+
+              const botComment = comments.data.find(c =>
+                c.user.type === 'Bot' && c.body.includes('Test Results')
+              );
+
+              if (botComment) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: botComment.id,
+                  body: comment
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  body: comment
+                });
+              }
+            }
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-${{ github.event.workflow_run.id }}
+          path: test_summary.md
+          retention-days: 30
+
+      - name: Create issue for test failures
+        if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.event != 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.existsSync('test_summary.md')
+              ? fs.readFileSync('test_summary.md', 'utf8')
+              : 'Test summary not available';
+
+            const body = `## ⚠️ Test Failure Alert
+
+            **Workflow:** ${{ github.event.workflow_run.name }}
+            **Branch:** ${{ github.event.workflow_run.head_branch }}
+            **Commit:** ${{ github.event.workflow_run.head_sha }}
+
+            ${summary}
+
+            [View Workflow Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }})
+
+            Please investigate and fix the failing tests.
+            `;
+
+            // Check for existing open issue
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'test-failure,automated'
+            });
+
+            const existingIssue = issues.data.find(i =>
+              i.title.includes(${{ github.event.workflow_run.name }})
+            );
+
+            if (!existingIssue) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `⚠️ Test Failure: ${{ github.event.workflow_run.name }}`,
+                body: body,
+                labels: ['test-failure', 'automated', 'bug']
+              });
+            }

@@ -1,0 +1,355 @@
+name: Documentation Validation
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'docs/**'
+      - '**.md'
+      - '**.rst'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'docs/**'
+      - '**.md'
+      - '**.rst'
+  schedule:
+    # Weekly on Sundays at 10:00 UTC
+    - cron: '0 10 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate-docs:
+    name: Validate Documentation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Install documentation tools
+        run: |
+          pip install sphinx sphinx-rtd-theme myst-parser
+          pip install doc8 pydocstyle sphinx-lint
+          npm install -g markdown-link-check markdownlint-cli
+
+      - name: Check Markdown formatting
+        continue-on-error: true
+        run: |
+          echo "### 📝 Markdown Validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          markdownlint '**/*.md' --config .markdownlint.json 2>&1 | tee markdown_lint.txt || true
+
+          if [ -s markdown_lint.txt ]; then
+            echo "⚠️ Markdown formatting issues found:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            head -20 markdown_lint.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ No Markdown formatting issues" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check for broken links
+        continue-on-error: true
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Link Validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check all markdown files
+          find . -name "*.md" -not -path "./node_modules/*" -not -path "./.venv/*" | while read file; do
+            echo "Checking $file..."
+            markdown-link-check "$file" --config .markdown-link-check.json 2>&1 | tee -a link_check.txt || true
+          done
+
+          if grep -q "✖" link_check.txt 2>/dev/null; then
+            echo "⚠️ Broken links found:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep "✖" link_check.txt | head -20 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ No broken links detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Validate reStructuredText
+        if: hashFiles('docs/**/*.rst') != ''
+        continue-on-error: true
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📄 reStructuredText Validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          doc8 docs/ --max-line-length 100 2>&1 | tee rst_check.txt || true
+
+          if [ -s rst_check.txt ] && ! grep -q "Success!" rst_check.txt; then
+            echo "⚠️ RST issues found:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat rst_check.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ No RST issues" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check docstring coverage
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📚 Docstring Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          python << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import ast
+          from pathlib import Path
+          from collections import defaultdict
+
+          stats = defaultdict(lambda: {'total': 0, 'documented': 0})
+
+          def has_docstring(node):
+              """Check if a node has a docstring."""
+              return (ast.get_docstring(node) is not None and
+                      len(ast.get_docstring(node).strip()) > 0)
+
+          for py_file in Path('cancrizans').rglob('*.py'):
+              if py_file.name.startswith('_') and py_file.name != '__init__.py':
+                  continue
+
+              try:
+                  tree = ast.parse(py_file.read_text())
+                  module_name = str(py_file.relative_to('cancrizans')).replace('/', '.').replace('.py', '')
+
+                  # Check module docstring
+                  if has_docstring(tree):
+                      stats['modules']['documented'] += 1
+                  stats['modules']['total'] += 1
+
+                  for node in ast.walk(tree):
+                      # Functions
+                      if isinstance(node, ast.FunctionDef):
+                          if not node.name.startswith('_'):
+                              stats['functions']['total'] += 1
+                              if has_docstring(node):
+                                  stats['functions']['documented'] += 1
+
+                      # Classes
+                      elif isinstance(node, ast.ClassDef):
+                          if not node.name.startswith('_'):
+                              stats['classes']['total'] += 1
+                              if has_docstring(node):
+                                  stats['classes']['documented'] += 1
+              except Exception as e:
+                  print(f"Error parsing {py_file}: {e}")
+
+          print("| Type | Documented | Total | Coverage |")
+          print("|------|------------|-------|----------|")
+
+          for category in ['modules', 'classes', 'functions']:
+              if stats[category]['total'] > 0:
+                  coverage = (stats[category]['documented'] / stats[category]['total']) * 100
+                  print(f"| {category.capitalize()} | {stats[category]['documented']} | {stats[category]['total']} | {coverage:.1f}% |")
+
+          # Overall
+          total_items = sum(s['total'] for s in stats.values())
+          total_documented = sum(s['documented'] for s in stats.values())
+          if total_items > 0:
+              overall = (total_documented / total_items) * 100
+              print(f"| **Overall** | **{total_documented}** | **{total_items}** | **{overall:.1f}%** |")
+          PYEOF
+
+      - name: Build Sphinx documentation
+        if: hashFiles('docs/conf.py') != ''
+        continue-on-error: true
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📖 Sphinx Build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -d docs ] && [ -f docs/conf.py ]; then
+            cd docs
+            sphinx-build -W --keep-going -b html . _build/html 2>&1 | tee ../sphinx_build.log || true
+            cd ..
+
+            if grep -q "WARNING\|ERROR" sphinx_build.log; then
+              echo "⚠️ Sphinx build warnings/errors:" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              grep "WARNING\|ERROR" sphinx_build.log | head -20 >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ Sphinx build successful" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "ℹ️ No Sphinx documentation found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check API documentation completeness
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 API Documentation Completeness" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          python << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import ast
+          from pathlib import Path
+
+          # Get all public API items from __init__.py
+          init_file = Path('cancrizans/__init__.py')
+          if not init_file.exists():
+              print("❌ No __init__.py found")
+              exit(0)
+
+          tree = ast.parse(init_file.read_text())
+
+          exported = set()
+          for node in ast.walk(tree):
+              if isinstance(node, ast.ImportFrom):
+                  for alias in node.names:
+                      exported.add(alias.name if alias.asname is None else alias.asname)
+
+          # Check if documented in README or docs
+          readme_file = Path('README.md')
+          documented = set()
+
+          if readme_file.exists():
+              readme_content = readme_file.read_text()
+              for item in exported:
+                  if item in readme_content:
+                      documented.add(item)
+
+          missing = exported - documented
+
+          if missing:
+              print(f"**⚠️ {len(missing)} API items not documented in README:**\n")
+              for item in sorted(missing):
+                  print(f"- `{item}`")
+          else:
+              print("✅ All public API items documented")
+
+          print(f"\n**Coverage:** {len(documented)}/{len(exported)} items ({len(documented)/len(exported)*100:.1f}%)")
+          PYEOF
+
+      - name: Check for TODO/FIXME comments
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📝 TODO/FIXME Comments" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          TODO_COUNT=$(grep -r "TODO\|FIXME" --include="*.py" --include="*.md" cancrizans/ docs/ 2>/dev/null | wc -l || echo "0")
+
+          if [ "$TODO_COUNT" -gt 0 ]; then
+            echo "**$TODO_COUNT TODO/FIXME comments found:**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -r "TODO\|FIXME" --include="*.py" --include="*.md" cancrizans/ docs/ 2>/dev/null | head -10 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ No TODO/FIXME comments" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Validate code examples in documentation
+        continue-on-error: true
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 💻 Code Example Validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          python << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import re
+          from pathlib import Path
+          import subprocess
+          import tempfile
+
+          readme = Path('README.md')
+          if not readme.exists():
+              print("ℹ️ No README.md found")
+              exit(0)
+
+          content = readme.read_text()
+
+          # Extract Python code blocks
+          code_blocks = re.findall(r'```python\n(.*?)```', content, re.DOTALL)
+
+          print(f"**Found {len(code_blocks)} Python code examples**\n")
+
+          valid = 0
+          invalid = 0
+
+          for i, code in enumerate(code_blocks, 1):
+              # Skip examples with placeholders or interactive code
+              if '...' in code or '>>>' in code or 'input(' in code:
+                  continue
+
+              # Try to compile
+              try:
+                  compile(code, f'<example-{i}>', 'exec')
+                  valid += 1
+              except SyntaxError as e:
+                  invalid += 1
+                  print(f"❌ Example {i}: Syntax error - {e}")
+
+          print(f"\n**Results:** {valid} valid, {invalid} invalid")
+
+          if invalid > 0:
+              print(f"\n⚠️ {invalid} code example(s) have syntax errors")
+          else:
+              print("\n✅ All code examples are syntactically valid")
+          PYEOF
+
+      - name: Generate documentation report
+        run: |
+          cat > doc_report.json << 'EOF'
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "checks": {
+              "markdown_formatting": "completed",
+              "link_validation": "completed",
+              "docstring_coverage": "completed",
+              "api_documentation": "completed",
+              "code_examples": "completed"
+            }
+          }
+          EOF
+
+      - name: Upload documentation report
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-report-${{ github.run_number }}
+          path: |
+            doc_report.json
+            markdown_lint.txt
+            link_check.txt
+            rst_check.txt
+            sphinx_build.log
+          retention-days: 30
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            let issues = [];
+
+            if (fs.existsSync('markdown_lint.txt') && fs.statSync('markdown_lint.txt').size > 0) {
+              issues.push('⚠️ Markdown formatting issues detected');
+            }
+
+            if (fs.existsSync('link_check.txt') && fs.readFileSync('link_check.txt', 'utf8').includes('✖')) {
+              issues.push('⚠️ Broken links detected');
+            }
+
+            if (issues.length > 0) {
+              const comment = `## 📚 Documentation Validation\n\n${issues.join('\n')}\n\n[View Full Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+
+              github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }

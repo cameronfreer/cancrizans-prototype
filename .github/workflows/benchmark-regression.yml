@@ -1,0 +1,351 @@
+name: Benchmark Regression
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  benchmark:
+    name: Run Performance Benchmarks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Install benchmarking tools
+        run: |
+          pip install pytest-benchmark pyperf
+
+      - name: Run benchmarks
+        run: |
+          mkdir -p benchmarks/results
+
+          # Create benchmark script
+          cat > benchmark_suite.py << 'PYEOF'
+          import pytest
+          import time
+          from cancrizans import (
+              retrograde,
+              inversion,
+              augmentation,
+              diminution,
+              table_canon
+          )
+          from cancrizans.generator import CanonGenerator
+
+          # Benchmark: Canon generation
+          def test_bench_canon_generation(benchmark):
+              gen = CanonGenerator(seed=42)
+              result = benchmark(gen.generate_scale_canon, root='C4', scale='major', length=16)
+              assert result is not None
+
+          # Benchmark: Retrograde transformation
+          def test_bench_retrograde(benchmark):
+              gen = CanonGenerator(seed=42)
+              canon = gen.generate_scale_canon(root='C4', scale='major', length=32)
+              result = benchmark(retrograde, canon)
+              assert result is not None
+
+          # Benchmark: Inversion transformation
+          def test_bench_inversion(benchmark):
+              gen = CanonGenerator(seed=42)
+              canon = gen.generate_scale_canon(root='C4', scale='major', length=32)
+              result = benchmark(inversion, canon)
+              assert result is not None
+
+          # Benchmark: Table canon generation
+          def test_bench_table_canon(benchmark):
+              gen = CanonGenerator(seed=42)
+              theme = gen.generate_scale_canon(root='C4', scale='major', length=8)
+              result = benchmark(table_canon, theme)
+              assert result is not None
+
+          # Benchmark: Multiple transformations
+          def test_bench_transformation_chain(benchmark):
+              from cancrizans import TransformationChain
+              gen = CanonGenerator(seed=42)
+              theme = gen.generate_scale_canon(root='C4', scale='major', length=16)
+
+              def run_chain():
+                  chain = TransformationChain(theme)
+                  chain.retrograde().inversion().augmentation(2)
+                  return chain.result()
+
+              result = benchmark(run_chain)
+              assert result is not None
+
+          # Benchmark: Large canon generation
+          def test_bench_large_canon(benchmark):
+              gen = CanonGenerator(seed=42)
+              result = benchmark(gen.generate_scale_canon, root='C4', scale='major', length=100)
+              assert result is not None
+          PYEOF
+
+          # Run benchmarks
+          pytest benchmark_suite.py \
+            --benchmark-only \
+            --benchmark-json=benchmarks/results/output.json \
+            --benchmark-save=current \
+            --benchmark-autosave
+
+      - name: Analyze benchmark results
+        id: analyze
+        run: |
+          python << 'PYEOF'
+          import json
+          import os
+          from pathlib import Path
+
+          results_file = Path('benchmarks/results/output.json')
+
+          if not results_file.exists():
+              print("No benchmark results found")
+              exit(0)
+
+          with open(results_file) as f:
+              data = json.load(f)
+
+          benchmarks = data.get('benchmarks', [])
+
+          print("### 📊 Benchmark Results\n")
+          print("| Benchmark | Mean | StdDev | Min | Max |")
+          print("|-----------|------|--------|-----|-----|")
+
+          for bench in benchmarks:
+              name = bench['name'].replace('test_bench_', '')
+              stats = bench['stats']
+              mean = stats['mean'] * 1000  # Convert to ms
+              stddev = stats['stddev'] * 1000
+              min_val = stats['min'] * 1000
+              max_val = stats['max'] * 1000
+
+              print(f"| {name} | {mean:.2f}ms | {stddev:.2f}ms | {min_val:.2f}ms | {max_val:.2f}ms |")
+
+          # Save summary
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"benchmark_count={len(benchmarks)}\n")
+          PYEOF
+
+      - name: Post to step summary
+        run: |
+          if [ -f benchmarks/results/output.json ]; then
+            python << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import json
+          from pathlib import Path
+
+          with open('benchmarks/results/output.json') as f:
+              data = json.load(f)
+
+          benchmarks = data.get('benchmarks', [])
+
+          print("### 📊 Benchmark Results\n")
+          print("| Benchmark | Mean | StdDev | Operations/sec |")
+          print("|-----------|------|--------|----------------|")
+
+          for bench in benchmarks:
+              name = bench['name'].replace('test_bench_', '')
+              stats = bench['stats']
+              mean = stats['mean'] * 1000  # ms
+              stddev = stats['stddev'] * 1000
+              ops_per_sec = 1.0 / stats['mean']
+
+              print(f"| {name} | {mean:.2f}ms | ±{stddev:.2f}ms | {ops_per_sec:.1f} |")
+
+          print(f"\n**Total benchmarks:** {len(benchmarks)}")
+          PYEOF
+          fi
+
+      - name: Compare with baseline
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          # Try to download baseline from main branch
+          git fetch origin main:main 2>/dev/null || true
+
+          if git show main:benchmarks/results/baseline.json > /dev/null 2>&1; then
+            git show main:benchmarks/results/baseline.json > benchmarks/results/baseline.json
+
+            python << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import json
+          from pathlib import Path
+
+          baseline_file = Path('benchmarks/results/baseline.json')
+          current_file = Path('benchmarks/results/output.json')
+
+          if not baseline_file.exists() or not current_file.exists():
+              print("\n### ℹ️ No baseline comparison available")
+              exit(0)
+
+          with open(baseline_file) as f:
+              baseline = json.load(f)
+          with open(current_file) as f:
+              current = json.load(f)
+
+          # Create lookup
+          baseline_dict = {b['name']: b['stats']['mean'] for b in baseline.get('benchmarks', [])}
+          current_dict = {b['name']: b['stats']['mean'] for b in current.get('benchmarks', [])}
+
+          print("\n### 📈 Regression Analysis\n")
+          print("| Benchmark | Baseline | Current | Change | Status |")
+          print("|-----------|----------|---------|--------|--------|")
+
+          regressions = []
+          improvements = []
+
+          for name in current_dict:
+              if name in baseline_dict:
+                  baseline_val = baseline_dict[name] * 1000  # ms
+                  current_val = current_dict[name] * 1000
+                  change = ((current_val - baseline_val) / baseline_val) * 100
+
+                  if abs(change) < 5:
+                      status = "✅ Similar"
+                  elif change > 0:
+                      status = "⚠️ Slower"
+                      regressions.append((name, change))
+                  else:
+                      status = "🚀 Faster"
+                      improvements.append((name, abs(change)))
+
+                  print(f"| {name} | {baseline_val:.2f}ms | {current_val:.2f}ms | {change:+.1f}% | {status} |")
+
+          if regressions:
+              print(f"\n**⚠️ {len(regressions)} performance regression(s) detected**")
+          if improvements:
+              print(f"\n**🚀 {len(improvements)} performance improvement(s) detected**")
+          PYEOF
+          else
+            echo "### ℹ️ No baseline for comparison" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.run_number }}
+          path: benchmarks/results/
+          retention-days: 90
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            if (!fs.existsSync('benchmarks/results/output.json')) {
+              return;
+            }
+
+            const data = JSON.parse(fs.readFileSync('benchmarks/results/output.json', 'utf8'));
+            const benchmarks = data.benchmarks || [];
+
+            let comment = `## 📊 Benchmark Results\n\n`;
+            comment += `| Benchmark | Mean | Operations/sec |\n`;
+            comment += `|-----------|------|----------------|\n`;
+
+            for (const bench of benchmarks) {
+              const name = bench.name.replace('test_bench_', '');
+              const mean = (bench.stats.mean * 1000).toFixed(2);
+              const ops = (1.0 / bench.stats.mean).toFixed(1);
+              comment += `| ${name} | ${mean}ms | ${ops} |\n`;
+            }
+
+            comment += `\n[View Full Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+
+            // Find existing comment
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+
+            const botComment = comments.data.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Benchmark Results')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: comment
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }
+
+      - name: Save baseline
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p benchmarks/results
+
+          if [ -f benchmarks/results/output.json ]; then
+            cp benchmarks/results/output.json benchmarks/results/baseline.json
+
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+
+            if [ -n "$(git status --porcelain benchmarks/)" ]; then
+              git add benchmarks/results/baseline.json
+              git commit -m "chore: Update benchmark baseline [skip ci]"
+              git push
+              echo "✅ Benchmark baseline updated" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+      - name: Check for critical regressions
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          python << 'PYEOF'
+          import json
+          from pathlib import Path
+
+          baseline_file = Path('benchmarks/results/baseline.json')
+          current_file = Path('benchmarks/results/output.json')
+
+          if not baseline_file.exists() or not current_file.exists():
+              exit(0)
+
+          with open(baseline_file) as f:
+              baseline = json.load(f)
+          with open(current_file) as f:
+              current = json.load(f)
+
+          baseline_dict = {b['name']: b['stats']['mean'] for b in baseline.get('benchmarks', [])}
+          current_dict = {b['name']: b['stats']['mean'] for b in current.get('benchmarks', [])}
+
+          critical_regressions = []
+
+          for name in current_dict:
+              if name in baseline_dict:
+                  change = ((current_dict[name] - baseline_dict[name]) / baseline_dict[name]) * 100
+
+                  # Flag if >20% slower
+                  if change > 20:
+                      critical_regressions.append((name, change))
+
+          if critical_regressions:
+              print(f"::error::Critical performance regressions detected:")
+              for name, change in critical_regressions:
+                  print(f"::error::{name}: {change:.1f}% slower")
+              exit(1)
+          PYEOF

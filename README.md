@@ -602,6 +602,29 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
   - **Security score calculation** with A-F grading
   - Automatic issue creation for critical findings
 
+- **Advanced Security Scanning** (`.github/workflows/security-advanced.yml`)
+  - **Multi-tool security analysis** (daily + on PRs)
+  - Bandit SAST with severity categorization
+  - Safety dependency vulnerability checking
+  - pip-audit comprehensive dependency audit
+  - Semgrep semantic analysis
+  - Vulture dead code detection
+  - Hardcoded secret pattern detection
+  - Aggregate security report generation
+  - PR comments for critical findings
+  - Automatic failure on high severity issues
+
+- **License Compliance** (`.github/workflows/license-compliance.yml`)
+  - **Automated license compliance checking** (monthly + manual)
+  - License categorization (Permissive, Copyleft, Proprietary)
+  - Uses pip-licenses for dependency analysis
+  - Flags problematic licenses (strong copyleft, proprietary, unknown)
+  - Generates NOTICE file with third-party attributions
+  - Project license file validation
+  - pyproject.toml license declaration check
+  - Automatic issue creation if >5 problems detected
+  - PR comments for license issues
+
 ### ⚡ Performance Monitoring
 - **Benchmark Suite** (`.github/workflows/benchmark.yml`)
   - 20+ performance benchmarks
@@ -610,6 +633,18 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
   - Weekly scheduled runs
   - PR-level performance feedback
   - See [benchmarks/README.md](benchmarks/README.md) for details
+
+- **Benchmark Regression** (`.github/workflows/benchmark-regression.yml`)
+  - **Performance regression testing** on PRs and main branch
+  - 6 comprehensive benchmarks (canon generation, transformations, etc.)
+  - Uses pytest-benchmark for accurate measurements
+  - Baseline comparison with main branch
+  - Mean, StdDev, Min, Max metrics tracking
+  - Operations/second calculation
+  - Regression detection (>20% slower fails check)
+  - PR comments with performance comparison
+  - Automatic baseline updates on main branch
+  - 90-day result retention
 
 ### 📝 Documentation Quality
 - **Documentation Checks** (`.github/workflows/docs-check.yml`)
@@ -624,6 +659,18 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
   - Python docstring validation
   - Markdown linting with markdownlint
   - PR comments for spelling errors
+
+- **Documentation Validation** (`.github/workflows/documentation-validation.yml`)
+  - **Comprehensive documentation quality checks** (weekly + on changes)
+  - Markdown formatting with markdownlint
+  - Broken link detection with markdown-link-check
+  - reStructuredText validation with doc8
+  - Docstring coverage analysis (modules, classes, functions)
+  - Sphinx build validation
+  - API documentation completeness check
+  - TODO/FIXME comment tracking
+  - Code example syntax validation
+  - PR comments for documentation issues
 
 - **Documentation Deployment** (`.github/workflows/docs-deploy.yml`)
   - Automatic Sphinx documentation generation
@@ -909,6 +956,17 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
   - **Optimization recommendations**
   - Configuration analysis (caching, concurrency)
 
+- **Test Report Publisher** (`.github/workflows/test-report-publisher.yml`)
+  - **Automated test result publishing** from workflow runs
+  - Listens to CI, Nightly, and Comprehensive Test Matrix completions
+  - Downloads and aggregates test artifacts (XML results)
+  - Uses EnricoMi/publish-unit-test-result-action
+  - Generates detailed test summaries with pass/fail stats
+  - Failed test breakdown by module
+  - PR comments with test results
+  - Creates issues for test failures on main branch
+  - 30-day test report retention
+
 ### 📦 Release Automation
 - **Release Workflow** (`.github/workflows/release.yml`)
   - Version validation across files
@@ -940,7 +998,7 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
 - **80%+ code coverage** enforced with automated checks
 - **Zero security vulnerabilities** (daily scans with CodeQL, pip-audit, Bandit)
 - **18 performance benchmarks** with regression detection (<10% threshold)
-- **49 automated workflows** covering all aspects of development
+- **54 automated workflows** covering all aspects of development
 - **50+ GitHub labels** for organized issue/PR management
 - **10+ pre-commit hooks** for local code quality enforcement
 - **Reusable composite action** for Python environment setup

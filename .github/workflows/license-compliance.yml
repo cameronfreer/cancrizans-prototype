@@ -1,0 +1,297 @@
+name: License Compliance
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'pyproject.toml'
+      - 'requirements*.txt'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'pyproject.toml'
+      - 'requirements*.txt'
+  schedule:
+    # Monthly on the 15th at 09:00 UTC
+    - cron: '0 9 15 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  check-licenses:
+    name: Check License Compliance
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Install license tools
+        run: |
+          pip install pip-licenses licensecheck
+
+      - name: Generate license report
+        run: |
+          echo "### 📜 License Compliance Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Generate detailed license report
+          pip-licenses --format=json --output-file=licenses-full.json
+          pip-licenses --format=markdown --output-file=licenses.md
+
+      - name: Analyze licenses
+        id: analyze
+        run: |
+          python << 'PYEOF'
+          import json
+          from pathlib import Path
+          from collections import defaultdict
+
+          # Load license data
+          with open('licenses-full.json') as f:
+              licenses = json.load(f)
+
+          # License categories
+          PERMISSIVE = ['MIT', 'BSD', 'Apache', 'ISC', 'Python Software Foundation', 'PSF']
+          COPYLEFT_WEAK = ['LGPL', 'MPL', 'EPL']
+          COPYLEFT_STRONG = ['GPL', 'AGPL']
+          PROPRIETARY = ['Commercial', 'Proprietary']
+          UNKNOWN = ['UNKNOWN', 'Unknown', 'N/A']
+
+          def categorize_license(lic_name):
+              """Categorize a license."""
+              if not lic_name or lic_name in UNKNOWN:
+                  return 'Unknown'
+              for perm in PERMISSIVE:
+                  if perm in lic_name:
+                      return 'Permissive'
+              for weak in COPYLEFT_WEAK:
+                  if weak in lic_name:
+                      return 'Weak Copyleft'
+              for strong in COPYLEFT_STRONG:
+                  if strong in lic_name:
+                      return 'Strong Copyleft'
+              for prop in PROPRIETARY:
+                  if prop in lic_name:
+                      return 'Proprietary'
+              return 'Other'
+
+          # Analyze
+          by_category = defaultdict(list)
+          by_license = defaultdict(list)
+          issues = []
+
+          for pkg in licenses:
+              name = pkg.get('Name', 'Unknown')
+              version = pkg.get('Version', 'N/A')
+              lic = pkg.get('License', 'UNKNOWN')
+
+              category = categorize_license(lic)
+              by_category[category].append((name, lic))
+              by_license[lic].append(name)
+
+              # Flag issues
+              if category == 'Strong Copyleft':
+                  issues.append(f"⚠️ Strong copyleft license: {name} ({lic})")
+              elif category == 'Proprietary':
+                  issues.append(f"⚠️ Proprietary license: {name} ({lic})")
+              elif category == 'Unknown':
+                  issues.append(f"❓ Unknown license: {name}")
+
+          # Generate summary
+          print("## License Distribution\n")
+          print("| Category | Count | Packages |")
+          print("|----------|-------|----------|")
+          for cat in ['Permissive', 'Weak Copyleft', 'Strong Copyleft', 'Proprietary', 'Unknown', 'Other']:
+              if cat in by_category:
+                  count = len(by_category[cat])
+                  print(f"| {cat} | {count} | {count} |")
+
+          print("\n## License Types\n")
+          print("| License | Count |")
+          print("|---------|-------|")
+          for lic, pkgs in sorted(by_license.items(), key=lambda x: len(x[1]), reverse=True)[:15]:
+              print(f"| {lic} | {len(pkgs)} |")
+
+          # Issues
+          if issues:
+              print(f"\n## ⚠️ License Issues ({len(issues)})\n")
+              for issue in issues[:20]:
+                  print(f"- {issue}")
+              print("\nHAS_ISSUES=true")
+          else:
+              print("\n## ✅ No License Issues\n")
+              print("All dependencies use compatible licenses.")
+              print("\nHAS_ISSUES=false")
+
+          # Write to GitHub output
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"has_issues={'true' if issues else 'false'}\n")
+              f.write(f"issue_count={len(issues)}\n")
+
+          # Save detailed report
+          with open('license_report.json', 'w') as f:
+              json.dump({
+                  'by_category': {k: [{'name': n, 'license': l} for n, l in v]
+                                 for k, v in by_category.items()},
+                  'by_license': {k: v for k, v in by_license.items()},
+                  'issues': issues
+              }, f, indent=2)
+          PYEOF
+
+      - name: Post to step summary
+        run: |
+          cat license_report.md 2>/dev/null >> $GITHUB_STEP_SUMMARY || true
+
+      - name: Check project license
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Project License" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f LICENSE ] || [ -f LICENSE.txt ] || [ -f LICENSE.md ]; then
+            echo "✅ Project has a LICENSE file" >> $GITHUB_STEP_SUMMARY
+
+            # Detect license type
+            if grep -qi "MIT" LICENSE* 2>/dev/null; then
+              echo "- **Type:** MIT License" >> $GITHUB_STEP_SUMMARY
+            elif grep -qi "Apache" LICENSE* 2>/dev/null; then
+              echo "- **Type:** Apache License" >> $GITHUB_STEP_SUMMARY
+            elif grep -qi "GPL" LICENSE* 2>/dev/null; then
+              echo "- **Type:** GPL License" >> $GITHUB_STEP_SUMMARY
+            elif grep -qi "BSD" LICENSE* 2>/dev/null; then
+              echo "- **Type:** BSD License" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- **Type:** Custom/Other" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "⚠️ No LICENSE file found in project root" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check license in pyproject.toml
+        run: |
+          if grep -q "license" pyproject.toml; then
+            LICENSE_LINE=$(grep "license" pyproject.toml | head -1)
+            echo "- Declared in pyproject.toml: \`$LICENSE_LINE\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ No license declared in pyproject.toml" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Generate NOTICE file
+        run: |
+          cat > NOTICE.generated << 'EOF'
+          # Third-Party Notices
+
+          This project uses the following third-party libraries:
+
+          EOF
+
+          pip-licenses --format=plain >> NOTICE.generated
+
+          echo "Generated NOTICE file with $(wc -l < NOTICE.generated) lines"
+
+      - name: Upload license reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-reports-${{ github.run_number }}
+          path: |
+            licenses-full.json
+            licenses.md
+            license_report.json
+            NOTICE.generated
+          retention-days: 90
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && steps.analyze.outputs.has_issues == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            let report = 'License analysis completed.';
+            if (fs.existsSync('license_report.json')) {
+              const data = JSON.parse(fs.readFileSync('license_report.json', 'utf8'));
+
+              report = `## ⚠️ License Compliance Issues
+
+              **${data.issues.length} license issue(s) detected:**
+
+              `;
+
+              for (const issue of data.issues.slice(0, 10)) {
+                report += `- ${issue}\n`;
+              }
+
+              if (data.issues.length > 10) {
+                report += `\n... and ${data.issues.length - 10} more\n`;
+              }
+
+              report += `\n[View Full Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+            }
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: report
+            });
+
+      - name: Create issue for license problems
+        if: github.event_name == 'schedule' && steps.analyze.outputs.has_issues == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const data = JSON.parse(fs.readFileSync('license_report.json', 'utf8'));
+
+            const body = `## ⚠️ License Compliance Issues Detected
+
+            **${data.issues.length} license issue(s) found:**
+
+            ${data.issues.map(i => `- ${i}`).join('\n')}
+
+            ### Recommended Actions
+
+            1. Review flagged dependencies
+            2. Replace copyleft/proprietary dependencies if possible
+            3. Investigate unknown licenses
+            4. Update documentation with license attributions
+
+            [View Detailed Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            `;
+
+            // Check for existing issue
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'license-compliance'
+            });
+
+            if (issues.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: '⚠️ License Compliance Issues',
+                body: body,
+                labels: ['license-compliance', 'legal', 'automated']
+              });
+            }
+
+      - name: Fail on critical issues
+        if: steps.analyze.outputs.has_issues == 'true'
+        run: |
+          ISSUE_COUNT=${{ steps.analyze.outputs.issue_count }}
+          if [ "$ISSUE_COUNT" -gt 5 ]; then
+            echo "::error::Too many license issues detected ($ISSUE_COUNT)"
+            exit 1
+          else
+            echo "::warning::License issues detected but within threshold"
+          fi

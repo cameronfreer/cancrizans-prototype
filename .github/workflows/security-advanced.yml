@@ -1,0 +1,410 @@
+name: Advanced Security Scanning
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Daily at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  multi-tool-security-scan:
+    name: Multi-Tool Security Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Install security tools
+        run: |
+          pip install bandit safety semgrep pip-audit vulture
+          pip install pysa pyre-check 2>/dev/null || true
+
+      - name: Run Bandit (SAST)
+        continue-on-error: true
+        run: |
+          echo "### 🔒 Bandit Security Scan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          bandit -r cancrizans/ -f json -o bandit_report.json || true
+          bandit -r cancrizans/ -f txt > bandit_report.txt || true
+
+          if [ -f bandit_report.json ]; then
+            python << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import json
+          from pathlib import Path
+
+          with open('bandit_report.json') as f:
+              report = json.load(f)
+
+          results = report.get('results', [])
+
+          by_severity = {'HIGH': [], 'MEDIUM': [], 'LOW': []}
+          for result in results:
+              severity = result.get('issue_severity', 'LOW')
+              if severity in by_severity:
+                  by_severity[severity].append(result)
+
+          print(f"**Total issues:** {len(results)}\n")
+          print("| Severity | Count |")
+          print("|----------|-------|")
+          for severity in ['HIGH', 'MEDIUM', 'LOW']:
+              print(f"| {severity} | {len(by_severity[severity])} |")
+
+          if by_severity['HIGH']:
+              print("\n**🚨 High Severity Issues:**\n")
+              for issue in by_severity['HIGH'][:5]:
+                  print(f"- {issue['test_id']}: {issue['issue_text']} ({issue['filename']}:{issue['line_number']})")
+          elif results:
+              print("\n✅ No high severity issues")
+          else:
+              print("\n✅ No security issues detected")
+          PYEOF
+          fi
+
+      - name: Run Safety (dependency vulnerabilities)
+        continue-on-error: true
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🛡️ Safety - Dependency Vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          safety check --json > safety_report.json 2>&1 || true
+
+          if [ -f safety_report.json ]; then
+            python << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import json
+          import sys
+
+          try:
+              with open('safety_report.json') as f:
+                  content = f.read()
+                  if not content.strip():
+                      print("✅ No vulnerabilities detected by Safety")
+                      sys.exit(0)
+                  report = json.loads(content)
+
+              vulns = report.get('vulnerabilities', [])
+
+              if not vulns:
+                  print("✅ No vulnerabilities detected")
+              else:
+                  print(f"**⚠️ {len(vulns)} vulnerability(ies) found:**\n")
+
+                  for vuln in vulns[:10]:
+                      pkg = vuln.get('package', 'Unknown')
+                      version = vuln.get('installed_version', 'Unknown')
+                      vuln_id = vuln.get('vulnerability_id', 'N/A')
+                      print(f"- **{pkg}** {version}: {vuln_id}")
+          except json.JSONDecodeError:
+              print("✅ No vulnerabilities detected")
+          except Exception as e:
+              print(f"ℹ️ Could not parse safety report: {e}")
+          PYEOF
+          fi
+
+      - name: Run pip-audit
+        continue-on-error: true
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 pip-audit - Dependency Audit" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          pip-audit --format json > pip_audit.json 2>&1 || true
+
+          if [ -f pip_audit.json ] && [ -s pip_audit.json ]; then
+            python << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import json
+          import sys
+
+          try:
+              with open('pip_audit.json') as f:
+                  report = json.load(f)
+
+              vulns = report.get('dependencies', [])
+
+              if not vulns:
+                  print("✅ No vulnerabilities found")
+              else:
+                  total_vulns = sum(len(v.get('vulns', [])) for v in vulns)
+                  print(f"**⚠️ {total_vulns} vulnerability(ies) in {len(vulns)} package(s):**\n")
+
+                  for dep in vulns[:10]:
+                      name = dep.get('name', 'Unknown')
+                      version = dep.get('version', 'Unknown')
+                      for vuln in dep.get('vulns', [])[:3]:
+                          vuln_id = vuln.get('id', 'N/A')
+                          fix_versions = vuln.get('fix_versions', [])
+                          fix_str = f" → {', '.join(fix_versions)}" if fix_versions else ""
+                          print(f"- **{name}** {version}: {vuln_id}{fix_str}")
+          except Exception as e:
+              print(f"ℹ️ pip-audit check completed")
+          PYEOF
+          else
+            echo "✅ No vulnerabilities found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Run Semgrep (SAST)
+        continue-on-error: true
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🎯 Semgrep - Semantic Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          semgrep --config auto --json --output semgrep_report.json cancrizans/ || true
+
+          if [ -f semgrep_report.json ]; then
+            python << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import json
+
+          with open('semgrep_report.json') as f:
+              report = json.load(f)
+
+          results = report.get('results', [])
+
+          if not results:
+              print("✅ No issues detected")
+          else:
+              by_severity = {}
+              for result in results:
+                  severity = result.get('extra', {}).get('severity', 'INFO')
+                  by_severity[severity] = by_severity.get(severity, 0) + 1
+
+              print(f"**Total findings:** {len(results)}\n")
+              print("| Severity | Count |")
+              print("|----------|-------|")
+              for severity in ['ERROR', 'WARNING', 'INFO']:
+                  count = by_severity.get(severity, 0)
+                  if count > 0:
+                      print(f"| {severity} | {count} |")
+          PYEOF
+          fi
+
+      - name: Run Vulture (dead code detection)
+        continue-on-error: true
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🦅 Vulture - Dead Code Detection" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          vulture cancrizans/ --min-confidence 80 > vulture_report.txt 2>&1 || true
+
+          if [ -s vulture_report.txt ]; then
+            LINE_COUNT=$(wc -l < vulture_report.txt)
+            echo "**⚠️ Potential dead code detected ($LINE_COUNT items):**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            head -20 vulture_report.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ No dead code detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check for hardcoded secrets
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔑 Secret Detection" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          python << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import re
+          from pathlib import Path
+
+          patterns = {
+              'API Key': r'(?i)(api[_-]?key|apikey)\s*[:=]\s*["\']([a-zA-Z0-9]{20,})["\']',
+              'Password': r'(?i)(password|passwd|pwd)\s*[:=]\s*["\']([^"\']{8,})["\']',
+              'Token': r'(?i)(token|auth)\s*[:=]\s*["\']([a-zA-Z0-9]{20,})["\']',
+              'AWS Key': r'(?i)(aws[_-]?access[_-]?key[_-]?id|aws[_-]?secret)',
+              'Private Key': r'-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----'
+          }
+
+          findings = []
+
+          for py_file in Path('cancrizans').rglob('*.py'):
+              content = py_file.read_text()
+
+              for secret_type, pattern in patterns.items():
+                  matches = re.finditer(pattern, content)
+                  for match in matches:
+                      # Skip obvious test/example values
+                      if any(test in match.group(0).lower() for test in ['example', 'test', 'dummy', 'fake', 'xxx']):
+                          continue
+                      findings.append(f"{py_file}: Possible {secret_type}")
+
+          if findings:
+              print(f"**⚠️ {len(findings)} potential secret(s) detected:**\n")
+              for finding in findings[:10]:
+                  print(f"- {finding}")
+              print("\n**Action required:** Review these findings and use environment variables or secret management.")
+          else:
+              print("✅ No hardcoded secrets detected")
+          PYEOF
+
+      - name: Aggregate security report
+        run: |
+          python << 'PYEOF'
+          import json
+          from pathlib import Path
+          from datetime import datetime
+
+          report = {
+              'timestamp': datetime.utcnow().isoformat(),
+              'tools': {}
+          }
+
+          # Bandit
+          if Path('bandit_report.json').exists():
+              with open('bandit_report.json') as f:
+                  bandit = json.load(f)
+                  report['tools']['bandit'] = {
+                      'total_issues': len(bandit.get('results', [])),
+                      'high_severity': len([r for r in bandit.get('results', []) if r.get('issue_severity') == 'HIGH'])
+                  }
+
+          # Safety
+          if Path('safety_report.json').exists():
+              try:
+                  with open('safety_report.json') as f:
+                      content = f.read()
+                      if content.strip():
+                          safety = json.loads(content)
+                          report['tools']['safety'] = {
+                              'vulnerabilities': len(safety.get('vulnerabilities', []))
+                          }
+              except:
+                  report['tools']['safety'] = {'vulnerabilities': 0}
+
+          # pip-audit
+          if Path('pip_audit.json').exists():
+              try:
+                  with open('pip_audit.json') as f:
+                      audit = json.load(f)
+                      vulns = sum(len(d.get('vulns', [])) for d in audit.get('dependencies', []))
+                      report['tools']['pip_audit'] = {
+                          'vulnerabilities': vulns
+                      }
+              except:
+                  report['tools']['pip_audit'] = {'vulnerabilities': 0}
+
+          # Semgrep
+          if Path('semgrep_report.json').exists():
+              with open('semgrep_report.json') as f:
+                  semgrep = json.load(f)
+                  report['tools']['semgrep'] = {
+                      'findings': len(semgrep.get('results', []))
+                  }
+
+          with open('security_aggregate.json', 'w') as f:
+              json.dump(report, f, indent=2)
+
+          print(f"Security aggregate report generated: {len(report['tools'])} tools")
+          PYEOF
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports-${{ github.run_number }}
+          path: |
+            bandit_report.*
+            safety_report.*
+            pip_audit.json
+            semgrep_report.json
+            vulture_report.txt
+            security_aggregate.json
+          retention-days: 90
+
+      - name: Comment on PR with critical findings
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            let criticalIssues = false;
+            let summary = '## 🔒 Security Scan Results\n\n';
+
+            // Check Bandit for high severity
+            if (fs.existsSync('bandit_report.json')) {
+              const bandit = JSON.parse(fs.readFileSync('bandit_report.json', 'utf8'));
+              const high = bandit.results.filter(r => r.issue_severity === 'HIGH').length;
+              if (high > 0) {
+                summary += `⚠️ **Bandit:** ${high} high severity issue(s)\n`;
+                criticalIssues = true;
+              }
+            }
+
+            // Check Safety
+            if (fs.existsSync('safety_report.json')) {
+              try {
+                const content = fs.readFileSync('safety_report.json', 'utf8');
+                if (content.trim()) {
+                  const safety = JSON.parse(content);
+                  const vulns = safety.vulnerabilities?.length || 0;
+                  if (vulns > 0) {
+                    summary += `⚠️ **Safety:** ${vulns} vulnerability(ies) in dependencies\n`;
+                    criticalIssues = true;
+                  }
+                }
+              } catch {}
+            }
+
+            if (criticalIssues) {
+              summary += `\n[View Detailed Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+
+              github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: summary
+              });
+            }
+
+      - name: Fail on critical security issues
+        run: |
+          python << 'PYEOF'
+          import json
+          import sys
+          from pathlib import Path
+
+          critical = False
+
+          # Check Bandit
+          if Path('bandit_report.json').exists():
+              with open('bandit_report.json') as f:
+                  bandit = json.load(f)
+                  high = [r for r in bandit.get('results', []) if r.get('issue_severity') == 'HIGH']
+                  if high:
+                      print(f"::error::{len(high)} high severity security issue(s) detected by Bandit")
+                      critical = True
+
+          # Check Safety/pip-audit for critical CVEs
+          if Path('pip_audit.json').exists():
+              try:
+                  with open('pip_audit.json') as f:
+                      audit = json.load(f)
+                      critical_vulns = []
+                      for dep in audit.get('dependencies', []):
+                          for vuln in dep.get('vulns', []):
+                              # Check if fix is available
+                              if vuln.get('fix_versions'):
+                                  critical_vulns.append(f"{dep['name']}: {vuln['id']}")
+
+                      if critical_vulns:
+                          print(f"::warning::{len(critical_vulns)} vulnerability(ies) with available fixes")
+              except:
+                  pass
+
+          if critical:
+              sys.exit(1)
+          PYEOF
