@@ -16,10 +16,10 @@ from music21 import stream, note, chord, corpus
 # Import Cancrizans modules
 from cancrizans import (
     CanonGenerator,
-    detect_crab_canon,
-    detect_table_canon,
-    apply_crab_canon,
-    apply_table_canon,
+    is_time_palindrome,
+    retrograde,
+    table_canon,
+    advanced_crab_canon,
     detect_motifs,
     identify_melodic_sequences,
     detect_imitation_points,
@@ -181,27 +181,21 @@ def run_benchmarks() -> BenchmarkSuite:
     # ===================================================================
 
     suite.benchmark(
-        "Detect crab canon (small)",
-        lambda: detect_crab_canon(small_canon),
+        "Check palindrome symmetry (small)",
+        lambda: is_time_palindrome(small_canon),
         iterations=100,
     )
 
     suite.benchmark(
-        "Detect crab canon (medium)",
-        lambda: detect_crab_canon(medium_canon),
+        "Check palindrome symmetry (medium)",
+        lambda: is_time_palindrome(medium_canon),
         iterations=50,
     )
 
     suite.benchmark(
-        "Detect table canon (small)",
-        lambda: detect_table_canon(small_canon),
-        iterations=100,
-    )
-
-    suite.benchmark(
-        "Detect table canon (medium)",
-        lambda: detect_table_canon(medium_canon),
-        iterations=50,
+        "Check palindrome symmetry (large)",
+        lambda: is_time_palindrome(large_canon),
+        iterations=20,
     )
 
     # ===================================================================
@@ -209,15 +203,21 @@ def run_benchmarks() -> BenchmarkSuite:
     # ===================================================================
 
     suite.benchmark(
-        "Apply crab canon transformation",
-        lambda: apply_crab_canon(small_canon),
+        "Apply retrograde transformation",
+        lambda: retrograde(small_canon),
         iterations=100,
     )
 
     suite.benchmark(
         "Apply table canon transformation",
-        lambda: apply_table_canon(small_canon),
+        lambda: table_canon(small_canon),
         iterations=100,
+    )
+
+    suite.benchmark(
+        "Apply advanced crab canon",
+        lambda: advanced_crab_canon(small_canon),
+        iterations=50,
     )
 
     # ===================================================================
