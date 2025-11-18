@@ -7,7 +7,7 @@ xenharmonic canons, and non-Western musical traditions.
 Phase 18 - v0.35.0
 """
 
-from typing import List, Dict, Tuple, Optional, Callable
+from typing import List, Dict, Tuple, Optional, Callable, Any
 from dataclasses import dataclass, replace
 from enum import Enum
 import math
@@ -217,7 +217,7 @@ def create_equal_temperament(divisions: int, octave_cents: float = 1200.0) -> Mi
         >>> scale = create_equal_temperament(13, 1200 * (3/2))  # Bohlen-Pierce (13-EDTriT)
     """
     step_cents = octave_cents / divisions
-    intervals = [i * step_cents for i in range(divisions)]
+    intervals = [float(i * step_cents) for i in range(divisions)]
 
     return MicrotonalScale(
         name=f"{divisions}-TET",
@@ -378,7 +378,7 @@ def xenharmonic_canon(
         Transformed stream with microtonal pitches
     """
     scale = create_equal_temperament(divisions_per_octave)
-    result = stream.Stream()
+    result: stream.Stream = stream.Stream()
 
     # Map 12-TET pitches to N-TET
     step_cents = 1200.0 / divisions_per_octave
@@ -438,7 +438,7 @@ def microtonal_inversion(
     if axis_cents is None:
         axis_cents = (min(pitch_cents) + max(pitch_cents)) / 2.0
 
-    result = stream.Stream()
+    result: stream.Stream = stream.Stream()
 
     for element in s.flatten().notesAndRests:
         if isinstance(element, note.Note):
@@ -465,7 +465,7 @@ def microtonal_inversion(
     return result
 
 
-def analyze_microtonal_intervals(s: stream.Stream) -> Dict[str, any]:
+def analyze_microtonal_intervals(s: stream.Stream) -> Dict[str, Any]:
     """
     Analyze microtonal intervals in stream
 
@@ -1532,7 +1532,7 @@ def scale_subset(scale: MicrotonalScale, indices: List[int]) -> MicrotonalScale:
     )
 
 
-def compare_scales(scale1: MicrotonalScale, scale2: MicrotonalScale) -> Dict[str, any]:
+def compare_scales(scale1: MicrotonalScale, scale2: MicrotonalScale) -> Dict[str, Any]:
     """
     Compare two microtonal scales
 
@@ -1890,7 +1890,7 @@ def calculate_consonance_dissonance(interval_cents: float) -> float:
     return 0.4
 
 
-def create_consonance_profile(scale: MicrotonalScale) -> Dict[str, any]:
+def create_consonance_profile(scale: MicrotonalScale) -> Dict[str, Any]:
     """
     Create consonance profile for all intervals in a scale
 
@@ -2026,7 +2026,7 @@ def detect_tuning_system(s: stream.Stream) -> Tuple[TuningSystem, float]:
     return best_system, confidence
 
 
-def cross_cultural_canon_analysis(s: stream.Stream) -> Dict[str, any]:
+def cross_cultural_canon_analysis(s: stream.Stream) -> Dict[str, Any]:
     """
     Analyze stream for cross-cultural musical characteristics
 
@@ -2036,7 +2036,7 @@ def cross_cultural_canon_analysis(s: stream.Stream) -> Dict[str, any]:
     Returns:
         Dictionary with cultural analysis
     """
-    analysis = {
+    analysis: Dict[str, Any] = {
         'tuning_system': None,
         'tuning_confidence': 0.0,
         'microtonal_content': False,
