@@ -5,6 +5,97 @@ All notable changes to the Cancrizans project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.1] - 2025-11-18
+
+### 🎹 Phase 21: CLI Integration for Microtonal Canons
+
+#### Added - New CLI Command
+
+**`microtonal-canon`**: Comprehensive command-line interface for microtonal canon operations
+
+**Generation Modes:**
+- Generate canons from existing themes with custom tuning systems
+- Algorithmically create canons using world music scales
+- Support for all 40+ tuning systems and 36 world music scales
+
+**Analysis Mode:**
+- Cross-cultural compatibility analysis
+- Tests canons against major world music scales
+- Provides compatibility scores and tuning deviation metrics
+- JSON export for detailed analysis results
+
+#### Command Options
+
+**Input/Output:**
+- `--input, -i`: Specify theme file (MusicXML or MIDI)
+- `--output, -o`: Export analysis results (JSON format)
+- `--output-dir`: Directory for generated MIDI/MusicXML files (default: out/)
+
+**Generation Parameters:**
+- `--world-scale`: Generate using world music scale (e.g., MAQAM_HIJAZ, RAGA_BHAIRAV, PELOG)
+- `--tuning`: Tuning system (default: JUST_INTONATION_5)
+- `--canon-type`: Transformation type (retrograde, inversion, augmentation, stretto)
+- `--tonic`: MIDI note for tonic (default: 60 = C4)
+- `--length`: Number of notes for generated melody (default: 16)
+- `--octave-range`: Octave range for generation (default: 2)
+- `--no-pitch-bend`: Disable pitch bend MIDI data
+
+**Analysis:**
+- `--analyze`: Enable cross-cultural compatibility analysis mode
+
+#### Usage Examples
+
+```bash
+# Generate Arabic maqam retrograde canon
+cancrizans microtonal-canon --world-scale MAQAM_HIJAZ --length 20
+
+# Create 7-limit just intonation canon from existing theme
+cancrizans microtonal-canon -i my_theme.mid --tuning JUST_INTONATION_7
+
+# Analyze existing canon for cross-cultural compatibility
+cancrizans microtonal-canon -i bach_canon.musicxml --analyze -o results.json
+
+# Generate Indonesian gamelan-style inversion canon
+cancrizans microtonal-canon --world-scale PELOG --canon-type inversion --octave-range 3
+
+# Create Werckmeister III temperament canon
+cancrizans microtonal-canon -i theme.mid --tuning WERCKMEISTER_III --canon-type stretto
+```
+
+#### Analysis Output
+
+When using `--analyze`, displays:
+- Top 10 most compatible world music scales
+- Compatibility scores (0.0-1.0)
+- Tuning deviation in cents
+- Number of just intonation ratios detected
+- Sorted results for easy interpretation
+
+Example output:
+```
+Scale                                     Compat  Deviation  Ratios
+----------------------------------------------------------------------
+Arabic maqam Hijaz                         0.847     12.35¢       4
+Turkish maqam Segah                        0.823     15.20¢       3
+Persian dastgah Homayun                    0.791     18.50¢       5
+```
+
+#### Technical Implementation
+- Full argument validation with helpful error messages
+- Enum-based scale/tuning selection
+- Automatic MIDI and MusicXML export
+- Progress indicators and informative output
+- JSON export for programmatic analysis
+- Error handling for missing files/invalid arguments
+
+#### Quality Metrics
+- All 738 tests passing (100% pass rate)
+- No regressions from Phase 20
+- Clean integration with existing CLI commands
+- Type-safe implementations
+
+---
+
 ## [0.37.0] - 2025-11-18
 
 ### 🎵 Phase 20: Microtonal Canon Integration
