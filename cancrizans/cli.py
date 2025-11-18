@@ -683,6 +683,67 @@ def main() -> int:
         help="Export scale to Scala (.scl) file format"
     )
 
+    # Microtonal canon subcommand
+    microtonal_parser = subparsers.add_parser(
+        "microtonal-canon",
+        help="Create or analyze microtonal canons"
+    )
+    microtonal_parser.add_argument(
+        "--input", "-i",
+        help="Input MusicXML/MIDI file (theme for canon generation)"
+    )
+    microtonal_parser.add_argument(
+        "--world-scale",
+        help="Generate canon using world music scale (e.g., MAQAM_HIJAZ, RAGA_BHAIRAV, PELOG)"
+    )
+    microtonal_parser.add_argument(
+        "--tuning",
+        default="JUST_INTONATION_5",
+        help="Tuning system (default: JUST_INTONATION_5)"
+    )
+    microtonal_parser.add_argument(
+        "--canon-type",
+        default="retrograde",
+        choices=['retrograde', 'inversion', 'augmentation', 'stretto'],
+        help="Type of canon transformation (default: retrograde)"
+    )
+    microtonal_parser.add_argument(
+        "--tonic",
+        type=int,
+        default=60,
+        help="MIDI note for tonic (default: 60 = C4)"
+    )
+    microtonal_parser.add_argument(
+        "--length",
+        type=int,
+        default=16,
+        help="Number of notes for generated melody (default: 16)"
+    )
+    microtonal_parser.add_argument(
+        "--octave-range",
+        type=int,
+        default=2,
+        help="Octave range for melody generation (default: 2)"
+    )
+    microtonal_parser.add_argument(
+        "--no-pitch-bend",
+        action="store_true",
+        help="Disable pitch bend MIDI data"
+    )
+    microtonal_parser.add_argument(
+        "--analyze",
+        action="store_true",
+        help="Analyze existing canon for cross-cultural compatibility"
+    )
+    microtonal_parser.add_argument(
+        "--output", "-o",
+        help="Output file for analysis results (JSON)"
+    )
+    microtonal_parser.add_argument(
+        "--output-dir",
+        help="Output directory for generated files (default: out/)"
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -704,6 +765,8 @@ def main() -> int:
             return validate_command(args)
         elif args.command == "scales":
             return scales_command(args)
+        elif args.command == "microtonal-canon":
+            return microtonal_canon_command(args)
         else:
             print(f"Unknown command: {args.command}")
             return 1
@@ -869,3 +932,140 @@ def validate_command(args: argparse.Namespace) -> int:
         print(f"\n✓ Exported to: {output_path}")
 
     return 0 if validation['is_valid_canon'] else 1
+
+
+def microtonal_canon_command(args: argparse.Namespace) -> int:
+    """Execute the microtonal-canon subcommand."""
+    from cancrizans.canon import create_microtonal_canon, generate_world_music_canon, cross_cultural_canon_analysis
+    from cancrizans.microtonal import TuningSystem, ScaleType
+    from cancrizans.io import to_midi, to_musicxml
+    from music21 import stream, note, converter
+
+    # Handle generation vs analysis mode
+    if args.analyze:
+        # Analyze existing file for cross-cultural compatibility
+        if not args.input:
+            print("Error: --input required for --analyze mode")
+            return 1
+
+        input_path = Path(args.input)
+        if not input_path.exists():
+            print(f"Error: File not found: {input_path}")
+            return 1
+
+        print(f"Loading: {input_path}")
+        score = converter.parse(str(input_path))
+
+        print("\nAnalyzing cross-cultural compatibility...")
+        print("=" * 60)
+
+        analysis = cross_cultural_canon_analysis(score)
+
+        # Display results sorted by compatibility
+        sorted_results = sorted(
+            analysis.items(),
+            key=lambda x: x[1]['compatibility'],
+            reverse=True
+        )
+
+        print(f"\n{'Scale':40s} {'Compat':>8s} {'Deviation':>10s} {'Ratios':>7s}")
+        print("-" * 70)
+
+        for scale_name, metrics in sorted_results[:10]:  # Top 10
+            compat = metrics['compatibility']
+            deviation = metrics['tuning_deviation']
+            ratios = metrics['just_ratios_found']
+            print(f"{scale_name:40s} {compat:8.3f} {deviation:10.2f}¢ {ratios:7d}")
+
+        # Export results if requested
+        if args.output:
+            import json
+            output_path = Path(args.output)
+            with open(output_path, 'w') as f:
+                json.dump(analysis, f, indent=2)
+            print(f"\n✓ Exported analysis to: {output_path}")
+
+        return 0
+
+    # Generation mode
+    if args.world_scale:
+        # Generate canon using world music scale
+        try:
+            scale_type = ScaleType[args.world_scale]
+        except KeyError:
+            print(f"Error: Unknown scale type: {args.world_scale}")
+            print("\nAvailable scales:")
+            for st in ScaleType:
+                print(f"  {st.name}")
+            return 1
+
+        print(f"Generating {args.canon_type} canon using {scale_type.value}...")
+        canon = generate_world_music_canon(
+            scale_type,
+            length=args.length,
+            canon_type=args.canon_type,
+            octave_range=args.octave_range
+        )
+
+    elif args.input:
+        # Apply microtonal tuning to existing theme
+        input_path = Path(args.input)
+        if not input_path.exists():
+            print(f"Error: File not found: {input_path}")
+            return 1
+
+        print(f"Loading theme: {input_path}")
+        theme_score = converter.parse(str(input_path))
+
+        # Extract first part as theme
+        if len(theme_score.parts) > 0:
+            theme = theme_score.parts[0]
+        else:
+            theme = theme_score.flatten()
+
+        # Get tuning system
+        try:
+            tuning_system = TuningSystem[args.tuning]
+        except KeyError:
+            print(f"Error: Unknown tuning system: {args.tuning}")
+            print("\nAvailable tuning systems:")
+            for ts in TuningSystem:
+                print(f"  {ts.name}")
+            return 1
+
+        print(f"Creating {args.canon_type} canon in {tuning_system.value}...")
+        canon = create_microtonal_canon(
+            theme,
+            tuning_system,
+            canon_type=args.canon_type,
+            tonic_midi=args.tonic,
+            apply_pitch_bends=not args.no_pitch_bend
+        )
+
+    else:
+        print("Error: Either --input or --world-scale must be specified")
+        return 1
+
+    # Export the canon
+    output_dir = Path(args.output_dir) if args.output_dir else Path("out")
+    output_dir.mkdir(exist_ok=True)
+
+    midi_path = to_midi(canon, output_dir / "microtonal_canon.mid")
+    print(f"✓ MIDI: {midi_path}")
+
+    xml_path = to_musicxml(canon, output_dir / "microtonal_canon.musicxml")
+    print(f"✓ MusicXML: {xml_path}")
+
+    # Display info
+    print(f"\n{'='*60}")
+    print("CANON INFO")
+    print(f"{'='*60}")
+    print(f"Type: {args.canon_type.title()} Canon")
+    if args.world_scale:
+        print(f"Scale: {scale_type.value}")
+    elif args.tuning:
+        print(f"Tuning: {tuning_system.value}")
+    print(f"Parts: {len(canon.parts)}")
+    print(f"Duration: {canon.duration.quarterLength} beats")
+
+    return 0
