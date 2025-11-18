@@ -1,0 +1,40 @@
+name: Sync GitHub Labels
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/labels.yml'
+      - '.github/workflows/labels-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  sync-labels:
+    name: Sync Repository Labels
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Sync labels
+        uses: micnncim/action-label-syncer@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          manifest: .github/labels.yml
+          repository: ${{ github.repository }}
+          prune: false  # Don't delete existing labels
+
+      - name: Summary
+        run: |
+          echo "### 🏷️ Labels Synchronized" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Repository labels have been synchronized with .github/labels.yml" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Configuration:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Prune existing labels: No" >> $GITHUB_STEP_SUMMARY
+          echo "- Total labels defined: $(grep -c '^- name:' .github/labels.yml)" >> $GITHUB_STEP_SUMMARY

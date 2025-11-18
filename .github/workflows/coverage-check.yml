@@ -1,0 +1,232 @@
+name: Coverage Enforcement
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  coverage:
+    name: Coverage Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          uv pip install --system -e ".[dev]"
+          pip install coverage-badge anybadge
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ \
+            --cov=cancrizans \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --cov-report=html \
+            --cov-report=json \
+            --cov-fail-under=80 \
+            -v
+
+      - name: Generate coverage report
+        if: always()
+        run: |
+          echo "### 📊 Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Parse coverage percentage
+          COVERAGE=$(python << 'EOF'
+          import json
+          with open('coverage.json') as f:
+              data = json.load(f)
+              print(f"{data['totals']['percent_covered']:.2f}")
+          EOF
+          )
+
+          echo "**Overall Coverage:** ${COVERAGE}%" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Determine badge color
+          if (( $(echo "$COVERAGE >= 90" | bc -l) )); then
+              COLOR="brightgreen"
+              EMOJI="🟢"
+          elif (( $(echo "$COVERAGE >= 80" | bc -l) )); then
+              COLOR="green"
+              EMOJI="🟢"
+          elif (( $(echo "$COVERAGE >= 70" | bc -l) )); then
+              COLOR="yellow"
+              EMOJI="🟡"
+          elif (( $(echo "$COVERAGE >= 60" | bc -l) )); then
+              COLOR="orange"
+              EMOJI="🟠"
+          else
+              COLOR="red"
+              EMOJI="🔴"
+          fi
+
+          echo "${EMOJI} Coverage: ${COVERAGE}%" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Show detailed coverage by module
+          echo "#### Coverage by Module" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          coverage report --skip-covered >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check coverage threshold
+        run: |
+          COVERAGE=$(python << 'EOF'
+          import json
+          with open('coverage.json') as f:
+              data = json.load(f)
+              print(f"{data['totals']['percent_covered']:.2f}")
+          EOF
+          )
+
+          echo "Current coverage: ${COVERAGE}%"
+
+          # Minimum threshold: 80%
+          if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+              echo "❌ Coverage ${COVERAGE}% is below minimum threshold of 80%"
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### ❌ Coverage Below Threshold" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "Coverage of ${COVERAGE}% is below the required 80% threshold." >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "Please add tests to increase coverage before merging." >> $GITHUB_STEP_SUMMARY
+              exit 1
+          else
+              echo "✅ Coverage ${COVERAGE}% meets minimum threshold"
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### ✅ Coverage Threshold Met" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "Coverage of ${COVERAGE}% exceeds the required 80% threshold." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Find uncovered lines
+        if: always()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### 📍 Files with Low Coverage (< 80%)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          python << 'EOF' >> $GITHUB_STEP_SUMMARY
+          import json
+          from pathlib import Path
+
+          with open('coverage.json') as f:
+              data = json.load(f)
+
+          files_below_threshold = []
+
+          for filepath, file_data in data['files'].items():
+              if filepath.startswith('cancrizans/'):
+                  coverage_pct = file_data['summary']['percent_covered']
+                  if coverage_pct < 80:
+                      missing_lines = file_data['missing_lines']
+                      files_below_threshold.append((filepath, coverage_pct, len(missing_lines)))
+
+          if files_below_threshold:
+              files_below_threshold.sort(key=lambda x: x[1])
+              print("| File | Coverage | Missing Lines |")
+              print("|------|----------|---------------|")
+              for filepath, coverage, missing_count in files_below_threshold:
+                  emoji = "🔴" if coverage < 60 else "🟠" if coverage < 70 else "🟡"
+                  print(f"| {emoji} {filepath} | {coverage:.1f}% | {missing_count} |")
+          else:
+              print("✅ All files have > 80% coverage!")
+          EOF
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-reports
+          path: |
+            htmlcov/
+            coverage.xml
+            coverage.json
+          retention-days: 30
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            const fs = require('fs');
+
+            // Read coverage data
+            const coverageData = JSON.parse(fs.readFileSync('coverage.json', 'utf8'));
+            const totalCoverage = coverageData.totals.percent_covered.toFixed(2);
+
+            // Determine emoji and status
+            let emoji = '🔴';
+            let status = 'Below Threshold';
+            if (totalCoverage >= 90) {
+              emoji = '🟢';
+              status = 'Excellent';
+            } else if (totalCoverage >= 80) {
+              emoji = '🟢';
+              status = 'Good';
+            } else if (totalCoverage >= 70) {
+              emoji = '🟡';
+              status = 'Needs Improvement';
+            }
+
+            // Create comment body
+            let comment = `## ${emoji} Coverage Report\n\n`;
+            comment += `**Overall Coverage:** ${totalCoverage}% (${status})\n`;
+            comment += `**Threshold:** 80%\n\n`;
+
+            if (totalCoverage < 80) {
+              comment += `⚠️ Coverage is below the minimum threshold of 80%. Please add tests.\n\n`;
+            } else {
+              comment += `✅ Coverage meets the minimum threshold!\n\n`;
+            }
+
+            comment += `<details>\n`;
+            comment += `<summary>📋 Coverage by Module</summary>\n\n`;
+            comment += `\`\`\`\n`;
+            comment += fs.readFileSync('htmlcov/index.html', 'utf8')
+              .match(/<table[^>]*>[\s\S]*?<\/table>/)?.[0]
+              ?.replace(/<[^>]*>/g, ' ')
+              ?.replace(/\s+/g, ' ')
+              ?.trim() || 'Coverage details available in artifacts';
+            comment += `\n\`\`\`\n`;
+            comment += `</details>\n\n`;
+
+            comment += `[View detailed coverage report](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})`;
+
+            // Post comment
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          flags: unittests
+          name: coverage-enforcement
+          fail_ci_if_error: false

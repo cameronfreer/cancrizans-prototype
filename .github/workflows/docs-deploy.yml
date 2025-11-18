@@ -1,0 +1,310 @@
+name: Deploy Documentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '**.md'
+      - 'notebooks/**'
+      - 'cancrizans/**/*.py'
+      - '.github/workflows/docs-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build-docs:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install sphinx sphinx-rtd-theme sphinx-autodoc-typehints myst-parser
+
+      - name: Generate API documentation
+        run: |
+          # Create docs directory structure
+          mkdir -p docs/_build
+          mkdir -p docs/api
+
+          # Generate API docs with sphinx-apidoc
+          sphinx-apidoc -f -o docs/api cancrizans
+
+      - name: Build Sphinx documentation
+        run: |
+          # Create basic Sphinx conf.py if it doesn't exist
+          cat > docs/conf.py << 'EOF'
+          import os
+          import sys
+          sys.path.insert(0, os.path.abspath('..'))
+
+          project = 'Cancrizans'
+          copyright = '2025, Cancrizans Project'
+          author = 'Cancrizans Project'
+          release = '0.40.0'
+
+          extensions = [
+              'sphinx.ext.autodoc',
+              'sphinx.ext.napoleon',
+              'sphinx.ext.viewcode',
+              'sphinx.ext.githubpages',
+              'sphinx_autodoc_typehints',
+              'myst_parser',
+          ]
+
+          templates_path = ['_templates']
+          exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+
+          html_theme = 'sphinx_rtd_theme'
+          html_static_path = ['_static']
+
+          # MyST settings
+          myst_enable_extensions = [
+              "colon_fence",
+              "deflist",
+              "dollarmath",
+              "fieldlist",
+              "html_admonition",
+              "html_image",
+              "replacements",
+              "smartquotes",
+              "strikethrough",
+              "substitution",
+              "tasklist",
+          ]
+
+          # Autodoc settings
+          autodoc_default_options = {
+              'members': True,
+              'member-order': 'bysource',
+              'special-members': '__init__',
+              'undoc-members': True,
+              'exclude-members': '__weakref__'
+          }
+
+          # Napoleon settings
+          napoleon_google_docstring = True
+          napoleon_numpy_docstring = True
+          napoleon_include_init_with_doc = True
+          napoleon_include_private_with_doc = False
+          napoleon_include_special_with_doc = True
+          napoleon_use_admonition_for_examples = True
+          napoleon_use_admonition_for_notes = True
+          napoleon_use_admonition_for_references = True
+          napoleon_use_ivar = False
+          napoleon_use_param = True
+          napoleon_use_rtype = True
+          EOF
+
+          # Create index.rst
+          cat > docs/index.rst << 'EOF'
+          Cancrizans Documentation
+          ========================
+
+          **Explore and render J.S. Bach's Crab Canon as a strict musical palindrome**
+
+          Cancrizans is a comprehensive toolkit for analyzing, verifying, and rendering
+          palindromic musical structures, with a focus on Bach's *Canon Cancrizans* from
+          *The Musical Offering* (BWV 1079).
+
+          .. toctree::
+             :maxdepth: 2
+             :caption: Contents:
+
+             README
+             EXAMPLES
+             api/modules
+
+          Features
+          --------
+
+          * Core transformations: retrograde, inversion, augmentation, diminution
+          * Advanced canon types: table canon, mensuration canon, spiral canon
+          * Pattern analysis: motif detection, sequence identification, fugue structure
+          * Microtonal music: 40+ tuning systems, 36+ world music scales
+          * Export formats: MIDI, MusicXML, LilyPond, ABC notation
+          * CLI interface with comprehensive commands
+          * Web interface (PWA) with interactive composer
+          * 811+ tests with comprehensive coverage
+
+          Indices and tables
+          ==================
+
+          * :ref:`genindex`
+          * :ref:`modindex`
+          * :ref:`search`
+          EOF
+
+          # Copy markdown files
+          cp README.md docs/
+          cp EXAMPLES.md docs/ 2>/dev/null || echo "EXAMPLES.md not found, skipping"
+
+          # Build the docs
+          cd docs && sphinx-build -b html . _build/html
+
+      - name: Convert notebooks to HTML
+        run: |
+          pip install nbconvert
+          mkdir -p docs/_build/html/notebooks
+
+          for notebook in notebooks/*.ipynb; do
+            if [ -f "$notebook" ]; then
+              echo "Converting: $notebook"
+              jupyter nbconvert --to html "$notebook" --output-dir docs/_build/html/notebooks
+            fi
+          done
+
+      - name: Create index page
+        run: |
+          # Create a nice index.html that combines everything
+          cat > docs/_build/html/index_landing.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Cancrizans Documentation</title>
+              <style>
+                  body {
+                      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                      line-height: 1.6;
+                      max-width: 1200px;
+                      margin: 0 auto;
+                      padding: 20px;
+                      background: #f5f5f5;
+                  }
+                  .header {
+                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                      color: white;
+                      padding: 40px;
+                      border-radius: 10px;
+                      margin-bottom: 30px;
+                  }
+                  .header h1 { margin: 0; font-size: 2.5em; }
+                  .header p { margin: 10px 0 0; font-size: 1.2em; opacity: 0.9; }
+                  .grid {
+                      display: grid;
+                      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                      gap: 20px;
+                      margin: 30px 0;
+                  }
+                  .card {
+                      background: white;
+                      padding: 25px;
+                      border-radius: 8px;
+                      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                      transition: transform 0.2s, box-shadow 0.2s;
+                  }
+                  .card:hover {
+                      transform: translateY(-5px);
+                      box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+                  }
+                  .card h2 { margin-top: 0; color: #667eea; }
+                  .card a {
+                      color: #667eea;
+                      text-decoration: none;
+                      font-weight: 500;
+                  }
+                  .card a:hover { text-decoration: underline; }
+                  .badge {
+                      display: inline-block;
+                      padding: 3px 8px;
+                      margin: 5px 5px 5px 0;
+                      background: #667eea;
+                      color: white;
+                      border-radius: 3px;
+                      font-size: 0.85em;
+                  }
+              </style>
+          </head>
+          <body>
+              <div class="header">
+                  <h1>🦀 Cancrizans Documentation</h1>
+                  <p>Explore and render J.S. Bach's Crab Canon as a strict musical palindrome</p>
+              </div>
+
+              <div class="grid">
+                  <div class="card">
+                      <h2>📚 Getting Started</h2>
+                      <p>Learn the basics and get up and running quickly.</p>
+                      <p><a href="index.html">View Documentation →</a></p>
+                  </div>
+
+                  <div class="card">
+                      <h2>📖 API Reference</h2>
+                      <p>Complete API documentation for all modules.</p>
+                      <p><a href="api/modules.html">Browse API →</a></p>
+                  </div>
+
+                  <div class="card">
+                      <h2>📓 Jupyter Notebooks</h2>
+                      <p>Interactive tutorials and examples.</p>
+                      <p><a href="notebooks/">View Notebooks →</a></p>
+                  </div>
+
+                  <div class="card">
+                      <h2>💡 Examples</h2>
+                      <p>Real-world usage examples and patterns.</p>
+                      <p><a href="EXAMPLES.html">See Examples →</a></p>
+                  </div>
+              </div>
+
+              <div class="card">
+                  <h2>✨ Features</h2>
+                  <span class="badge">Pattern Analysis</span>
+                  <span class="badge">Microtonal Music</span>
+                  <span class="badge">CLI & Web Interface</span>
+                  <span class="badge">811+ Tests</span>
+                  <span class="badge">MIDI/MusicXML/LilyPond</span>
+                  <span class="badge">Research Tools</span>
+              </div>
+          </body>
+          </html>
+          EOF
+
+          # Use the landing page as index
+          mv docs/_build/html/index_landing.html docs/_build/html/landing.html
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_build/html
+
+  deploy:
+    name: Deploy to GitHub Pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build-docs
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Add deployment summary
+        run: |
+          echo "### 📚 Documentation Deployed!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Documentation has been successfully deployed to GitHub Pages." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 **URL:** ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY

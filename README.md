@@ -606,6 +606,36 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
   - Notebook validation
   - Docstring coverage analysis
 
+- **Documentation Deployment** (`.github/workflows/docs-deploy.yml`)
+  - Automatic Sphinx documentation generation
+  - GitHub Pages deployment
+  - API reference generation
+  - Notebook HTML conversion
+  - Custom landing page
+
+### 📊 Quality Assurance
+- **Coverage Enforcement** (`.github/workflows/coverage-check.yml`)
+  - Minimum 80% coverage threshold
+  - Per-module coverage tracking
+  - PR coverage comments
+  - Detailed coverage reports
+  - Identifies low-coverage files
+
+- **Nightly Comprehensive Tests** (`.github/workflows/nightly.yml`)
+  - Full test matrix (Python 3.11, 3.12, 3.13 × Ubuntu, macOS, Windows)
+  - Extended integration tests
+  - Memory profiling
+  - Notebook execution validation
+  - Benchmark regression detection
+  - Automatic issue creation on failure
+
+- **Dependency Review** (`.github/workflows/dependency-review.yml`)
+  - Outdated package detection
+  - Security vulnerability audits
+  - License compatibility checks
+  - Dependency tree analysis
+  - Installation size tracking
+
 ### 🤖 Automation
 - **Dependabot** (`.github/dependabot.yml`)
   - Weekly dependency updates
@@ -626,6 +656,24 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
   - Commit message validation
   - Style guidelines enforcement
 
+- **Label Management** (`.github/workflows/labels-sync.yml`)
+  - Automatic GitHub label synchronization
+  - Consistent labeling across PRs and issues
+  - 50+ predefined labels (priority, type, component, status)
+
+- **Cleanup** (`.github/workflows/cleanup.yml`)
+  - Weekly artifact cleanup (>30 days old)
+  - Cache cleanup to free storage
+  - Old workflow run removal (>90 days)
+
+- **Pre-commit Hooks** (`.pre-commit-config.yaml`)
+  - Ruff formatting and linting
+  - Markdown, YAML, and notebook formatting
+  - Security checks with Bandit
+  - Type checking with mypy
+  - Shell script validation
+  - 10+ pre-commit hooks for code quality
+
 ### 📦 Release Automation
 - **Release Workflow** (`.github/workflows/release.yml`)
   - Version validation across files
@@ -638,12 +686,23 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
 
 ### 📊 Quality Metrics
 - **811+ tests** with 100% pass rate
-- **High code coverage** tracked by Codecov
-- **Zero security vulnerabilities** (continuous monitoring)
-- **Automated performance tracking** with regression detection
+- **80%+ code coverage** enforced with automated checks
+- **Zero security vulnerabilities** (daily scans with CodeQL, Safety, Bandit)
+- **18 performance benchmarks** with regression detection (<10% threshold)
+- **15+ automated workflows** covering testing, security, performance, docs, and automation
+- **50+ GitHub labels** for organized issue/PR management
+- **Pre-commit hooks** for local code quality enforcement
+- **Nightly comprehensive tests** across 3 Python versions and 3 OS platforms
+- **Automated documentation deployment** to GitHub Pages
 - **Professional contribution infrastructure** (templates, guides, automation)
 
 All workflows include automated summaries in GitHub Actions for easy monitoring. See `.github/workflows/` for complete configurations.
+
+### 🛠️ Development Tools
+- **Pre-commit**: `pre-commit install` to enable local code quality checks
+- **Benchmarks**: `python benchmarks/benchmark_suite.py` for performance testing
+- **Coverage**: `pytest --cov=cancrizans --cov-report=html` for detailed coverage reports
+- **Docs**: Build documentation locally with Sphinx (see `.github/workflows/docs-deploy.yml`)
 
 ## Requirements
 

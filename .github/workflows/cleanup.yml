@@ -1,0 +1,84 @@
+name: Cleanup
+
+on:
+  schedule:
+    # Run weekly on Sundays at 1:00 AM UTC
+    - cron: '0 1 * * 0'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup-artifacts:
+    name: Cleanup Old Artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cleanup old artifacts
+        uses: c-hive/gha-remove-artifacts@v1
+        with:
+          age: '30 days'
+          skip-recent: 5
+          skip-tags: true
+
+      - name: Summary
+        run: |
+          echo "### 🧹 Artifact Cleanup Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Artifacts older than 30 days have been removed." >> $GITHUB_STEP_SUMMARY
+          echo "Most recent 5 artifacts for each workflow are preserved." >> $GITHUB_STEP_SUMMARY
+
+  cleanup-caches:
+    name: Cleanup Old Caches
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cleanup caches
+        run: |
+          gh extension install actions/gh-actions-cache
+
+          echo "Fetching list of cache keys..."
+          cacheKeysForPR=$(gh actions-cache list -R $REPO -B $BRANCH | cut -f 1)
+
+          ## Setting this to not fail the workflow while deleting cache keys.
+          set +e
+          echo "Deleting caches..."
+          for cacheKey in $cacheKeysForPR
+          do
+              # Check if cache is older than 7 days
+              gh actions-cache delete $cacheKey -R $REPO -B $BRANCH --confirm
+          done
+          echo "Done"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: refs/heads/${{ github.ref_name }}
+        continue-on-error: true
+
+      - name: Summary
+        run: |
+          echo "### 💾 Cache Cleanup Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Old caches have been cleaned up to free storage." >> $GITHUB_STEP_SUMMARY
+
+  cleanup-workflow-runs:
+    name: Cleanup Old Workflow Runs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          retain_days: 90
+          keep_minimum_runs: 10
+
+      - name: Summary
+        run: |
+          echo "### 🗑️ Workflow Run Cleanup Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Workflow runs older than 90 days have been removed." >> $GITHUB_STEP_SUMMARY
+          echo "Minimum of 10 recent runs are preserved per workflow." >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,209 @@
+# GitHub Labels Configuration
+# Use with: gh label sync --file .github/labels.yml
+
+# Priority labels
+- name: "priority: critical"
+  color: "d73a4a"
+  description: "Critical priority - needs immediate attention"
+
+- name: "priority: high"
+  color: "d93f0b"
+  description: "High priority"
+
+- name: "priority: medium"
+  color: "fbca04"
+  description: "Medium priority"
+
+- name: "priority: low"
+  color: "0e8a16"
+  description: "Low priority"
+
+# Type labels
+- name: "type: bug"
+  color: "d73a4a"
+  description: "Something isn't working"
+
+- name: "type: feature"
+  color: "a2eeef"
+  description: "New feature or request"
+
+- name: "type: enhancement"
+  color: "84b6eb"
+  description: "Improvement to existing feature"
+
+- name: "type: refactoring"
+  color: "fbca04"
+  description: "Code refactoring"
+
+- name: "type: documentation"
+  color: "0075ca"
+  description: "Documentation improvements"
+
+- name: "type: test"
+  color: "1d76db"
+  description: "Testing improvements"
+
+- name: "type: ci/cd"
+  color: "5319e7"
+  description: "CI/CD pipeline changes"
+
+- name: "type: performance"
+  color: "ff6b6b"
+  description: "Performance improvements"
+
+- name: "type: security"
+  color: "ee0701"
+  description: "Security-related changes"
+
+# Status labels
+- name: "status: in progress"
+  color: "ededed"
+  description: "Work in progress"
+
+- name: "status: blocked"
+  color: "b60205"
+  description: "Blocked by another issue"
+
+- name: "status: on hold"
+  color: "d4c5f9"
+  description: "On hold"
+
+- name: "status: needs review"
+  color: "fbca04"
+  description: "Needs code review"
+
+- name: "status: reviewed"
+  color: "0e8a16"
+  description: "Has been reviewed"
+
+- name: "status: needs testing"
+  color: "d93f0b"
+  description: "Needs testing"
+
+- name: "status: ready to merge"
+  color: "0e8a16"
+  description: "Ready to merge"
+
+# Component labels (matching our codebase structure)
+- name: "component: core"
+  color: "c5def5"
+  description: "Core canon functionality"
+
+- name: "component: pattern-analysis"
+  color: "c5def5"
+  description: "Pattern analysis features"
+
+- name: "component: microtonal"
+  color: "c5def5"
+  description: "Microtonal music support"
+
+- name: "component: cli"
+  color: "c5def5"
+  description: "Command-line interface"
+
+- name: "component: io"
+  color: "c5def5"
+  description: "I/O and file handling"
+
+- name: "component: visualization"
+  color: "c5def5"
+  description: "Visualization features"
+
+- name: "component: web"
+  color: "c5def5"
+  description: "Web interface"
+
+- name: "component: benchmarks"
+  color: "c5def5"
+  description: "Performance benchmarks"
+
+# PR size labels
+- name: "size/xs"
+  color: "00ff00"
+  description: "Extra small PR (< 10 lines)"
+
+- name: "size/s"
+  color: "77ff00"
+  description: "Small PR (< 100 lines)"
+
+- name: "size/m"
+  color: "ffff00"
+  description: "Medium PR (< 500 lines)"
+
+- name: "size/l"
+  color: "ff7700"
+  description: "Large PR (< 1000 lines)"
+
+- name: "size/xl"
+  color: "ff0000"
+  description: "Extra large PR (> 1000 lines)"
+
+# Special labels
+- name: "good first issue"
+  color: "7057ff"
+  description: "Good for newcomers"
+
+- name: "help wanted"
+  color: "008672"
+  description: "Extra attention is needed"
+
+- name: "wontfix"
+  color: "ffffff"
+  description: "This will not be worked on"
+
+- name: "duplicate"
+  color: "cfd3d7"
+  description: "This issue or pull request already exists"
+
+- name: "invalid"
+  color: "e4e669"
+  description: "This doesn't seem right"
+
+- name: "question"
+  color: "d876e3"
+  description: "Further information is requested"
+
+- name: "breaking change"
+  color: "d73a4a"
+  description: "Breaking API change"
+
+- name: "dependencies"
+  color: "0366d6"
+  description: "Dependency updates"
+
+- name: "stale"
+  color: "ededed"
+  description: "Stale issue or PR"
+
+- name: "keep-open"
+  color: "0e8a16"
+  description: "Don't mark as stale"
+
+- name: "pinned"
+  color: "0e8a16"
+  description: "Pinned issue"
+
+- name: "roadmap"
+  color: "8B4789"
+  description: "Part of project roadmap"
+
+# Workflow labels
+- name: "work-in-progress"
+  color: "ededed"
+  description: "Work in progress - don't merge yet"
+
+- name: "do-not-merge"
+  color: "d73a4a"
+  description: "Do not merge this PR"
+
+- name: "needs-discussion"
+  color: "fbca04"
+  description: "Needs team discussion"
+
+- name: "needs-rebase"
+  color: "ff9800"
+  description: "Needs to be rebased"
+
+- name: "needs-changelog"
+  color: "fbca04"
+  description: "Needs changelog entry"

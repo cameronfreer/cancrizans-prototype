@@ -1,0 +1,163 @@
+name: Dependency Review
+
+on:
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run weekly on Mondays at 10:00 UTC
+    - cron: '0 10 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  dependency-review:
+    name: Review Dependencies
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: moderate
+          deny-licenses: GPL-3.0, AGPL-3.0
+          comment-summary-in-pr: always
+
+  check-outdated:
+    name: Check for Outdated Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          uv pip install --system -e ".[dev]"
+          pip install pip-audit
+
+      - name: Check for outdated packages
+        id: outdated
+        continue-on-error: true
+        run: |
+          echo "### 📦 Dependency Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check with pip list --outdated
+          echo "#### Outdated Packages" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if pip list --outdated --format=columns > outdated.txt 2>&1; then
+            if [ -s outdated.txt ]; then
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              cat outdated.txt >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ All packages are up to date!" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+      - name: Security audit
+        continue-on-error: true
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### 🔒 Security Audit" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if pip-audit --format json > audit.json 2>&1; then
+            echo "✅ No security vulnerabilities found" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Security vulnerabilities detected:" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+            cat audit.json 2>/dev/null | head -50 >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Generate dependency tree
+        run: |
+          pip install pipdeptree
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### 🌳 Dependency Tree (Top Level)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          pipdeptree --packages cancrizans >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check license compatibility
+        run: |
+          pip install pip-licenses
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### ⚖️ License Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          pip-licenses --format=markdown --summary >> $GITHUB_STEP_SUMMARY 2>&1 || echo "Could not generate license summary"
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-reports
+          path: |
+            outdated.txt
+            audit.json
+          retention-days: 30
+
+  check-dependencies-size:
+    name: Analyze Dependency Size
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Measure installation size
+        run: |
+          echo "### 📏 Installation Size Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Measure base Python size
+          BASE_SIZE=$(du -sh /opt/hostedtoolcache/Python/3.11*/x64/lib/python3.11/site-packages 2>/dev/null | cut -f1)
+          echo "**Base Python packages:** $BASE_SIZE" >> $GITHUB_STEP_SUMMARY
+
+          # Install and measure
+          uv pip install --system -e "."
+          INSTALL_SIZE=$(du -sh /opt/hostedtoolcache/Python/3.11*/x64/lib/python3.11/site-packages 2>/dev/null | cut -f1)
+          echo "**After cancrizans install:** $INSTALL_SIZE" >> $GITHUB_STEP_SUMMARY
+
+          # Install dev dependencies
+          uv pip install --system -e ".[dev]"
+          DEV_SIZE=$(du -sh /opt/hostedtoolcache/Python/3.11*/x64/lib/python3.11/site-packages 2>/dev/null | cut -f1)
+          echo "**With dev dependencies:** $DEV_SIZE" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Package count:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Production: $(pip list --not-required | wc -l) packages" >> $GITHUB_STEP_SUMMARY
+          echo "- With dev: $(pip list | wc -l) packages" >> $GITHUB_STEP_SUMMARY
