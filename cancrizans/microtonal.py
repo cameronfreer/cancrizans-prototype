@@ -17,12 +17,17 @@ from music21.pitch import Microtone
 
 class TuningSystem(Enum):
     """Historical and contemporary tuning systems"""
-    # Equal temperaments
+    # Equal temperaments (common microtonal divisions)
     EQUAL_12 = "12-tone equal temperament"
+    EQUAL_17 = "17-tone equal temperament"
     EQUAL_19 = "19-tone equal temperament"
+    EQUAL_22 = "22-tone equal temperament (Shrutar)"
     EQUAL_24 = "24-tone equal temperament (quarter tones)"
     EQUAL_31 = "31-tone equal temperament"
+    EQUAL_34 = "34-tone equal temperament"
+    EQUAL_41 = "41-tone equal temperament"
     EQUAL_53 = "53-tone equal temperament"
+    EQUAL_72 = "72-tone equal temperament (twelfth tones)"
 
     # Just intonation systems
     JUST_INTONATION_5 = "5-limit just intonation"
@@ -42,8 +47,13 @@ class TuningSystem(Enum):
     WERCKMEISTER_V = "Werckmeister V"
     WERCKMEISTER_VI = "Werckmeister VI (Septenarius)"
     VALOTTI = "Valotti temperament"
+    KIRNBERGER_II = "Kirnberger II"
     KIRNBERGER_III = "Kirnberger III"
     YOUNG = "Young temperament"
+    NEIDHARDT_I = "Neidhardt I (1724)"
+    NEIDHARDT_III = "Neidhardt III (1732)"
+    RAMEAU = "Rameau temperament"
+    KELLNER = "Kellner (Bach's temperament)"
 
     # Wendy Carlos scales
     ALPHA = "Alpha scale (Carlos)"
@@ -52,6 +62,13 @@ class TuningSystem(Enum):
 
     # Non-octave scales
     BOHLEN_PIERCE = "Bohlen-Pierce scale"
+
+    # Exotic and experimental
+    GOLDEN_RATIO = "Golden ratio (phi) tuning"
+    HARMONIC_SERIES = "Harmonic series tuning"
+    STRETCHED_OCTAVE = "Stretched octave (Railsback curve)"
+    LAMBDA = "Wendy Carlos Lambda scale"
+    PHI_BASED = "Phi-based non-octave tuning"
 
 
 class ScaleType(Enum):
@@ -1121,6 +1138,308 @@ def create_young_temperament(tonic_midi: int = 60) -> MicrotonalScale:
     )
 
 
+def create_kirnberger_ii(tonic_midi: int = 60) -> MicrotonalScale:
+    """
+    Create Kirnberger II temperament (1776)
+
+    Simpler than Kirnberger III, with specific pure intervals.
+
+    Args:
+        tonic_midi: MIDI note for tonic
+
+    Returns:
+        Microtonal scale
+    """
+    notes_cents = {
+        'C': 0.0,
+        'C#': 90.225,
+        'D': 203.910,
+        'D#': 294.135,
+        'E': 386.314,
+        'F': 498.045,
+        'F#': 588.270,
+        'G': 701.955,
+        'G#': 792.180,
+        'A': 884.359,
+        'A#': 1003.910,
+        'B': 1088.269,
+    }
+
+    chromatic_order = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    intervals = [notes_cents[note] for note in chromatic_order]
+
+    return MicrotonalScale(
+        name="Kirnberger II",
+        intervals_cents=intervals,
+        tonic_midi=tonic_midi,
+        tuning_system=TuningSystem.KIRNBERGER_II
+    )
+
+
+def create_neidhardt_i(tonic_midi: int = 60) -> MicrotonalScale:
+    """
+    Create Neidhardt I temperament (1724)
+
+    One of Johann Georg Neidhardt's circulating temperaments.
+    Also known as "Dorf" (village) temperament.
+
+    Args:
+        tonic_midi: MIDI note for tonic
+
+    Returns:
+        Microtonal scale
+    """
+    notes_cents = {
+        'C': 0.0,
+        'C#': 94.135,
+        'D': 196.090,
+        'D#': 298.045,
+        'E': 392.180,
+        'F': 501.955,
+        'F#': 592.180,
+        'G': 698.045,
+        'G#': 796.090,
+        'A': 894.135,
+        'A#': 1000.000,
+        'B': 1094.135,
+    }
+
+    chromatic_order = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    intervals = [notes_cents[note] for note in chromatic_order]
+
+    return MicrotonalScale(
+        name="Neidhardt I",
+        intervals_cents=intervals,
+        tonic_midi=tonic_midi,
+        tuning_system=TuningSystem.NEIDHARDT_I
+    )
+
+
+def create_neidhardt_iii(tonic_midi: int = 60) -> MicrotonalScale:
+    """
+    Create Neidhardt III temperament (1732)
+
+    Also known as "Stadt" (town/city) temperament.
+    More refined than Neidhardt I.
+
+    Args:
+        tonic_midi: MIDI note for tonic
+
+    Returns:
+        Microtonal scale
+    """
+    notes_cents = {
+        'C': 0.0,
+        'C#': 92.180,
+        'D': 196.090,
+        'D#': 296.090,
+        'E': 392.180,
+        'F': 498.045,
+        'F#': 590.225,
+        'G': 696.090,
+        'G#': 794.135,
+        'A': 894.135,
+        'A#': 996.090,
+        'B': 1092.180,
+    }
+
+    chromatic_order = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    intervals = [notes_cents[note] for note in chromatic_order]
+
+    return MicrotonalScale(
+        name="Neidhardt III",
+        intervals_cents=intervals,
+        tonic_midi=tonic_midi,
+        tuning_system=TuningSystem.NEIDHARDT_III
+    )
+
+
+def create_rameau_temperament(tonic_midi: int = 60) -> MicrotonalScale:
+    """
+    Create Rameau temperament (1726)
+
+    Jean-Philippe Rameau's modified meantone temperament.
+
+    Args:
+        tonic_midi: MIDI note for tonic
+
+    Returns:
+        Microtonal scale
+    """
+    notes_cents = {
+        'C': 0.0,
+        'C#': 90.225,
+        'D': 193.157,
+        'D#': 294.135,
+        'E': 386.314,
+        'F': 498.045,
+        'F#': 588.270,
+        'G': 696.579,
+        'G#': 792.180,
+        'A': 889.735,
+        'A#': 996.090,
+        'B': 1088.269,
+    }
+
+    chromatic_order = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    intervals = [notes_cents[note] for note in chromatic_order]
+
+    return MicrotonalScale(
+        name="Rameau",
+        intervals_cents=intervals,
+        tonic_midi=tonic_midi,
+        tuning_system=TuningSystem.RAMEAU
+    )
+
+
+def create_kellner_temperament(tonic_midi: int = 60) -> MicrotonalScale:
+    """
+    Create Kellner temperament (1975/1681)
+
+    Herbert Anton Kellner's proposed "Bach temperament".
+    Based on analysis of Bach's title page decorations.
+
+    Args:
+        tonic_midi: MIDI note for tonic
+
+    Returns:
+        Microtonal scale
+    """
+    pythagorean_comma = 1200.0 * math.log2(531441/524288)
+    pure_fifth = 1200.0 * math.log2(3/2)
+    tempered_fifth = pure_fifth - (pythagorean_comma / 5)
+
+    # Five fifths tempered by 1/5 Pythagorean comma
+    notes_fifths = {
+        'C': 0,
+        'G': tempered_fifth,
+        'D': 2 * tempered_fifth,
+        'A': 3 * tempered_fifth,
+        'E': 4 * tempered_fifth,
+        'B': 4 * tempered_fifth + pure_fifth,
+        'F#': 4 * tempered_fifth + 2 * pure_fifth,
+        'C#': 4 * tempered_fifth + 3 * pure_fifth,
+        'G#': 4 * tempered_fifth + 4 * pure_fifth,
+        'D#': 4 * tempered_fifth + 5 * pure_fifth,
+        'A#': 4 * tempered_fifth + 6 * pure_fifth,
+        'F': 4 * tempered_fifth + 7 * pure_fifth,
+    }
+
+    chromatic_order = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    intervals = [notes_fifths[note] % 1200.0 for note in chromatic_order]
+
+    return MicrotonalScale(
+        name="Kellner (Bach)",
+        intervals_cents=intervals,
+        tonic_midi=tonic_midi,
+        tuning_system=TuningSystem.KELLNER
+    )
+
+
+def create_harmonic_series_scale(fundamental_midi: int = 60, num_harmonics: int = 16) -> MicrotonalScale:
+    """
+    Create scale from harmonic series
+
+    Uses the natural harmonic overtone series starting from a fundamental.
+
+    Args:
+        fundamental_midi: MIDI note for fundamental
+        num_harmonics: Number of harmonics to include (default: 16)
+
+    Returns:
+        Microtonal scale
+    """
+    ratios = [(i, 1) for i in range(1, num_harmonics + 1)]
+    scale = create_just_intonation_scale(ratios)
+
+    return replace(
+        scale,
+        name=f"Harmonic Series ({num_harmonics} partials)",
+        tonic_midi=fundamental_midi,
+        tuning_system=TuningSystem.HARMONIC_SERIES
+    )
+
+
+def create_golden_ratio_scale(tonic_midi: int = 60, num_steps: int = 13) -> MicrotonalScale:
+    """
+    Create scale based on golden ratio (phi ≈ 1.618)
+
+    Non-octave scale where the "pseudo-octave" is phi instead of 2:1.
+
+    Args:
+        tonic_midi: MIDI note for tonic
+        num_steps: Number of equal divisions of phi
+
+    Returns:
+        Microtonal scale
+    """
+    phi = (1 + math.sqrt(5)) / 2  # ≈ 1.618
+    phi_cents = 1200.0 * math.log2(phi)  # ≈ 833.09 cents
+
+    step_cents = phi_cents / num_steps
+    intervals = [i * step_cents for i in range(num_steps)]
+
+    return MicrotonalScale(
+        name=f"Golden Ratio ({num_steps}-EDPhi)",
+        intervals_cents=intervals,
+        tonic_midi=tonic_midi,
+        tuning_system=TuningSystem.PHI_BASED
+    )
+
+
+def create_lambda_scale(tonic_midi: int = 60) -> MicrotonalScale:
+    """
+    Create Wendy Carlos' Lambda scale
+
+    Non-octave scale with 16 equal divisions of a slightly flat perfect fifth.
+
+    Args:
+        tonic_midi: MIDI note for tonic
+
+    Returns:
+        Microtonal scale
+    """
+    # Lambda uses 16 divisions of a 695 cent fifth
+    fifth_cents = 695.0
+    divisions = 16
+    step_cents = fifth_cents / divisions
+
+    intervals = [i * step_cents for i in range(divisions)]
+
+    return MicrotonalScale(
+        name="Lambda Scale (Carlos)",
+        intervals_cents=intervals,
+        tonic_midi=tonic_midi,
+        tuning_system=TuningSystem.LAMBDA
+    )
+
+
+def create_stretched_octave_scale(tonic_midi: int = 60, stretch_cents: float = 2.0) -> MicrotonalScale:
+    """
+    Create scale with stretched octaves (Railsback curve)
+
+    Simulates piano inharmonicity where octaves are slightly sharp.
+
+    Args:
+        tonic_midi: MIDI note for tonic
+        stretch_cents: Amount to stretch octave in cents (typical: 1-5 cents)
+
+    Returns:
+        Microtonal scale
+    """
+    octave_cents = 1200.0 + stretch_cents
+    step_cents = octave_cents / 12
+
+    intervals = [i * step_cents for i in range(12)]
+
+    return MicrotonalScale(
+        name=f"Stretched 12-TET (+{stretch_cents:.1f}¢)",
+        intervals_cents=intervals,
+        tonic_midi=tonic_midi,
+        tuning_system=TuningSystem.STRETCHED_OCTAVE
+    )
+
+
 def transpose_scale(scale: MicrotonalScale, semitones: float) -> MicrotonalScale:
     """
     Transpose a microtonal scale by a given number of semitones
@@ -1429,6 +1748,233 @@ def import_scala_file(filepath: str, tonic_midi: int = 60) -> MicrotonalScale:
         intervals_cents=sorted(intervals_cents),
         tonic_midi=tonic_midi
     )
+
+
+def generate_modal_rotations(scale: MicrotonalScale) -> List[MicrotonalScale]:
+    """
+    Generate all modal rotations of a scale
+
+    Creates modes by rotating the scale degrees (like Ionian, Dorian, etc. in 12-TET).
+
+    Args:
+        scale: Base scale to rotate
+
+    Returns:
+        List of modal scales
+    """
+    modes = []
+    intervals = scale.intervals_cents
+
+    for mode_num in range(len(intervals)):
+        # Rotate intervals
+        rotated = intervals[mode_num:] + intervals[:mode_num]
+
+        # Normalize to start at 0
+        if rotated:
+            first_interval = rotated[0]
+            normalized = [interval - first_interval for interval in rotated]
+
+            # Wrap negative values
+            normalized = [(interval % 1200.0) if interval < 0 else interval for interval in normalized]
+
+            modes.append(MicrotonalScale(
+                name=f"{scale.name} - Mode {mode_num + 1}",
+                intervals_cents=sorted(normalized),
+                tonic_midi=scale.tonic_midi,
+                tuning_system=scale.tuning_system
+            ))
+
+    return modes
+
+
+def create_subharmonic_series_scale(fundamental_midi: int = 60, num_subharmonics: int = 16) -> MicrotonalScale:
+    """
+    Create scale from subharmonic (undertone) series
+
+    The subharmonic series is the mirror of the harmonic series.
+    Uses ratios like 1/1, 1/2, 1/3, 1/4, etc.
+
+    Args:
+        fundamental_midi: MIDI note for fundamental
+        num_subharmonics: Number of subharmonics to include
+
+    Returns:
+        Microtonal scale
+    """
+    ratios = [(1, i) for i in range(1, num_subharmonics + 1)]
+    scale = create_just_intonation_scale(ratios)
+
+    return replace(
+        scale,
+        name=f"Subharmonic Series ({num_subharmonics} partials)",
+        tonic_midi=fundamental_midi
+    )
+
+
+def create_scale_from_ratios(ratios: List[Tuple[int, int]], name: str = "Custom Ratios", tonic_midi: int = 60) -> MicrotonalScale:
+    """
+    Create a custom scale from a list of frequency ratios
+
+    Args:
+        ratios: List of (numerator, denominator) tuples
+        name: Name for the scale
+        tonic_midi: MIDI note for tonic
+
+    Returns:
+        Microtonal scale
+    """
+    scale = create_just_intonation_scale(ratios)
+    return replace(scale, name=name, tonic_midi=tonic_midi)
+
+
+def create_interval_matrix(scale: MicrotonalScale) -> List[List[float]]:
+    """
+    Create interval matrix showing all intervals between scale degrees
+
+    Args:
+        scale: Scale to analyze
+
+    Returns:
+        2D matrix where matrix[i][j] is the interval from degree i to degree j in cents
+    """
+    intervals = scale.intervals_cents
+    n = len(intervals)
+    matrix = []
+
+    for i in range(n):
+        row = []
+        for j in range(n):
+            interval = (intervals[j] - intervals[i]) % 1200.0
+            row.append(interval)
+        matrix.append(row)
+
+    return matrix
+
+
+def calculate_consonance_dissonance(interval_cents: float) -> float:
+    """
+    Calculate consonance/dissonance score for an interval
+
+    Uses a simplified model based on critical band theory and simple ratios.
+    Returns value from 0.0 (max dissonance) to 1.0 (max consonance).
+
+    Args:
+        interval_cents: Interval size in cents
+
+    Returns:
+        Consonance score (0.0 = dissonant, 1.0 = consonant)
+    """
+    # Perfect consonances (unison, octave, fifth, fourth)
+    perfect_intervals = [0, 498, 702, 1200]
+    perfect_tolerance = 10
+
+    # Imperfect consonances (major/minor thirds and sixths)
+    imperfect_intervals = [316, 386, 814, 884]  # Minor 3rd, Major 3rd, Minor 6th, Major 6th
+    imperfect_tolerance = 15
+
+    # Check perfect consonances
+    for perfect in perfect_intervals:
+        if abs(interval_cents - perfect) < perfect_tolerance:
+            return 1.0 - (abs(interval_cents - perfect) / perfect_tolerance) * 0.1
+
+    # Check imperfect consonances
+    for imperfect in imperfect_intervals:
+        if abs(interval_cents - imperfect) < imperfect_tolerance:
+            return 0.85 - (abs(interval_cents - imperfect) / imperfect_tolerance) * 0.15
+
+    # Check for very small intervals (dissonant)
+    if interval_cents < 100:
+        return 0.2 + (interval_cents / 100) * 0.3
+
+    # Default: moderate dissonance
+    return 0.4
+
+
+def create_consonance_profile(scale: MicrotonalScale) -> Dict[str, any]:
+    """
+    Create consonance profile for all intervals in a scale
+
+    Analyzes the consonance/dissonance of all intervals between scale degrees.
+
+    Args:
+        scale: Scale to analyze
+
+    Returns:
+        Dictionary with consonance analysis
+    """
+    matrix = create_interval_matrix(scale)
+    consonance_matrix = []
+
+    all_consonances = []
+    for row in matrix:
+        consonance_row = []
+        for interval in row:
+            consonance = calculate_consonance_dissonance(interval)
+            consonance_row.append(consonance)
+            if interval > 0:  # Exclude unisons
+                all_consonances.append(consonance)
+        consonance_matrix.append(consonance_row)
+
+    avg_consonance = sum(all_consonances) / len(all_consonances) if all_consonances else 0.0
+
+    return {
+        'scale_name': scale.name,
+        'average_consonance': avg_consonance,
+        'consonance_matrix': consonance_matrix,
+        'interval_matrix': matrix,
+        'most_consonant_interval': max(all_consonances) if all_consonances else 0.0,
+        'most_dissonant_interval': min(all_consonances) if all_consonances else 0.0
+    }
+
+
+def calculate_pitch_bend_for_microtone(cent_deviation: float, bend_range_semitones: int = 2) -> int:
+    """
+    Calculate MIDI pitch bend value for microtonal deviation
+
+    Args:
+        cent_deviation: Deviation in cents from 12-TET pitch
+        bend_range_semitones: Pitch bend range in semitones (default: 2)
+
+    Returns:
+        MIDI pitch bend value (0-16383, center is 8192)
+    """
+    # Pitch bend range: 0-16383, center = 8192
+    # Bend range is typically ±2 semitones = ±200 cents
+    max_cents = bend_range_semitones * 100
+
+    # Clamp to range
+    cent_deviation = max(-max_cents, min(max_cents, cent_deviation))
+
+    # Calculate bend value
+    bend_proportion = cent_deviation / max_cents
+    bend_value = int(8192 + (bend_proportion * 8191))
+
+    return bend_value
+
+
+def generate_midi_pitch_bends(scale: MicrotonalScale, bend_range: int = 2) -> Dict[int, int]:
+    """
+    Generate MIDI pitch bend values for all scale degrees
+
+    Args:
+        scale: Microtonal scale
+        bend_range: Pitch bend range in semitones (default: 2)
+
+    Returns:
+        Dictionary mapping scale degree index to pitch bend value
+    """
+    pitch_bends = {}
+
+    for i, interval_cents in enumerate(scale.intervals_cents):
+        # Get the base MIDI note and cent deviation
+        midi_note = int(interval_cents / 100)
+        cent_deviation = interval_cents % 100
+
+        # Calculate pitch bend
+        bend_value = calculate_pitch_bend_for_microtone(cent_deviation, bend_range)
+        pitch_bends[i] = bend_value
+
+    return pitch_bends
 
 
 def detect_tuning_system(s: stream.Stream) -> Tuple[TuningSystem, float]:
