@@ -131,6 +131,19 @@ from cancrizans.ml import (
     detect_canon_type,
     suggest_continuation,
 )
+from cancrizans.microtonal_utils import (
+    # Phase 18.5: Microtonal Utility Functions
+    ScaleRecommendation,
+    recommend_scale_for_style,
+    blend_scales,
+    find_modulation_path,
+    calculate_scale_tension,
+    quantize_to_scale,
+    generate_scale_variants,
+    create_scale_catalog,
+    analyze_scale_family,
+    calculate_scale_compatibility,
+)
 
 __all__ = [
     # Basic transformations
@@ -245,4 +258,15 @@ __all__ = [
     "classify_style",
     "detect_canon_type",
     "suggest_continuation",
+    # Phase 18.5: Microtonal Utility Functions
+    "ScaleRecommendation",
+    "recommend_scale_for_style",
+    "blend_scales",
+    "find_modulation_path",
+    "calculate_scale_tension",
+    "quantize_to_scale",
+    "generate_scale_variants",
+    "create_scale_catalog",
+    "analyze_scale_family",
+    "calculate_scale_compatibility",
 ]
