@@ -1,0 +1,288 @@
+name: Changelog Automation
+
+on:
+  push:
+    branches: [ main, develop ]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to generate changelog for'
+        required: false
+        default: 'unreleased'
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  update-changelog:
+    name: Update Changelog
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history needed
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install changelog tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install gitpython python-semantic-release
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          python << 'EOF' > CHANGELOG_NEW.md
+          import os
+          import subprocess
+          from datetime import datetime
+          from collections import defaultdict
+
+          print("# Changelog")
+          print("\nAll notable changes to this project will be documented in this file.\n")
+          print("The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),")
+          print("and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).\n")
+
+          # Get all tags
+          result = subprocess.run(
+              ["git", "tag", "-l", "--sort=-version:refname"],
+              capture_output=True, text=True, check=False
+          )
+
+          tags = result.stdout.strip().split('\n') if result.stdout.strip() else []
+
+          # Add unreleased section
+          print("## [Unreleased]\n")
+
+          if tags:
+              # Get commits since last tag
+              result = subprocess.run(
+                  ["git", "log", f"{tags[0]}..HEAD", "--pretty=format:%s|||%h|||%an|||%ad", "--date=short"],
+                  capture_output=True, text=True, check=False
+              )
+          else:
+              # Get all commits
+              result = subprocess.run(
+                  ["git", "log", "--pretty=format:%s|||%h|||%an|||%ad", "--date=short"],
+                  capture_output=True, text=True, check=False
+              )
+
+          if result.stdout.strip():
+              commits = result.stdout.strip().split('\n')
+              categorized = defaultdict(list)
+
+              for commit in commits:
+                  if '|||' not in commit:
+                      continue
+
+                  parts = commit.split('|||')
+                  if len(parts) < 4:
+                      continue
+
+                  msg, hash_val, author, date = parts[0], parts[1], parts[2], parts[3]
+
+                  # Categorize commits
+                  msg_lower = msg.lower()
+                  if msg_lower.startswith('feat'):
+                      categorized['Added'].append((msg, hash_val))
+                  elif msg_lower.startswith('fix'):
+                      categorized['Fixed'].append((msg, hash_val))
+                  elif msg_lower.startswith('docs'):
+                      categorized['Documentation'].append((msg, hash_val))
+                  elif msg_lower.startswith('refactor'):
+                      categorized['Changed'].append((msg, hash_val))
+                  elif msg_lower.startswith('perf'):
+                      categorized['Performance'].append((msg, hash_val))
+                  elif msg_lower.startswith('test'):
+                      categorized['Tests'].append((msg, hash_val))
+                  elif msg_lower.startswith('chore'):
+                      categorized['Maintenance'].append((msg, hash_val))
+                  elif 'breaking' in msg_lower or '!' in msg:
+                      categorized['Breaking Changes'].append((msg, hash_val))
+                  else:
+                      categorized['Other'].append((msg, hash_val))
+
+              # Print categorized changes
+              for category in ['Breaking Changes', 'Added', 'Fixed', 'Changed', 'Performance', 'Documentation', 'Tests', 'Maintenance']:
+                  if category in categorized:
+                      print(f"### {category}\n")
+                      for msg, hash_val in categorized[category][:20]:  # Limit to 20 per category
+                          # Clean up commit message
+                          clean_msg = msg.split(':')[1].strip() if ':' in msg else msg
+                          print(f"- {clean_msg} (`{hash_val}`)")
+                      print()
+
+          # Process tagged releases
+          for i, tag in enumerate(tags[:10]):  # Last 10 releases
+              print(f"## [{tag}] - ", end="")
+
+              # Get tag date
+              result = subprocess.run(
+                  ["git", "log", "-1", "--format=%ad", "--date=short", tag],
+                  capture_output=True, text=True, check=False
+              )
+              tag_date = result.stdout.strip() if result.stdout.strip() else "Unknown"
+              print(f"{tag_date}\n")
+
+              # Get commits for this tag
+              if i < len(tags) - 1:
+                  # Between this tag and previous tag
+                  result = subprocess.run(
+                      ["git", "log", f"{tags[i+1]}..{tag}", "--pretty=format:%s|||%h", "--date=short"],
+                      capture_output=True, text=True, check=False
+                  )
+              else:
+                  # From beginning to first tag
+                  result = subprocess.run(
+                      ["git", "log", tag, "--pretty=format:%s|||%h", "--date=short"],
+                      capture_output=True, text=True, check=False
+                  )
+
+              if result.stdout.strip():
+                  commits = result.stdout.strip().split('\n')
+                  categorized = defaultdict(list)
+
+                  for commit in commits[:30]:  # Limit commits per release
+                      if '|||' not in commit:
+                          continue
+
+                      parts = commit.split('|||')
+                      if len(parts) < 2:
+                          continue
+
+                      msg, hash_val = parts[0], parts[1]
+
+                      # Categorize
+                      msg_lower = msg.lower()
+                      if msg_lower.startswith('feat'):
+                          categorized['Added'].append((msg, hash_val))
+                      elif msg_lower.startswith('fix'):
+                          categorized['Fixed'].append((msg, hash_val))
+                      elif msg_lower.startswith('docs'):
+                          categorized['Documentation'].append((msg, hash_val))
+                      elif msg_lower.startswith('refactor'):
+                          categorized['Changed'].append((msg, hash_val))
+                      else:
+                          categorized['Other'].append((msg, hash_val))
+
+                  # Print categorized changes
+                  for category in ['Added', 'Fixed', 'Changed', 'Documentation']:
+                      if category in categorized:
+                          print(f"### {category}\n")
+                          for msg, hash_val in categorized[category][:15]:
+                              clean_msg = msg.split(':')[1].strip() if ':' in msg else msg
+                              print(f"- {clean_msg} (`{hash_val}`)")
+                          print()
+
+              print()
+
+          print("---\n")
+          print("*This changelog is automatically generated. For manual changes, edit CHANGELOG.md directly.*")
+          EOF
+
+          cat CHANGELOG_NEW.md
+
+      - name: Compare with existing changelog
+        run: |
+          if [ -f CHANGELOG.md ]; then
+            echo "### 📋 Changelog Comparison" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Existing changelog found** - comparing changes..." >> $GITHUB_STEP_SUMMARY
+
+            # Count entries
+            OLD_COUNT=$(grep -c "^- " CHANGELOG.md || echo "0")
+            NEW_COUNT=$(grep -c "^- " CHANGELOG_NEW.md || echo "0")
+
+            echo "- Old entries: $OLD_COUNT" >> $GITHUB_STEP_SUMMARY
+            echo "- New entries: $NEW_COUNT" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            if [ "$NEW_COUNT" -gt "$OLD_COUNT" ]; then
+              DIFF=$((NEW_COUNT - OLD_COUNT))
+              echo "✅ **$DIFF new changelog entries** would be added" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "ℹ️ No new entries to add" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### 📋 Changelog Generation" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**No existing changelog** - new CHANGELOG.md will be created" >> $GITHUB_STEP_SUMMARY
+
+            # Show preview
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "<details>" >> $GITHUB_STEP_SUMMARY
+            echo "<summary>Preview</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`markdown" >> $GITHUB_STEP_SUMMARY
+            head -50 CHANGELOG_NEW.md >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "</details>" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Update CHANGELOG.md
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          # Backup existing if present
+          if [ -f CHANGELOG.md ]; then
+            cp CHANGELOG.md CHANGELOG.md.backup
+          fi
+
+          # Use new changelog
+          mv CHANGELOG_NEW.md CHANGELOG.md
+
+          echo "✅ CHANGELOG.md updated successfully" >> $GITHUB_STEP_SUMMARY
+
+      - name: Commit changelog
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet CHANGELOG.md; then
+            echo "No changes to commit"
+          else
+            git add CHANGELOG.md
+            git commit -m "docs: Update CHANGELOG.md [skip ci]"
+            git push
+            echo "📝 Changelog committed and pushed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload changelog artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog-${{ github.sha }}
+          path: |
+            CHANGELOG*.md
+          retention-days: 30
+
+      - name: Create release notes
+        if: github.event_name == 'release'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const changelog = fs.readFileSync('CHANGELOG_NEW.md', 'utf8');
+
+            // Extract unreleased section for release notes
+            const unreleasedMatch = changelog.match(/## \[Unreleased\]([\s\S]*?)(?=## \[|$)/);
+
+            if (unreleasedMatch) {
+              const releaseNotes = unreleasedMatch[1].trim();
+
+              github.rest.repos.updateRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: context.payload.release.id,
+                body: releaseNotes
+              });
+
+              console.log('Release notes updated with changelog content');
+            }

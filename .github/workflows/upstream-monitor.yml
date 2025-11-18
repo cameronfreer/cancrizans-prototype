@@ -1,0 +1,314 @@
+name: Upstream Dependency Monitor
+
+on:
+  schedule:
+    # Weekly on Fridays at 10:00 UTC
+    - cron: '0 10 * * 5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  monitor-dependencies:
+    name: Monitor Upstream Dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install monitoring tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-review packaging requests
+
+      - name: Check for outdated dependencies
+        id: outdated
+        run: |
+          echo "### 📦 Dependency Update Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Install current dependencies
+          pip install -e ".[dev]"
+
+          # Check for updates
+          pip list --outdated --format=json > outdated.json
+
+          python << 'EOF' >> $GITHUB_STEP_SUMMARY
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('outdated.json').read_text())
+
+          if not data:
+              print("✅ **All dependencies are up to date!**")
+          else:
+              print(f"⚠️ **{len(data)} dependencies have updates available**\n")
+              print("| Package | Current | Latest | Type |")
+              print("|---------|---------|--------|------|")
+
+              for pkg in data:
+                  name = pkg['name']
+                  current = pkg['version']
+                  latest = pkg['latest_version']
+
+                  # Determine update type
+                  try:
+                      curr_parts = [int(x) for x in current.split('.')]
+                      latest_parts = [int(x) for x in latest.split('.')]
+
+                      if curr_parts[0] < latest_parts[0]:
+                          update_type = "🔴 Major"
+                      elif curr_parts[1] < latest_parts[1]:
+                          update_type = "🟡 Minor"
+                      else:
+                          update_type = "🟢 Patch"
+                  except:
+                      update_type = "❓ Unknown"
+
+                  print(f"| {name} | {current} | {latest} | {update_type} |")
+          EOF
+
+          # Save for later processing
+          echo "outdated_count=$(python -c 'import json; print(len(json.load(open(\"outdated.json\"))))')" >> $GITHUB_OUTPUT
+
+      - name: Check dependency security
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔒 Security Advisories" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          pip install pip-audit
+
+          if pip-audit --format json --output security.json; then
+            echo "✅ **No known security vulnerabilities**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Security vulnerabilities detected**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            python << 'EOF' >> $GITHUB_STEP_SUMMARY
+          import json
+          from pathlib import Path
+
+          try:
+              data = json.loads(Path('security.json').read_text())
+
+              if 'dependencies' in data:
+                  print("| Package | Version | Vulnerability | Severity |")
+                  print("|---------|---------|---------------|----------|")
+
+                  for dep in data['dependencies'][:10]:  # Limit to 10
+                      name = dep.get('name', 'Unknown')
+                      version = dep.get('version', 'Unknown')
+
+                      vulns = dep.get('vulns', [])
+                      for vuln in vulns[:3]:  # Max 3 per package
+                          vuln_id = vuln.get('id', 'N/A')
+                          severity = vuln.get('severity', 'Unknown')
+                          print(f"| {name} | {version} | {vuln_id} | {severity} |")
+          except Exception as e:
+              print(f"Could not parse security report: {e}")
+          EOF
+          fi
+
+      - name: Monitor dependency popularity
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📈 Dependency Health Metrics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          python << 'EOF' >> $GITHUB_STEP_SUMMARY
+          import subprocess
+          import json
+          from pathlib import Path
+
+          # Read current dependencies from pyproject.toml
+          if Path('pyproject.toml').exists():
+              content = Path('pyproject.toml').read_text()
+
+              # Extract main dependencies
+              import re
+              deps_match = re.search(r'dependencies\s*=\s*\[(.*?)\]', content, re.DOTALL)
+
+              if deps_match:
+                  deps_text = deps_match.group(1)
+                  # Extract package names
+                  packages = []
+                  for line in deps_text.split('\n'):
+                      line = line.strip().strip(',').strip('"').strip("'")
+                      if line and not line.startswith('#'):
+                          # Extract package name (before >= or ==)
+                          pkg_name = re.split(r'[><=!]', line)[0].strip()
+                          if pkg_name:
+                              packages.append(pkg_name)
+
+                  print("**Core Dependencies:**\n")
+                  for pkg in packages[:10]:
+                      print(f"- `{pkg}`")
+
+                  print(f"\n**Total Core Dependencies:** {len(packages)}")
+              else:
+                  print("Could not parse dependencies from pyproject.toml")
+          else:
+              print("pyproject.toml not found")
+          EOF
+
+      - name: Generate dependency graph insights
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🕸️ Dependency Tree Insights" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Use pip to show dependency tree
+          pip install pipdeptree
+
+          python << 'EOF' >> $GITHUB_STEP_SUMMARY
+          import subprocess
+
+          result = subprocess.run(
+              ['pipdeptree', '--json'],
+              capture_output=True, text=True, check=False
+          )
+
+          if result.returncode == 0:
+              import json
+              tree = json.loads(result.stdout)
+
+              # Count transitive dependencies
+              total_packages = len(tree)
+              print(f"- **Total Installed Packages:** {total_packages}")
+
+              # Find packages with most dependencies
+              dep_counts = []
+              for pkg in tree:
+                  name = pkg.get('package', {}).get('key', 'unknown')
+                  deps = len(pkg.get('dependencies', []))
+                  if deps > 0:
+                      dep_counts.append((name, deps))
+
+              dep_counts.sort(key=lambda x: x[1], reverse=True)
+
+              if dep_counts:
+                  print("\n**Packages with Most Dependencies:**\n")
+                  for name, count in dep_counts[:5]:
+                      print(f"- `{name}`: {count} dependencies")
+          else:
+              print("Could not generate dependency tree")
+          EOF
+
+      - name: Check for deprecated packages
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ⚠️ Deprecation Warnings" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check pip deprecation warnings
+          python << 'EOF' >> $GITHUB_STEP_SUMMARY
+          import subprocess
+
+          # Known deprecated packages
+          deprecated = {
+              'safety': 'Consider pip-audit instead',
+              'nose': 'Use pytest instead',
+              'optparse': 'Use argparse instead',
+          }
+
+          result = subprocess.run(
+              ['pip', 'list', '--format=json'],
+              capture_output=True, text=True, check=False
+          )
+
+          if result.returncode == 0:
+              import json
+              packages = json.loads(result.stdout)
+
+              found_deprecated = []
+              for pkg in packages:
+                  name = pkg['name'].lower()
+                  if name in deprecated:
+                      found_deprecated.append((pkg['name'], deprecated[name]))
+
+              if found_deprecated:
+                  print("**Deprecated packages found:**\n")
+                  for name, suggestion in found_deprecated:
+                      print(f"- ⚠️ `{name}`: {suggestion}")
+              else:
+                  print("✅ No known deprecated packages in use")
+          else:
+              print("Could not check for deprecated packages")
+          EOF
+
+      - name: Upload monitoring reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-monitor-${{ github.run_number }}
+          path: |
+            outdated.json
+            security.json
+          retention-days: 30
+
+      - name: Create issue for critical updates
+        if: steps.outdated.outputs.outdated_count > 10
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            const fs = require('fs');
+
+            // Check for existing issue
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'dependencies'
+            });
+
+            const outdated = JSON.parse(fs.readFileSync('outdated.json', 'utf8'));
+
+            let body = '## 📦 Dependency Updates Available\n\n';
+            body += `**${outdated.length} dependencies** have updates available.\n\n`;
+            body += '### Updates\n\n';
+            body += '| Package | Current | Latest | Type |\n';
+            body += '|---------|---------|--------|------|\n';
+
+            for (const pkg of outdated.slice(0, 20)) {
+              const curr = pkg.version.split('.');
+              const latest = pkg.latest_version.split('.');
+
+              let type = '🟢 Patch';
+              try {
+                if (parseInt(curr[0]) < parseInt(latest[0])) {
+                  type = '🔴 Major';
+                } else if (parseInt(curr[1]) < parseInt(latest[1])) {
+                  type = '🟡 Minor';
+                }
+              } catch (e) {}
+
+              body += `| ${pkg.name} | ${pkg.version} | ${pkg.latest_version} | ${type} |\n`;
+            }
+
+            body += '\n---\n*This issue was automatically created by upstream-monitor workflow*\n';
+
+            if (issues.data.filter(i => i.title.includes('Dependency Updates Available')).length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: '📦 Dependency Updates Available',
+                body: body,
+                labels: ['dependencies', 'automated']
+              });
+            }
+
+      - name: Summary
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "*Upstream dependency monitoring completed. Review the sections above for details.*" >> $GITHUB_STEP_SUMMARY

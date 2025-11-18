@@ -568,13 +568,17 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
 
 ### 🔄 Continuous Integration
 - **Main CI Pipeline** (`.github/workflows/ci.yml`)
-  - Parallel test execution with pytest-xdist
+  - **Multi-platform testing** (Ubuntu, macOS, Windows)
+  - **Parallel test execution** with pytest-xdist
+  - **Test retry logic** with pytest-rerunfailures (2 retries)
+  - **Concurrency controls** to cancel outdated runs
   - Code coverage tracking with Codecov
   - Code quality checks with ruff
   - Type checking with mypy
   - Test result parsing and summaries
   - Full CLI workflow validation
   - Matrix testing (Python 3.11, 3.12)
+  - **Manual dispatch** capability for on-demand testing
 
 ### 🔒 Security Scanning
 - **CodeQL Analysis** (`.github/workflows/codeql.yml`)
@@ -584,10 +588,19 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
   - SARIF result uploads
 
 - **Dependency & Code Security** (`.github/workflows/security-scan.yml`)
-  - Dependency vulnerability scanning (Safety)
+  - Dependency vulnerability scanning (**pip-audit** - modern replacement for Safety)
   - Python security linting (Bandit)
   - Daily automated scans
   - JSON report generation
+
+- **Weekly Security Audit** (`.github/workflows/weekly-security-audit.yml`)
+  - **Comprehensive security audit** every Saturday
+  - Multi-tool vulnerability scanning (pip-audit, Bandit, Semgrep)
+  - License compliance checking
+  - Secret scanning with pattern detection
+  - Supply chain security analysis
+  - **Security score calculation** with A-F grading
+  - Automatic issue creation for critical findings
 
 ### ⚡ Performance Monitoring
 - **Benchmark Suite** (`.github/workflows/benchmark.yml`)
@@ -602,9 +615,15 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
 - **Documentation Checks** (`.github/workflows/docs-check.yml`)
   - Markdown linting
   - Link validation
-  - Spell checking
   - Notebook validation
   - Docstring coverage analysis
+
+- **Spell Check** (`.github/workflows/spell-check.yml`)
+  - **Automated spell checking** for docs and code
+  - Custom dictionary with technical terms
+  - Python docstring validation
+  - Markdown linting with markdownlint
+  - PR comments for spelling errors
 
 - **Documentation Deployment** (`.github/workflows/docs-deploy.yml`)
   - Automatic Sphinx documentation generation
@@ -725,6 +744,40 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
   - Time savings estimation and reporting
   - PR comments with test strategy
 
+- **Changelog Automation** (`.github/workflows/changelog.yml`)
+  - **Automatic CHANGELOG.md generation** from git history
+  - Semantic commit categorization (Added, Fixed, Changed, etc.)
+  - Release notes extraction for GitHub releases
+  - Historical changelog preservation
+  - Commit on main branch automatically
+
+- **Upstream Dependency Monitor** (`.github/workflows/upstream-monitor.yml`)
+  - **Weekly dependency update monitoring** (Fridays)
+  - Outdated package detection with version comparison
+  - Security advisory tracking
+  - Dependency tree analysis and insights
+  - Deprecated package detection
+  - Automatic issue creation for >10 outdated packages
+  - License compliance monitoring
+
+- **Repository Health** (`.github/workflows/repo-health.yml`)
+  - **Daily repository health checks**
+  - Code statistics (LOC, files, test coverage)
+  - Git activity metrics (commits, contributors)
+  - Documentation coverage analysis
+  - Code complexity monitoring with radon
+  - Large file detection
+  - Automated recommendations
+  - Health issue creation when needed
+
+- **SBOM Generation** (`.github/workflows/sbom.yml`)
+  - **Software Bill of Materials** creation
+  - CycloneDX format (JSON and XML)
+  - Vulnerability scanning with pip-audit
+  - Component categorization and statistics
+  - Release-specific SBOM archival
+  - 90-day retention for compliance
+
 ### 📊 Analytics & Monitoring
 - **Test Analytics** (`.github/workflows/test-analytics.yml`)
   - Detailed test result analysis
@@ -739,6 +792,16 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
   - GitHub Pages dashboard deployment
   - PR-level performance impact analysis
   - Automated regression alerts
+
+- **Workflow Analytics** (`.github/workflows/workflow-analytics.yml`)
+  - **Weekly CI/CD performance analysis**
+  - Workflow success rate tracking
+  - Average duration monitoring per workflow
+  - Slowest workflow identification
+  - Activity pattern analysis
+  - Resource usage estimation
+  - **Optimization recommendations**
+  - Configuration analysis (caching, concurrency)
 
 ### 📦 Release Automation
 - **Release Workflow** (`.github/workflows/release.yml`)
@@ -760,17 +823,20 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
 ### 📊 Quality Metrics
 - **811+ tests** with 100% pass rate
 - **80%+ code coverage** enforced with automated checks
-- **Zero security vulnerabilities** (daily scans with CodeQL, Safety, Bandit)
+- **Zero security vulnerabilities** (daily scans with CodeQL, pip-audit, Bandit)
 - **18 performance benchmarks** with regression detection (<10% threshold)
-- **29 automated workflows** covering all aspects of development
+- **36 automated workflows** covering all aspects of development
 - **50+ GitHub labels** for organized issue/PR management
 - **10+ pre-commit hooks** for local code quality enforcement
+- **Multi-platform CI** testing on Ubuntu, macOS, and Windows
+- **Test retry logic** with pytest-rerunfailures for flaky test handling
+- **Concurrency controls** to optimize CI resource usage
 - **Nightly comprehensive tests** across 3 Python versions and 3 OS platforms
 - **Automated documentation deployment** to GitHub Pages
 - **Docker support** with multi-architecture builds (amd64, arm64)
 - **VS Code dev container** for instant development setup
 - **Automated code review** with complexity, security, and quality checks
-- **Automatic changelog generation** from PR labels
+- **Automatic changelog generation** from git commit history
 - **Test analytics** with flaky test detection and mutation testing
 - **Performance tracking dashboard** with historical trends
 - **Automated issue management** with smart triaging
@@ -781,6 +847,12 @@ Cancrizans maintains a comprehensive CI/CD pipeline with multiple automated work
 - **Auto-merge** for safe Dependabot updates
 - **Smart testing** saving CI time with targeted test selection
 - **Notification system** for failures, security, and releases
+- **Weekly security audit** with comprehensive multi-tool scanning
+- **SBOM generation** for software supply chain compliance
+- **Repository health monitoring** with daily checks and recommendations
+- **Upstream dependency tracking** with weekly monitoring
+- **Workflow analytics** for CI/CD performance optimization
+- **Spell checking** for documentation quality
 - **Professional contribution infrastructure** (templates, guides, automation)
 
 All workflows include automated summaries in GitHub Actions for easy monitoring. See `.github/workflows/` for complete configurations.

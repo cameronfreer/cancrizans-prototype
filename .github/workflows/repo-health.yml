@@ -1,0 +1,288 @@
+name: Repository Health
+
+on:
+  schedule:
+    # Daily at 8:00 UTC
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  health-check:
+    name: Repository Health Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for analysis
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install analysis tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install gitpython PyGithub radon
+
+      - name: Analyze repository health
+        id: health
+        run: |
+          python << 'EOF' > health_report.md
+          import os
+          import subprocess
+          from datetime import datetime, timedelta
+          from pathlib import Path
+
+          print("# 🏥 Repository Health Report")
+          print(f"\n**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}\n")
+
+          # 1. Code Statistics
+          print("## 📊 Code Statistics\n")
+
+          # Count lines of code
+          try:
+              result = subprocess.run(
+                  ["find", "cancrizans", "-name", "*.py", "-exec", "wc", "-l", "{}", "+"],
+                  capture_output=True, text=True, check=False
+              )
+              if result.returncode == 0:
+                  lines = result.stdout.strip().split('\n')
+                  if lines:
+                      total_line = lines[-1]
+                      total_lines = total_line.split()[0]
+                      print(f"- **Total Python LOC:** {total_lines}")
+          except Exception as e:
+              print(f"- **Total Python LOC:** Error calculating ({e})")
+
+          # Count files
+          py_files = list(Path('cancrizans').rglob('*.py'))
+          test_files = list(Path('tests').rglob('*.py'))
+          print(f"- **Python Files:** {len(py_files)}")
+          print(f"- **Test Files:** {len(test_files)}")
+
+          if len(py_files) > 0:
+              ratio = len(test_files) / len(py_files)
+              print(f"- **Test/Code Ratio:** {ratio:.2f}")
+
+          # 2. Git Activity
+          print("\n## 📈 Git Activity (Last 30 Days)\n")
+
+          try:
+              # Commits
+              result = subprocess.run(
+                  ["git", "log", "--since=30.days.ago", "--oneline"],
+                  capture_output=True, text=True, check=False
+              )
+              if result.returncode == 0:
+                  commits = len(result.stdout.strip().split('\n')) if result.stdout.strip() else 0
+                  print(f"- **Commits:** {commits}")
+
+              # Contributors
+              result = subprocess.run(
+                  ["git", "log", "--since=30.days.ago", "--format=%an"],
+                  capture_output=True, text=True, check=False
+              )
+              if result.returncode == 0:
+                  contributors = len(set(result.stdout.strip().split('\n'))) if result.stdout.strip() else 0
+                  print(f"- **Active Contributors:** {contributors}")
+
+              # Branches
+              result = subprocess.run(
+                  ["git", "branch", "-r"],
+                  capture_output=True, text=True, check=False
+              )
+              if result.returncode == 0:
+                  branches = len(result.stdout.strip().split('\n')) if result.stdout.strip() else 0
+                  print(f"- **Remote Branches:** {branches}")
+
+          except Exception as e:
+              print(f"⚠️ Error analyzing git activity: {e}")
+
+          # 3. Documentation Coverage
+          print("\n## 📚 Documentation Coverage\n")
+
+          docs_with_docstrings = 0
+          total_functions = 0
+
+          for py_file in py_files:
+              try:
+                  content = py_file.read_text()
+                  # Simple heuristic: count 'def ' and '"""' or "'''"
+                  func_count = content.count('def ')
+                  docstring_count = content.count('"""') + content.count("'''")
+
+                  total_functions += func_count
+                  # Rough estimate: each docstring pair covers one function
+                  docs_with_docstrings += min(func_count, docstring_count // 2)
+              except:
+                  pass
+
+          if total_functions > 0:
+              doc_coverage = (docs_with_docstrings / total_functions) * 100
+              print(f"- **Functions:** {total_functions}")
+              print(f"- **Documented:** {docs_with_docstrings}")
+              print(f"- **Coverage:** {doc_coverage:.1f}%")
+
+              if doc_coverage < 50:
+                  print(f"\n⚠️ **Warning:** Documentation coverage is low")
+          else:
+              print("- No functions found")
+
+          # 4. Code Complexity
+          print("\n## 🔧 Code Complexity\n")
+
+          try:
+              result = subprocess.run(
+                  ["radon", "cc", "cancrizans", "-a", "-s"],
+                  capture_output=True, text=True, check=False
+              )
+              if result.returncode == 0:
+                  lines = result.stdout.strip().split('\n')
+                  for line in lines[-5:]:  # Last 5 lines usually have summary
+                      if line.strip():
+                          print(f"- {line}")
+              else:
+                  print("- Could not calculate complexity")
+          except Exception as e:
+              print(f"- Error calculating complexity: {e}")
+
+          # 5. File Health
+          print("\n## 📁 File Health\n")
+
+          # Find large files
+          large_files = []
+          for py_file in py_files:
+              size = py_file.stat().st_size
+              if size > 10000:  # > 10KB
+                  large_files.append((py_file.name, size))
+
+          if large_files:
+              large_files.sort(key=lambda x: x[1], reverse=True)
+              print("**Large Files (>10KB):**\n")
+              for name, size in large_files[:5]:
+                  print(f"- `{name}`: {size/1024:.1f} KB")
+
+          # 6. Dependencies Health
+          print("\n## 📦 Dependencies\n")
+
+          if Path('pyproject.toml').exists():
+              content = Path('pyproject.toml').read_text()
+              dep_count = content.count('>=')
+              print(f"- **Versioned Dependencies:** ~{dep_count}")
+              print("- **Dependency File:** pyproject.toml ✅")
+          else:
+              print("- ⚠️ No pyproject.toml found")
+
+          # 7. CI/CD Health
+          print("\n## 🔄 CI/CD Health\n")
+
+          workflow_dir = Path('.github/workflows')
+          if workflow_dir.exists():
+              workflows = list(workflow_dir.glob('*.yml'))
+              print(f"- **Active Workflows:** {len(workflows)}")
+
+              # Check for essential workflows
+              essential = ['ci.yml', 'codeql.yml', 'security-scan.yml']
+              for workflow in essential:
+                  if (workflow_dir / workflow).exists():
+                      print(f"  - ✅ {workflow}")
+                  else:
+                      print(f"  - ❌ {workflow} (missing)")
+          else:
+              print("- ⚠️ No workflows directory found")
+
+          # 8. Recommendations
+          print("\n## 💡 Recommendations\n")
+
+          recommendations = []
+
+          if len(test_files) == 0:
+              recommendations.append("Add unit tests to improve code quality")
+          elif len(py_files) > 0 and len(test_files) / len(py_files) < 0.5:
+              recommendations.append("Increase test coverage - add more test files")
+
+          if doc_coverage < 60:
+              recommendations.append("Improve documentation - add docstrings to functions")
+
+          if len(large_files) > 5:
+              recommendations.append("Consider refactoring large files for better maintainability")
+
+          if not recommendations:
+              print("✅ **Repository health is good! No critical recommendations.**")
+          else:
+              for i, rec in enumerate(recommendations, 1):
+                  print(f"{i}. {rec}")
+
+          print("\n---")
+          print("\n*This report is automatically generated daily. Check workflow runs for details.*")
+          EOF
+
+          cat health_report.md
+
+      - name: Post to step summary
+        run: |
+          cat health_report.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload health report
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-report-${{ github.run_number }}
+          path: health_report.md
+          retention-days: 30
+
+      - name: Check for critical issues
+        id: critical
+        run: |
+          # Check if there are critical health issues that need attention
+          if grep -q "⚠️" health_report.md; then
+            echo "has_warnings=true" >> $GITHUB_OUTPUT
+            echo "::warning::Repository health check found some warnings"
+          else
+            echo "has_warnings=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create issue for critical problems
+        if: steps.critical.outputs.has_warnings == 'true' && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            const fs = require('fs');
+
+            // Check if there's already an open health issue
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'repo-health'
+            });
+
+            const report = fs.readFileSync('health_report.md', 'utf8');
+
+            if (issues.data.length === 0) {
+              // Create new issue
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: '🏥 Repository Health Check - Action Needed',
+                body: report + '\n\n---\n*This issue was automatically created by the repo-health workflow.*',
+                labels: ['repo-health', 'automated']
+              });
+            } else {
+              // Update existing issue
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues.data[0].number,
+                body: '## Updated Health Report\n\n' + report
+              });
+            }
