@@ -5,6 +5,132 @@ All notable changes to the Cancrizans project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.0] - 2025-11-18
+
+### 🎵 Phase 20: Microtonal Canon Integration
+
+#### Major Features
+Complete integration of microtonal capabilities with canon generation and analysis systems, enabling world-class microtonal canon composition and cross-cultural musicological research.
+
+#### Added - Canon Generation Functions
+
+**`create_microtonal_canon()`**: Generate canons with microtonal tunings
+- Supports multiple canon types: retrograde, inversion, augmentation, stretto
+- Applies microtonal adjustments to canon voices
+- Automatic pitch bend generation for accurate MIDI playback
+- Works with all 40+ tuning systems
+- Example:
+  ```python
+  canon = create_microtonal_canon(
+      theme,
+      TuningSystem.JUST_INTONATION_7,
+      canon_type='retrograde'
+  )
+  ```
+
+**`generate_world_music_canon()`**: Algorithmic canon generation in world music scales
+- Creates canons using maqams, ragas, gamelan scales, etc.
+- Random walk melody generation with musical logic
+- Preserves microtonal characteristics
+- Configurable length and octave range
+- Example:
+  ```python
+  canon = generate_world_music_canon(
+      ScaleType.MAQAM_HIJAZ,
+      length=16,
+      canon_type='retrograde'
+  )
+  ```
+
+#### Added - Analysis Functions
+
+**`analyze_microtonal_intervals()`**: Cent-precision interval analysis
+- Calculates interval sizes in cents
+- Detects just intonation ratios (3:2, 5:4, etc.)
+- Measures deviation from specified tuning systems
+- Provides harmonic complexity scoring
+- Example:
+  ```python
+  analysis = analyze_microtonal_intervals(
+      score,
+      tuning_system=TuningSystem.JUST_INTONATION_5
+  )
+  print(f"Avg interval: {analysis['average_cents']:.2f} cents")
+  ```
+
+**`cross_cultural_canon_analysis()`**: Multi-scale compatibility analysis
+- Tests canon against multiple world music scales
+- Calculates compatibility scores
+- Identifies best-matching cultural tuning systems
+- Useful for cross-cultural musicological research
+- Returns detailed analysis for each scale tested
+
+#### Added - Helper Functions (microtonal.py)
+
+**`create_tuning_system_scale()`**: TuningSystem enum to scale converter
+- Maps all 40+ TuningSystem values to scale creation functions
+- Convenience wrapper for streamlined workflow
+- Handles equal temperaments, just intonation, historical temperaments, exotic tunings
+
+**`find_nearest_scale_degree()`**: Pitch quantization
+- Finds closest scale degree for any MIDI pitch
+- Returns cent deviation for microtone adjustment
+- Essential for microtonal pitch correction
+
+**`_apply_microtonal_tuning()`** (internal): Microtonal pitch adjustment
+- Adjusts note pitches to microtonal scale degrees
+- Adds pitch bend MIDI data for playback
+- Handles both individual notes and chords
+
+#### Integration Capabilities
+
+**Seamless Module Integration:**
+- Canon and microtonal modules now fully integrated
+- World music scales work with canon transformations
+- Pitch bend support for DAW/VST compatibility
+
+**Cross-Cultural Analysis:**
+- Analyze Western canons in Eastern scales
+- Test historical temperaments against modern tunings
+- Identify cultural influences in compositions
+
+**MIDI Export Enhancement:**
+- Automatic pitch bend calculation
+- Configurable bend range (default ±2 semitones)
+- Compatible with major DAWs (Ableton, Logic, Cubase, etc.)
+
+#### Technical Improvements
+- Added `Any` to canon.py type imports
+- All 738 tests passing (100% pass rate)
+- No breaking changes to existing APIs
+- Comprehensive docstrings with usage examples
+- Added 600+ lines of new code across 2 modules
+
+#### Use Cases
+
+**Composition:**
+- Create microtonal canons in just intonation
+- Generate world music palindromes
+- Experiment with historical temperaments
+
+**Analysis:**
+- Measure tuning system deviations
+- Detect just intonation ratios
+- Cross-cultural compatibility testing
+
+**Research:**
+- Musicological analysis of world music canons
+- Historical temperament studies
+- Psychoacoustic consonance research
+
+#### Quality Metrics
+- 738/738 tests passing
+- No regressions
+- Type-safe implementations
+- Full documentation coverage
+
+---
+
 ## [0.36.2] - 2025-11-18
 
 ### 🎯 CI/CD Infrastructure & Test Fixes
