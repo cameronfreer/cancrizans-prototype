@@ -546,7 +546,7 @@ class TestIOEdgeCases:
             # Should return None if midi2audio not available
             if result is None:
                 captured = capsys.readouterr()
-                assert 'midi2audio' in captured.out or 'FluidSynth' in captured.out
+                assert 'midi2audio' in captured.out or 'FluidSynth' in captured.out or 'fluidsynth' in captured.out
 
     def test_lilypond_zero_duration_handling(self):
         """Test LilyPond export handles zero or very small durations."""
