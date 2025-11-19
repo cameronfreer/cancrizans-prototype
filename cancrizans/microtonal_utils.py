@@ -7,8 +7,9 @@ including scale transformation, comparison, and visualization helpers.
 Phase 18.5 - v0.35.1
 """
 
-from typing import List, Dict, Tuple, Optional, Set
+from typing import List, Dict, Tuple, Optional, Set, Union
 from dataclasses import dataclass
+from pathlib import Path
 import math
 from .microtonal import (
     MicrotonalScale, MicrotonalPitch, TuningSystem, ScaleType,
@@ -564,3 +565,165 @@ def calculate_scale_compatibility(
     compatibility = (overlap_ratio * 0.6) + (similarity * 0.4)
 
     return compatibility
+
+
+def export_scala_file(
+    scale: MicrotonalScale,
+    path: Union[str, Path],
+    description: Optional[str] = None
+) -> Path:
+    """
+    Export a microtonal scale to Scala (.scl) format.
+
+    Scala is the industry-standard format for microtonal scales,
+    widely supported by synthesizers and music software.
+
+    Args:
+        scale: MicrotonalScale to export
+        path: Output file path (should end in .scl)
+        description: Optional description line (defaults to scale name)
+
+    Returns:
+        Path to the created file
+
+    Example:
+        >>> from cancrizans.microtonal import create_tuning_system_scale, TuningSystem
+        >>> scale = create_tuning_system_scale(TuningSystem.WERCKMEISTER_III, 60)
+        >>> export_scala_file(scale, 'werckmeister.scl')
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if description is None:
+        description = scale.name
+
+    # Scala format:
+    # Line 1: Description
+    # Line 2: Number of notes (excluding 1/1)
+    # Lines 3+: Each interval in cents or ratio format
+
+    lines = []
+    lines.append(f"! {description}")
+    lines.append("!")
+
+    # Count non-zero intervals (excluding the tonic)
+    intervals = [c for c in scale.intervals_cents if c > 0.0]
+    lines.append(str(len(intervals)))
+    lines.append("!")
+
+    # Write each interval in cents
+    for cents in intervals:
+        lines.append(f"{cents:.6f}")
+
+    # Write file
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines) + '\n')
+
+    return path
+
+
+def import_scala_file(
+    path: Union[str, Path],
+    tonic_midi: int = 60,
+    name: Optional[str] = None
+) -> MicrotonalScale:
+    """
+    Import a microtonal scale from Scala (.scl) format.
+
+    Scala is the industry-standard format for microtonal scales.
+    This function supports both cents and ratio formats.
+
+    Args:
+        path: Path to .scl file
+        tonic_midi: MIDI note number for the tonic (default: 60 = middle C)
+        name: Optional name override (defaults to description from file)
+
+    Returns:
+        MicrotonalScale object
+
+    Example:
+        >>> scale = import_scala_file('my_scale.scl', tonic_midi=60)
+        >>> print(scale.name)
+        >>> print(len(scale.intervals_cents))
+    """
+    path = Path(path)
+
+    with open(path, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+
+    # Parse Scala format
+    # Skip comment lines (starting with !)
+    non_comment_lines = []
+    description = None
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith('!'):
+            # First non-empty comment might be description
+            if description is None and len(line) > 1:
+                description = line[1:].strip()
+            continue
+        non_comment_lines.append(line)
+
+    if len(non_comment_lines) < 2:
+        raise ValueError("Invalid Scala file: too few lines")
+
+    # First non-comment line is the description (if not already found)
+    if description is None:
+        description = non_comment_lines[0]
+        non_comment_lines = non_comment_lines[1:]
+
+    # Second line is the number of notes
+    try:
+        num_notes = int(non_comment_lines[0])
+    except (ValueError, IndexError):
+        raise ValueError("Invalid Scala file: cannot parse number of notes")
+
+    # Remaining lines are the intervals
+    interval_lines = non_comment_lines[1:num_notes + 1]
+
+    intervals_cents = [0.0]  # Always start with tonic at 0 cents
+
+    for interval_line in interval_lines:
+        interval_line = interval_line.strip()
+        if not interval_line:
+            continue
+
+        # Parse interval (can be cents with decimal point, or ratio)
+        if '.' in interval_line:
+            # Cents format
+            try:
+                cents = float(interval_line)
+                intervals_cents.append(cents)
+            except ValueError:
+                raise ValueError(f"Invalid cents value: {interval_line}")
+        elif '/' in interval_line:
+            # Ratio format (e.g., "3/2" for perfect fifth)
+            try:
+                parts = interval_line.split('/')
+                numerator = float(parts[0])
+                denominator = float(parts[1])
+                ratio = numerator / denominator
+                # Convert ratio to cents: 1200 * log2(ratio)
+                cents = 1200.0 * math.log2(ratio)
+                intervals_cents.append(cents)
+            except (ValueError, IndexError, ZeroDivisionError):
+                raise ValueError(f"Invalid ratio value: {interval_line}")
+        else:
+            # Integer cents
+            try:
+                cents = float(interval_line)
+                intervals_cents.append(cents)
+            except ValueError:
+                raise ValueError(f"Invalid interval value: {interval_line}")
+
+    # Use provided name or description from file
+    scale_name = name if name is not None else description
+
+    return MicrotonalScale(
+        name=scale_name,
+        intervals_cents=sorted(set(intervals_cents)),
+        tonic_midi=tonic_midi
+    )

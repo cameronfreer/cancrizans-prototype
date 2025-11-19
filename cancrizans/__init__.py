@@ -6,7 +6,7 @@ palindromic musical structures, with a focus on Bach's Canon Cancrizans
 from The Musical Offering (BWV 1079).
 """
 
-__version__ = "0.37.0"
+__version__ = "0.38.0"
 
 from cancrizans.canon import (
     # Basic transformations
@@ -146,6 +146,9 @@ from cancrizans.microtonal_utils import (
     create_scale_catalog,
     analyze_scale_family,
     calculate_scale_compatibility,
+    # Phase 18.6: Scala File Format Support
+    export_scala_file,
+    import_scala_file,
 )
 
 __all__ = [
@@ -276,4 +279,7 @@ __all__ = [
     "create_scale_catalog",
     "analyze_scale_family",
     "calculate_scale_compatibility",
+    # Phase 18.6: Scala File Format Support
+    "export_scala_file",
+    "import_scala_file",
 ]

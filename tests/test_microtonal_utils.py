@@ -15,7 +15,9 @@ from cancrizans.microtonal_utils import (
     generate_scale_variants,
     create_scale_catalog,
     analyze_scale_family,
-    calculate_scale_compatibility
+    calculate_scale_compatibility,
+    export_scala_file,
+    import_scala_file
 )
 from cancrizans.microtonal import (
     MicrotonalScale, MicrotonalPitch, TuningSystem, ScaleType,
@@ -630,6 +632,299 @@ class TestCalculateScaleCompatibility:
         assert 0.0 <= compatibility_21 <= 1.0
         # Note: Due to how overlap is calculated (dividing by max),
         # the function may not be perfectly symmetric
+
+
+class TestScalaFileFormat:
+    """Test Scala file format import/export"""
+
+    def test_export_scala_file_basic(self):
+        """Test basic Scala file export"""
+        import tempfile
+        from pathlib import Path
+
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / 'test.scl'
+            result = export_scala_file(scale, output_path)
+
+            assert result.exists()
+            assert result == output_path
+
+            # Read and verify content
+            content = result.read_text()
+            assert '12-TET' in content or 'Equal' in content
+            lines = content.strip().split('\n')
+            # Should have description, blank, count, blank, then intervals
+            assert len(lines) >= 4
+
+    def test_export_scala_file_with_description(self):
+        """Test Scala export with custom description"""
+        import tempfile
+        from pathlib import Path
+
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / 'test.scl'
+            result = export_scala_file(scale, output_path, description="My Custom Scale")
+
+            content = result.read_text()
+            assert 'My Custom Scale' in content
+
+    def test_export_scala_file_creates_dir(self):
+        """Test that export creates output directory"""
+        import tempfile
+        from pathlib import Path
+
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / 'subdir' / 'nested' / 'test.scl'
+            result = export_scala_file(scale, output_path)
+
+            assert result.exists()
+            assert result.parent.exists()
+
+    def test_import_export_roundtrip_12tet(self):
+        """Test import/export roundtrip for 12-TET"""
+        import tempfile
+        from pathlib import Path
+
+        original_scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scl_path = Path(tmpdir) / 'test.scl'
+
+            # Export
+            export_scala_file(original_scale, scl_path)
+
+            # Import
+            imported_scale = import_scala_file(scl_path, tonic_midi=60)
+
+            # Verify same number of intervals
+            assert len(imported_scale.intervals_cents) == len(original_scale.intervals_cents)
+
+            # Verify intervals are close (within 0.01 cents)
+            for i, (orig, imp) in enumerate(zip(original_scale.intervals_cents,
+                                                imported_scale.intervals_cents)):
+                assert abs(orig - imp) < 0.01, f"Interval {i} differs: {orig} vs {imp}"
+
+    def test_import_export_roundtrip_werckmeister(self):
+        """Test import/export roundtrip for Werckmeister III"""
+        import tempfile
+        from pathlib import Path
+
+        original_scale = create_tuning_system_scale(TuningSystem.WERCKMEISTER_III, tonic_midi=60)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scl_path = Path(tmpdir) / 'werck.scl'
+
+            # Export
+            export_scala_file(original_scale, scl_path)
+
+            # Import
+            imported_scale = import_scala_file(scl_path, tonic_midi=60)
+
+            # Verify same number of intervals
+            assert len(imported_scale.intervals_cents) == len(original_scale.intervals_cents)
+
+            # Verify intervals are close
+            for orig, imp in zip(original_scale.intervals_cents, imported_scale.intervals_cents):
+                assert abs(orig - imp) < 0.01
+
+    def test_import_scala_file_with_ratios(self):
+        """Test importing Scala file with ratio format"""
+        import tempfile
+        from pathlib import Path
+
+        # Create a Scala file with ratios (just intonation)
+        scala_content = """! Just Intonation Major Scale
+!
+7
+!
+9/8
+5/4
+4/3
+3/2
+5/3
+15/8
+2/1
+"""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scl_path = Path(tmpdir) / 'just.scl'
+            scl_path.write_text(scala_content)
+
+            # Import
+            scale = import_scala_file(scl_path, tonic_midi=60)
+
+            assert scale.name == "Just Intonation Major Scale"
+            assert len(scale.intervals_cents) == 8  # 0 + 7 intervals
+
+            # Verify some known intervals
+            # 9/8 = 203.9 cents (major second)
+            assert abs(scale.intervals_cents[1] - 203.91) < 1.0
+            # 3/2 = 701.96 cents (perfect fifth)
+            assert abs(scale.intervals_cents[4] - 701.96) < 1.0
+
+    def test_import_scala_file_with_cents(self):
+        """Test importing Scala file with cents format"""
+        import tempfile
+        from pathlib import Path
+
+        # Create a Scala file with cents
+        scala_content = """! 12-TET
+!
+12
+!
+100.0
+200.0
+300.0
+400.0
+500.0
+600.0
+700.0
+800.0
+900.0
+1000.0
+1100.0
+1200.0
+"""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scl_path = Path(tmpdir) / 'tet12.scl'
+            scl_path.write_text(scala_content)
+
+            # Import
+            scale = import_scala_file(scl_path, tonic_midi=60)
+
+            assert scale.name == "12-TET"
+            assert len(scale.intervals_cents) == 13  # 0 + 12 intervals
+
+            # Verify intervals are correct
+            for i in range(12):
+                expected = i * 100.0
+                assert abs(scale.intervals_cents[i] - expected) < 0.01
+
+    def test_import_scala_file_with_name_override(self):
+        """Test importing Scala file with name override"""
+        import tempfile
+        from pathlib import Path
+
+        scala_content = """! Original Name
+!
+3
+!
+400.0
+700.0
+1200.0
+"""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scl_path = Path(tmpdir) / 'test.scl'
+            scl_path.write_text(scala_content)
+
+            # Import with name override
+            scale = import_scala_file(scl_path, tonic_midi=60, name="My Custom Name")
+
+            assert scale.name == "My Custom Name"
+
+    def test_import_scala_file_invalid_format(self):
+        """Test that invalid Scala file raises error"""
+        import tempfile
+        from pathlib import Path
+        import pytest
+
+        # Create invalid Scala file (too few lines)
+        scala_content = """! Invalid
+"""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scl_path = Path(tmpdir) / 'invalid.scl'
+            scl_path.write_text(scala_content)
+
+            with pytest.raises(ValueError, match="too few lines"):
+                import_scala_file(scl_path)
+
+    def test_import_scala_file_invalid_number(self):
+        """Test that invalid number of notes raises error"""
+        import tempfile
+        from pathlib import Path
+        import pytest
+
+        scala_content = """! Test
+!
+not_a_number
+!
+100.0
+"""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scl_path = Path(tmpdir) / 'invalid.scl'
+            scl_path.write_text(scala_content)
+
+            with pytest.raises(ValueError, match="cannot parse number"):
+                import_scala_file(scl_path)
+
+    def test_import_scala_file_invalid_cents(self):
+        """Test that invalid cents value raises error"""
+        import tempfile
+        from pathlib import Path
+        import pytest
+
+        scala_content = """! Test
+!
+2
+!
+100.0
+invalid_cents
+"""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scl_path = Path(tmpdir) / 'invalid.scl'
+            scl_path.write_text(scala_content)
+
+            with pytest.raises(ValueError, match="Invalid interval value"):
+                import_scala_file(scl_path)
+
+    def test_import_scala_file_invalid_ratio(self):
+        """Test that invalid ratio raises error"""
+        import tempfile
+        from pathlib import Path
+        import pytest
+
+        scala_content = """! Test
+!
+2
+!
+100.0
+3/invalid
+"""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scl_path = Path(tmpdir) / 'invalid.scl'
+            scl_path.write_text(scala_content)
+
+            with pytest.raises(ValueError, match="Invalid ratio value"):
+                import_scala_file(scl_path)
+
+    def test_export_scala_file_world_music_scale(self):
+        """Test exporting world music scale to Scala format"""
+        import tempfile
+        from pathlib import Path
+
+        scale = create_world_music_scale(ScaleType.MAQAM_RAST, tonic_midi=60)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scl_path = Path(tmpdir) / 'maqam.scl'
+            result = export_scala_file(scale, scl_path)
+
+            assert result.exists()
+
+            # Reimport and verify
+            imported = import_scala_file(scl_path, tonic_midi=60)
+            assert len(imported.intervals_cents) == len(scale.intervals_cents)
 
 
 class TestIntegration:
