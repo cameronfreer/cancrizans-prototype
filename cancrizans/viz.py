@@ -3,7 +3,7 @@ Visualization utilities for musical analysis: piano rolls and symmetry plots.
 """
 
 from pathlib import Path
-from typing import Union, List, Tuple
+from typing import Union, List, Tuple, Dict, Any
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
@@ -962,6 +962,95 @@ def compare_microtonal_scales(
 
     plt.suptitle('Microtonal Scale Comparison',
                 fontsize=14, fontweight='bold', y=0.98)
+    plt.tight_layout()
+    fig.savefig(path, dpi=dpi, bbox_inches='tight')
+    plt.close(fig)
+
+    return path
+
+
+def visualize_phase_evolution(
+    phase_analysis: Dict[str, Any],
+    path: Union[str, Path],
+    dpi: int = 100
+) -> Path:
+    """
+    Visualize the evolution of phase relationships over time.
+
+    Creates a plot showing how voices drift in and out of phase,
+    useful for analyzing Steve Reich-style phase music.
+
+    Args:
+        phase_analysis: Analysis results from analyze_phase_relationships()
+        path: Output file path (should end in .png)
+        dpi: Resolution in dots per inch
+
+    Returns:
+        Path to the created visualization
+
+    Example:
+        >>> from cancrizans import phase_canon, analyze_phase_relationships, visualize_phase_evolution
+        >>> # ... create theme and phased score ...
+        >>> analysis = analyze_phase_relationships(score, pattern_length=2.0)
+        >>> visualize_phase_evolution(analysis, 'phase_plot.png')
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
+
+    # Extract data
+    phase_evolution = phase_analysis['phase_evolution']
+    times = [pe['time'] for pe in phase_evolution]
+    phase_offsets = [pe['phase_offset'] for pe in phase_evolution]
+    sync_points = phase_analysis.get('synchronization_points', [])
+
+    # Plot 1: Phase offset over time
+    ax1.plot(times, phase_offsets, color='steelblue', linewidth=2, label='Phase Offset')
+    ax1.fill_between(times, 0, phase_offsets, alpha=0.3, color='steelblue')
+
+    # Mark synchronization points
+    if sync_points:
+        sync_offsets = []
+        for sp in sync_points:
+            # Find corresponding phase offset
+            closest_idx = min(range(len(times)), key=lambda i: abs(times[i] - sp))
+            sync_offsets.append(phase_offsets[closest_idx])
+
+        ax1.scatter(sync_points, sync_offsets, color='red', s=100,
+                   marker='o', edgecolors='darkred', linewidths=2,
+                   label='Synchronization Points', zorder=5)
+
+    ax1.set_xlabel('Time (beats)', fontsize=11)
+    ax1.set_ylabel('Phase Offset (0.0 = in phase)', fontsize=11)
+    ax1.set_title(f'Phase Evolution ({phase_analysis["num_voices"]} voices)',
+                 fontsize=13, fontweight='bold')
+    ax1.grid(True, alpha=0.3)
+    ax1.legend(loc='upper right')
+    ax1.set_ylim(0, 0.5)
+
+    # Plot 2: Phase offset histogram
+    ax2.hist(phase_offsets, bins=30, color='forestgreen', alpha=0.7, edgecolor='black')
+    ax2.axvline(phase_analysis['average_phase_offset'], color='red',
+               linestyle='--', linewidth=2, label=f'Average: {phase_analysis["average_phase_offset"]:.3f}')
+    ax2.set_xlabel('Phase Offset', fontsize=11)
+    ax2.set_ylabel('Frequency', fontsize=11)
+    ax2.set_title('Phase Offset Distribution', fontsize=13, fontweight='bold')
+    ax2.grid(True, alpha=0.3, axis='y')
+    ax2.legend()
+
+    # Add summary text
+    summary_text = (
+        f"Pattern Length: {phase_analysis['pattern_length']:.2f} beats\n"
+        f"Total Duration: {phase_analysis['total_duration']:.2f} beats\n"
+        f"Sync Points: {phase_analysis['num_sync_points']}\n"
+        f"Avg Offset: {phase_analysis['average_phase_offset']:.3f}"
+    )
+    fig.text(0.98, 0.5, summary_text, transform=fig.transFigure,
+            fontsize=10, verticalalignment='center',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
+            ha='left')
+
     plt.tight_layout()
     fig.savefig(path, dpi=dpi, bbox_inches='tight')
     plt.close(fig)

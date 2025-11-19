@@ -6,7 +6,7 @@ palindromic musical structures, with a focus on Bach's Canon Cancrizans
 from The Musical Offering (BWV 1079).
 """
 
-__version__ = "0.40.0"
+__version__ = "0.41.0"
 
 from cancrizans.canon import (
     # Basic transformations
@@ -66,6 +66,15 @@ from cancrizans.canon import (
     canon_in_hypodiapasson,
     enhanced_canon_contrario_motu,
     advanced_crab_canon,
+    # Phase 18.9: Steve Reich Phase Music
+    phase_canon,
+    tape_loop_phase,
+    calculate_phase_offset,
+    analyze_phase_relationships,
+    generate_minimal_pattern,
+    create_phase_progression,
+    detect_phase_patterns,
+    apply_gradual_tempo_shift,
 )
 from cancrizans.bach_crab import assemble_crab_from_theme, load_bach_crab_canon
 from cancrizans.transformation_chain import TransformationChain
@@ -119,6 +128,8 @@ from cancrizans.viz import (
     # Phase 18.5: Microtonal Visualization
     visualize_microtonal_scale,
     compare_microtonal_scales,
+    # Phase 18.9: Phase Music Visualization
+    visualize_phase_evolution,
 )
 from cancrizans.audio import (
     # Phase 15: Audio Synthesis & MIDI Enhancement
@@ -221,6 +232,15 @@ __all__ = [
     "canon_in_hypodiapasson",
     "enhanced_canon_contrario_motu",
     "advanced_crab_canon",
+    # Phase 18.9: Steve Reich Phase Music
+    "phase_canon",
+    "tape_loop_phase",
+    "calculate_phase_offset",
+    "analyze_phase_relationships",
+    "generate_minimal_pattern",
+    "create_phase_progression",
+    "detect_phase_patterns",
+    "apply_gradual_tempo_shift",
     # Theme and utilities
     "assemble_crab_from_theme",
     "load_bach_crab_canon",
@@ -270,6 +290,8 @@ __all__ = [
     # Phase 18.5: Microtonal Visualization
     "visualize_microtonal_scale",
     "compare_microtonal_scales",
+    # Phase 18.9: Phase Music Visualization
+    "visualize_phase_evolution",
     # Phase 15: Audio Synthesis & MIDI Enhancement
     "render_audio",
     "apply_performance_expression",

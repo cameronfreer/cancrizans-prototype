@@ -4631,6 +4631,478 @@ def cross_cultural_canon_analysis(
     return results
 
 
+# ============================================================================
+# Phase 18.9: Steve Reich Phase Music Techniques
+# ============================================================================
+
+def phase_canon(
+    theme: stream.Stream,
+    num_voices: int = 2,
+    phase_shift_beats: float = 0.125,
+    duration_beats: float = 32.0,
+    phase_method: str = "gradual"
+) -> stream.Score:
+    """
+    Create a Steve Reich-style phase canon where voices gradually shift out of phase.
+
+    In Reich's phasing technique, identical patterns repeat simultaneously but one
+    voice gradually speeds up or slows down, creating evolving polyrhythmic patterns.
+
+    Args:
+        theme: Musical pattern to phase (will be repeated)
+        num_voices: Number of voices (default: 2)
+        phase_shift_beats: Total phase shift per cycle in beats (default: 0.125)
+        duration_beats: Total duration of the piece in beats
+        phase_method: "gradual" (continuous drift) or "stepped" (discrete jumps)
+
+    Returns:
+        Score with phasing voices
+
+    Example:
+        >>> from music21 import stream, note
+        >>> theme = stream.Stream()
+        >>> theme.append(note.Note('C4', quarterLength=0.5))
+        >>> theme.append(note.Note('E4', quarterLength=0.5))
+        >>> theme.append(note.Note('G4', quarterLength=0.5))
+        >>> theme.append(note.Note('E4', quarterLength=0.5))
+        >>> phased = phase_canon(theme, num_voices=2, phase_shift_beats=0.0625)
+    """
+    if theme.duration.quarterLength == 0:
+        raise ValueError("Theme must have non-zero duration")
+
+    score = stream.Score()
+    theme_duration = theme.duration.quarterLength
+
+    for voice_num in range(num_voices):
+        part = stream.Part()
+        part.id = f"Voice_{voice_num + 1}"
+
+        current_offset = 0.0
+        phase_offset = 0.0
+
+        while current_offset < duration_beats:
+            # Calculate phase shift for this voice
+            if voice_num > 0:
+                if phase_method == "gradual":
+                    # Continuous phase drift
+                    phase_offset = (current_offset / theme_duration) * phase_shift_beats * voice_num
+                elif phase_method == "stepped":
+                    # Discrete phase jumps every cycle
+                    cycle_num = int(current_offset / theme_duration)
+                    phase_offset = cycle_num * phase_shift_beats * voice_num
+                else:
+                    raise ValueError(f"Unknown phase method: {phase_method}")
+
+            # Copy theme and insert at phased offset
+            for element in theme.flatten().notesAndRests:
+                if current_offset + element.offset + phase_offset < duration_beats:
+                    new_element = element.__class__()
+
+                    # Copy pitch
+                    if isinstance(element, note.Note):
+                        new_element.pitch = element.pitch
+                    elif isinstance(element, chord.Chord):
+                        new_element.pitches = element.pitches
+
+                    new_element.quarterLength = element.quarterLength
+                    part.insert(current_offset + element.offset + phase_offset, new_element)
+
+            current_offset += theme_duration
+
+        score.append(part)
+
+    return score
+
+
+def tape_loop_phase(
+    theme: stream.Stream,
+    num_loops: int = 2,
+    loop_speed_ratios: Optional[List[float]] = None,
+    duration_beats: float = 64.0
+) -> stream.Score:
+    """
+    Simulate Steve Reich's tape loop phasing technique.
+
+    In tape loop phasing, identical loops run at slightly different speeds,
+    causing them to phase in and out of synchronization.
+
+    Args:
+        theme: Musical pattern for the loop
+        num_loops: Number of simultaneous loops (default: 2)
+        loop_speed_ratios: Speed ratio for each loop (default: [1.0, 1.01])
+        duration_beats: Total duration in beats
+
+    Returns:
+        Score with phased tape loops
+    """
+    if loop_speed_ratios is None:
+        # Default: second loop is 1% faster
+        loop_speed_ratios = [1.0] + [1.0 + 0.01 * i for i in range(1, num_loops)]
+
+    if len(loop_speed_ratios) != num_loops:
+        raise ValueError(f"Need {num_loops} speed ratios, got {len(loop_speed_ratios)}")
+
+    score = stream.Score()
+    theme_duration = theme.duration.quarterLength
+
+    for loop_num, speed_ratio in enumerate(loop_speed_ratios):
+        part = stream.Part()
+        part.id = f"Loop_{loop_num + 1} (speed: {speed_ratio:.3f}x)"
+
+        current_offset = 0.0
+        real_offset = 0.0
+
+        while real_offset < duration_beats:
+            # Copy theme elements
+            for element in theme.flatten().notesAndRests:
+                if real_offset + element.offset < duration_beats:
+                    new_element = element.__class__()
+
+                    # Copy pitch
+                    if isinstance(element, note.Note):
+                        new_element.pitch = element.pitch
+                    elif isinstance(element, chord.Chord):
+                        new_element.pitches = element.pitches
+
+                    # Adjust duration based on speed ratio
+                    new_element.quarterLength = element.quarterLength / speed_ratio
+                    part.insert(real_offset + element.offset / speed_ratio, new_element)
+
+            current_offset += theme_duration
+            real_offset = current_offset / speed_ratio
+
+        score.append(part)
+
+    return score
+
+
+def calculate_phase_offset(
+    voice1_offset: float,
+    voice2_offset: float,
+    pattern_length: float
+) -> float:
+    """
+    Calculate the phase offset between two voices.
+
+    Phase offset is expressed as a fraction of the pattern length (0.0 to 1.0).
+
+    Args:
+        voice1_offset: Current offset of voice 1 in beats
+        voice2_offset: Current offset of voice 2 in beats
+        pattern_length: Length of the repeating pattern in beats
+
+    Returns:
+        Phase offset as fraction (0.0 = in phase, 0.5 = half cycle out of phase)
+    """
+    if pattern_length <= 0:
+        raise ValueError("Pattern length must be positive")
+
+    # Calculate positions within current cycle
+    pos1 = voice1_offset % pattern_length
+    pos2 = voice2_offset % pattern_length
+
+    # Calculate phase difference
+    phase_diff = abs(pos1 - pos2)
+
+    # Normalize to 0.0 - 1.0 range
+    phase_offset = phase_diff / pattern_length
+
+    # Handle wrapping (e.g., 0.9 phase difference = 0.1 in the other direction)
+    if phase_offset > 0.5:
+        phase_offset = 1.0 - phase_offset
+
+    return phase_offset
+
+
+def analyze_phase_relationships(
+    score: stream.Score,
+    pattern_length: float,
+    num_samples: int = 100
+) -> Dict[str, Any]:
+    """
+    Analyze phase relationships in a phasing composition.
+
+    Args:
+        score: Score to analyze
+        pattern_length: Length of repeating pattern in beats
+        num_samples: Number of time points to sample
+
+    Returns:
+        Dictionary with phase analysis results
+    """
+    parts = list(score.parts)
+    if len(parts) < 2:
+        return {
+            'num_voices': len(parts),
+            'phase_evolution': [],
+            'synchronization_points': [],
+            'average_phase_offset': 0.0
+        }
+
+    total_duration = max(p.duration.quarterLength for p in parts)
+    time_points = np.linspace(0, total_duration, num_samples)
+
+    phase_evolution = []
+    synchronization_points = []
+    sync_threshold = 0.05  # Within 5% of pattern length
+
+    for t in time_points:
+        # Calculate phase offset between first two voices at time t
+        phase_offset = calculate_phase_offset(t, t, pattern_length)
+
+        # For multi-voice, calculate average offset
+        if len(parts) > 2:
+            offsets = []
+            for i in range(len(parts) - 1):
+                offset = calculate_phase_offset(t, t, pattern_length)
+                offsets.append(offset)
+            phase_offset = np.mean(offsets)
+
+        phase_evolution.append({
+            'time': t,
+            'phase_offset': phase_offset
+        })
+
+        # Detect synchronization points
+        if phase_offset < sync_threshold:
+            synchronization_points.append(t)
+
+    avg_phase_offset = np.mean([pe['phase_offset'] for pe in phase_evolution])
+
+    return {
+        'num_voices': len(parts),
+        'pattern_length': pattern_length,
+        'total_duration': total_duration,
+        'phase_evolution': phase_evolution,
+        'synchronization_points': synchronization_points,
+        'average_phase_offset': avg_phase_offset,
+        'num_sync_points': len(synchronization_points)
+    }
+
+
+def generate_minimal_pattern(
+    pitches: List[Union[str, m21.pitch.Pitch]],
+    note_duration: float = 0.5,
+    num_repetitions: int = 1
+) -> stream.Stream:
+    """
+    Generate a minimalist repeating pattern in the style of Steve Reich.
+
+    Args:
+        pitches: List of pitches for the pattern
+        note_duration: Duration of each note in quarter lengths
+        num_repetitions: Number of times to repeat the pattern
+
+    Returns:
+        Stream with the minimal pattern
+
+    Example:
+        >>> pattern = generate_minimal_pattern(['E4', 'F#4', 'B4', 'C#5'], 0.25, 8)
+    """
+    pattern = stream.Stream()
+
+    for _ in range(num_repetitions):
+        for pitch in pitches:
+            if isinstance(pitch, str):
+                pitch = m21.pitch.Pitch(pitch)
+
+            n = note.Note(pitch, quarterLength=note_duration)
+            pattern.append(n)
+
+    return pattern
+
+
+def create_phase_progression(
+    base_pattern: stream.Stream,
+    num_phases: int = 8,
+    phase_increment: float = 0.125
+) -> List[stream.Score]:
+    """
+    Create a progression of phase states showing gradual evolution.
+
+    Useful for analyzing or visualizing how a phase piece evolves over time.
+
+    Args:
+        base_pattern: The repeating pattern to phase
+        num_phases: Number of phase states to generate
+        phase_increment: Phase shift increment between states (in beats)
+
+    Returns:
+        List of scores, each representing a different phase state
+    """
+    progression = []
+
+    for phase_num in range(num_phases):
+        score = stream.Score()
+
+        # Voice 1 (constant)
+        part1 = stream.Part()
+        part1.id = "Voice_1"
+        for element in base_pattern.flatten().notesAndRests:
+            part1.append(element)
+
+        # Voice 2 (phased)
+        part2 = stream.Part()
+        part2.id = "Voice_2"
+        phase_shift = phase_num * phase_increment
+
+        for element in base_pattern.flatten().notesAndRests:
+            new_element = element.__class__()
+
+            if isinstance(element, note.Note):
+                new_element.pitch = element.pitch
+            elif isinstance(element, chord.Chord):
+                new_element.pitches = element.pitches
+
+            new_element.quarterLength = element.quarterLength
+            part2.insert(element.offset + phase_shift, new_element)
+
+        score.append(part1)
+        score.append(part2)
+        progression.append(score)
+
+    return progression
+
+
+def detect_phase_patterns(
+    score: stream.Score,
+    pattern_length: float,
+    window_size: int = 8
+) -> List[Dict[str, Any]]:
+    """
+    Detect interesting rhythmic patterns that emerge from phasing.
+
+    Args:
+        score: Phased score to analyze
+        pattern_length: Length of base pattern in beats
+        window_size: Number of beats to analyze at once
+
+    Returns:
+        List of detected patterns with their characteristics
+    """
+    parts = list(score.parts)
+    if len(parts) < 2:
+        return []
+
+    detected_patterns = []
+    total_duration = min(p.duration.quarterLength for p in parts)
+
+    # Sample at regular intervals
+    num_windows = int(total_duration / window_size)
+
+    for i in range(num_windows):
+        start_time = i * window_size
+        end_time = start_time + window_size
+
+        # Extract notes in this window from all parts
+        window_notes = []
+        for part in parts:
+            notes_in_window = []
+            for n in part.flatten().notesAndRests:
+                if start_time <= n.offset < end_time:
+                    notes_in_window.append({
+                        'offset': n.offset - start_time,
+                        'pitch': n.pitch.midi if isinstance(n, note.Note) else None,
+                        'duration': n.quarterLength
+                    })
+            window_notes.append(notes_in_window)
+
+        # Analyze rhythmic density
+        total_notes = sum(len(notes) for notes in window_notes)
+        rhythmic_density = total_notes / window_size if window_size > 0 else 0
+
+        # Calculate synchronicity (how many notes attack simultaneously)
+        all_onsets = []
+        for notes in window_notes:
+            all_onsets.extend([n['offset'] for n in notes])
+
+        sync_threshold = 0.05
+        synchronous_attacks = 0
+        checked_offsets = set()
+
+        for offset in all_onsets:
+            if offset in checked_offsets:
+                continue
+
+            nearby = [o for o in all_onsets if abs(o - offset) < sync_threshold]
+            if len(nearby) >= 2:
+                synchronous_attacks += 1
+                checked_offsets.update(nearby)
+
+        pattern_info = {
+            'start_time': start_time,
+            'end_time': end_time,
+            'rhythmic_density': rhythmic_density,
+            'synchronous_attacks': synchronous_attacks,
+            'total_notes': total_notes,
+            'complexity': rhythmic_density * (1 + synchronous_attacks)
+        }
+
+        detected_patterns.append(pattern_info)
+
+    return detected_patterns
+
+
+def apply_gradual_tempo_shift(
+    part: stream.Part,
+    start_tempo: float = 120.0,
+    end_tempo: float = 121.0,
+    interpolation: str = "linear"
+) -> stream.Part:
+    """
+    Apply a gradual tempo shift to simulate tape speed variation.
+
+    Args:
+        part: Part to modify
+        start_tempo: Starting tempo in BPM
+        end_tempo: Ending tempo in BPM
+        interpolation: "linear", "exponential", or "logarithmic"
+
+    Returns:
+        Modified part with tempo shift applied via duration changes
+    """
+    if part.duration.quarterLength == 0:
+        return part
+
+    result = stream.Part()
+    result.id = part.id
+
+    total_duration = part.duration.quarterLength
+    tempo_ratio = end_tempo / start_tempo
+
+    for element in part.flatten().notesAndRests:
+        # Calculate position in piece (0.0 to 1.0)
+        position = element.offset / total_duration if total_duration > 0 else 0
+
+        # Calculate tempo at this position
+        if interpolation == "linear":
+            current_ratio = 1.0 + (tempo_ratio - 1.0) * position
+        elif interpolation == "exponential":
+            current_ratio = 1.0 * (tempo_ratio ** position)
+        elif interpolation == "logarithmic":
+            import math
+            if tempo_ratio > 1:
+                current_ratio = 1.0 + (tempo_ratio - 1.0) * math.log(1 + position) / math.log(2)
+            else:
+                current_ratio = tempo_ratio + (1.0 - tempo_ratio) * (1 - math.log(1 + position) / math.log(2))
+        else:
+            raise ValueError(f"Unknown interpolation: {interpolation}")
+
+        # Adjust duration based on tempo
+        new_element = element.__class__()
+
+        if isinstance(element, note.Note):
+            new_element.pitch = element.pitch
+        elif isinstance(element, chord.Chord):
+            new_element.pitches = element.pitches
+
+        # Slower tempo = longer durations
+        new_element.quarterLength = element.quarterLength / current_ratio
+        result.insert(element.offset, new_element)
+
+    return result
+
+
 # Import additional pattern analysis functions from pattern module
 # (New enhanced implementations in pattern.py)
 from cancrizans.pattern import (
