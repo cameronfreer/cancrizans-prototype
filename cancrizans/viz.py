@@ -11,6 +11,13 @@ from music21 import stream, note, chord
 
 from cancrizans.canon import pairwise_symmetry_map
 
+try:
+    from cancrizans.microtonal import MicrotonalScale
+    from cancrizans.microtonal_utils import calculate_scale_tension
+    MICROTONAL_AVAILABLE = True
+except ImportError:
+    MICROTONAL_AVAILABLE = False
+
 
 def piano_roll(
     score: stream.Score,
@@ -662,3 +669,301 @@ def export_analysis_figure(
         output_paths.append(output_path)
 
     return output_paths
+
+
+def visualize_microtonal_scale(
+    scale: 'MicrotonalScale',
+    path: Union[str, Path],
+    show_cents: bool = True,
+    show_ratios: bool = False,
+    show_tension: bool = True,
+    dpi: int = 100
+) -> Path:
+    """
+    Visualize a microtonal scale showing intervals and characteristics.
+
+    Creates a circular diagram showing scale degrees and their intervals,
+    along with tension analysis and interval measurements.
+
+    Args:
+        scale: MicrotonalScale to visualize
+        path: Destination file path for the image
+        show_cents: Display cent values for each degree (default: True)
+        show_ratios: Display frequency ratios if available (default: False)
+        show_tension: Display harmonic tension analysis (default: True)
+        dpi: Resolution in dots per inch (default 100)
+
+    Returns:
+        Path to the saved image
+
+    Example:
+        >>> from cancrizans.microtonal import create_tuning_system_scale, TuningSystem
+        >>> scale = create_tuning_system_scale(TuningSystem.WERCKMEISTER_III, 60)
+        >>> visualize_microtonal_scale(scale, 'werckmeister.png')
+    """
+    if not MICROTONAL_AVAILABLE:
+        raise ImportError(
+            "Microtonal visualization requires the microtonal module. "
+            "Please install required dependencies."
+        )
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, (ax_circle, ax_info) = plt.subplots(1, 2, figsize=(14, 7))
+
+    # Left subplot: Circular scale visualization
+    ax_circle.set_aspect('equal')
+    ax_circle.set_xlim(-1.5, 1.5)
+    ax_circle.set_ylim(-1.5, 1.5)
+    ax_circle.axis('off')
+    ax_circle.set_title(f'{scale.name}\nScale Diagram', fontsize=14, fontweight='bold')
+
+    # Draw outer circle
+    circle = plt.Circle((0, 0), 1.0, fill=False, color='black', linewidth=2)
+    ax_circle.add_patch(circle)
+
+    # Draw scale degrees
+    intervals = scale.intervals_cents
+    if not intervals:
+        intervals = [0]  # Fallback
+
+    # Normalize to octave (1200 cents)
+    octave_cents = 1200.0
+
+    for i, interval_cents in enumerate(intervals):
+        # Calculate angle (0 degrees = top, clockwise)
+        angle_deg = (interval_cents / octave_cents) * 360
+        angle_rad = np.radians(90 - angle_deg)  # Convert to standard position
+
+        # Position on circle
+        x = np.cos(angle_rad)
+        y = np.sin(angle_rad)
+
+        # Draw degree marker
+        marker_color = plt.cm.hsv(interval_cents / octave_cents)
+        ax_circle.plot([0, x * 0.95], [0, y * 0.95],
+                      color=marker_color, linewidth=1.5, alpha=0.6)
+
+        # Draw degree point
+        ax_circle.scatter([x], [y], s=200, c=[marker_color],
+                         edgecolors='black', linewidths=2, zorder=5)
+
+        # Label with degree number and cents
+        label_x = x * 1.25
+        label_y = y * 1.25
+
+        if show_cents:
+            label_text = f"{i}\n{interval_cents:.1f}¢"
+        else:
+            label_text = f"{i}"
+
+        ax_circle.text(label_x, label_y, label_text,
+                      ha='center', va='center', fontsize=9,
+                      bbox=dict(boxstyle='round', facecolor='white',
+                              alpha=0.8, edgecolor='gray'))
+
+    # Draw center point
+    ax_circle.scatter([0], [0], s=100, c='black', marker='o', zorder=10)
+    ax_circle.text(0, 0, '0', ha='center', va='center',
+                  color='white', fontsize=10, fontweight='bold')
+
+    # Right subplot: Scale information
+    ax_info.axis('off')
+
+    info_text = []
+    info_text.append(f"Scale: {scale.name}")
+    info_text.append(f"Number of degrees: {len(intervals)}")
+    info_text.append(f"Tonic MIDI: {scale.tonic_midi}")
+    info_text.append("")
+
+    # Interval information
+    info_text.append("Intervals (cents):")
+    for i, cents in enumerate(intervals[:12]):  # Show first 12
+        info_text.append(f"  Degree {i}: {cents:.2f}¢")
+    if len(intervals) > 12:
+        info_text.append(f"  ... and {len(intervals) - 12} more")
+
+    info_text.append("")
+
+    # Step sizes
+    if len(intervals) > 1:
+        steps = [intervals[i+1] - intervals[i] for i in range(len(intervals)-1)]
+        info_text.append("Step sizes:")
+        info_text.append(f"  Min: {min(steps):.2f}¢")
+        info_text.append(f"  Max: {max(steps):.2f}¢")
+        info_text.append(f"  Avg: {np.mean(steps):.2f}¢")
+        info_text.append("")
+
+    # Tension analysis
+    if show_tension:
+        tension = calculate_scale_tension(scale)
+        info_text.append(f"Harmonic Tension: {tension:.3f}")
+
+        if tension < 0.3:
+            tension_desc = "Low (consonant)"
+        elif tension < 0.6:
+            tension_desc = "Moderate"
+        elif tension < 0.9:
+            tension_desc = "High (dissonant)"
+        else:
+            tension_desc = "Very High"
+
+        info_text.append(f"  ({tension_desc})")
+        info_text.append("")
+
+    # Draw tension visualization if enabled
+    if show_tension:
+        tension = calculate_scale_tension(scale)
+
+        # Create a small tension bar
+        bar_y = 0.15
+        bar_width = 0.8
+        bar_height = 0.05
+
+        # Background bar
+        rect_bg = patches.Rectangle((0.1, bar_y), bar_width, bar_height,
+                                    linewidth=1, edgecolor='black',
+                                    facecolor='lightgray')
+        ax_info.add_patch(rect_bg)
+
+        # Tension level bar
+        tension_normalized = min(1.0, tension)
+        tension_color = plt.cm.RdYlGn_r(tension_normalized)
+        rect_tension = patches.Rectangle((0.1, bar_y),
+                                        bar_width * tension_normalized,
+                                        bar_height,
+                                        linewidth=0, facecolor=tension_color,
+                                        alpha=0.7)
+        ax_info.add_patch(rect_tension)
+
+        ax_info.text(0.5, bar_y - 0.05, 'Tension Level',
+                    ha='center', va='top', fontsize=10, fontweight='bold')
+
+    # Display info text
+    text_y = 0.95
+    for line in info_text:
+        if line.startswith("Scale:") or line.startswith("Harmonic Tension:"):
+            weight = 'bold'
+            size = 11
+        else:
+            weight = 'normal'
+            size = 9
+
+        ax_info.text(0.05, text_y, line, transform=ax_info.transAxes,
+                    fontsize=size, fontweight=weight, verticalalignment='top',
+                    family='monospace')
+
+        if line == "":
+            text_y -= 0.03
+        else:
+            text_y -= 0.04
+
+    ax_info.set_xlim(0, 1)
+    ax_info.set_ylim(0, 1)
+
+    plt.tight_layout()
+    fig.savefig(path, dpi=dpi, bbox_inches='tight')
+    plt.close(fig)
+
+    return path
+
+
+def compare_microtonal_scales(
+    scales: List['MicrotonalScale'],
+    path: Union[str, Path],
+    dpi: int = 100
+) -> Path:
+    """
+    Create a comparison visualization of multiple microtonal scales.
+
+    Shows multiple scales side-by-side with their interval structures
+    and tension characteristics.
+
+    Args:
+        scales: List of MicrotonalScale objects to compare
+        path: Destination file path for the image
+        dpi: Resolution in dots per inch (default 100)
+
+    Returns:
+        Path to the saved image
+
+    Example:
+        >>> from cancrizans.microtonal import create_tuning_system_scale, TuningSystem
+        >>> scales = [
+        ...     create_tuning_system_scale(TuningSystem.EQUAL_12, 60),
+        ...     create_tuning_system_scale(TuningSystem.EQUAL_19, 60),
+        ...     create_tuning_system_scale(TuningSystem.WERCKMEISTER_III, 60)
+        ... ]
+        >>> compare_microtonal_scales(scales, 'comparison.png')
+    """
+    if not MICROTONAL_AVAILABLE:
+        raise ImportError(
+            "Microtonal visualization requires the microtonal module. "
+            "Please install required dependencies."
+        )
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    n_scales = len(scales)
+    fig, axes = plt.subplots(1, n_scales, figsize=(5 * n_scales, 5))
+
+    if n_scales == 1:
+        axes = [axes]
+
+    for ax, scale in zip(axes, scales):
+        ax.set_aspect('equal')
+        ax.set_xlim(-1.3, 1.3)
+        ax.set_ylim(-1.3, 1.3)
+        ax.axis('off')
+
+        # Title with scale name
+        ax.set_title(f'{scale.name}\n({len(scale.intervals_cents)} degrees)',
+                    fontsize=10, fontweight='bold')
+
+        # Draw circle
+        circle = plt.Circle((0, 0), 1.0, fill=False, color='black', linewidth=2)
+        ax.add_patch(circle)
+
+        # Draw scale degrees
+        intervals = scale.intervals_cents if scale.intervals_cents else [0]
+        octave_cents = 1200.0
+
+        for i, interval_cents in enumerate(intervals):
+            angle_deg = (interval_cents / octave_cents) * 360
+            angle_rad = np.radians(90 - angle_deg)
+
+            x = np.cos(angle_rad)
+            y = np.sin(angle_rad)
+
+            marker_color = plt.cm.hsv(interval_cents / octave_cents)
+            ax.plot([0, x * 0.95], [0, y * 0.95],
+                   color=marker_color, linewidth=1.5, alpha=0.6)
+            ax.scatter([x], [y], s=150, c=[marker_color],
+                      edgecolors='black', linewidths=1.5, zorder=5)
+
+            # Only label every few degrees if many degrees
+            if len(intervals) <= 19 or i % 2 == 0:
+                label_x = x * 1.15
+                label_y = y * 1.15
+                ax.text(label_x, label_y, str(i),
+                       ha='center', va='center', fontsize=7)
+
+        # Center point
+        ax.scatter([0], [0], s=80, c='black', marker='o', zorder=10)
+
+        # Tension info at bottom
+        tension = calculate_scale_tension(scale)
+        ax.text(0, -1.25, f'Tension: {tension:.2f}',
+               ha='center', va='top', fontsize=9,
+               bbox=dict(boxstyle='round', facecolor='white',
+                        alpha=0.8, edgecolor='gray'))
+
+    plt.suptitle('Microtonal Scale Comparison',
+                fontsize=14, fontweight='bold', y=0.98)
+    plt.tight_layout()
+    fig.savefig(path, dpi=dpi, bbox_inches='tight')
+    plt.close(fig)
+
+    return path

@@ -6,7 +6,7 @@ palindromic musical structures, with a focus on Bach's Canon Cancrizans
 from The Musical Offering (BWV 1079).
 """
 
-__version__ = "0.36.0"
+__version__ = "0.37.0"
 
 from cancrizans.canon import (
     # Basic transformations
@@ -116,6 +116,9 @@ from cancrizans.viz import (
     visualize_3d_canon,
     visualize_voice_graph,
     export_analysis_figure,
+    # Phase 18.5: Microtonal Visualization
+    visualize_microtonal_scale,
+    compare_microtonal_scales,
 )
 from cancrizans.audio import (
     # Phase 15: Audio Synthesis & MIDI Enhancement
@@ -249,6 +252,9 @@ __all__ = [
     "visualize_3d_canon",
     "visualize_voice_graph",
     "export_analysis_figure",
+    # Phase 18.5: Microtonal Visualization
+    "visualize_microtonal_scale",
+    "compare_microtonal_scales",
     # Phase 15: Audio Synthesis & MIDI Enhancement
     "render_audio",
     "apply_performance_expression",

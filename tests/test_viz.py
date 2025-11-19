@@ -561,3 +561,261 @@ class TestPhase14AdvancedVisualization:
                     simple_canon, 'invalid_type', output_base,
                     formats=['png']
                 )
+
+
+class TestMicrotonalVisualization:
+    """Test microtonal scale visualization functions."""
+
+    def test_visualize_microtonal_scale_basic(self):
+        """Test basic microtonal scale visualization."""
+        from cancrizans.microtonal import create_tuning_system_scale, TuningSystem
+        from cancrizans.viz import visualize_microtonal_scale
+
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'scale.png'
+            result = visualize_microtonal_scale(scale, output)
+
+            assert result.exists()
+            assert result == output
+
+            # Check it's a valid image
+            img = Image.open(result)
+            assert img.format == 'PNG'
+            assert img.size[0] > 0
+            assert img.size[1] > 0
+
+    def test_visualize_microtonal_scale_werckmeister(self):
+        """Test visualizing Werckmeister III tuning."""
+        from cancrizans.microtonal import create_tuning_system_scale, TuningSystem
+        from cancrizans.viz import visualize_microtonal_scale
+
+        scale = create_tuning_system_scale(TuningSystem.WERCKMEISTER_III, tonic_midi=60)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'werckmeister.png'
+            result = visualize_microtonal_scale(scale, output)
+
+            assert result.exists()
+
+    def test_visualize_microtonal_scale_19tet(self):
+        """Test visualizing 19-TET scale."""
+        from cancrizans.microtonal import create_tuning_system_scale, TuningSystem
+        from cancrizans.viz import visualize_microtonal_scale
+
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_19, tonic_midi=60)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'tet19.png'
+            result = visualize_microtonal_scale(scale, output)
+
+            assert result.exists()
+
+    def test_visualize_microtonal_scale_world_music(self):
+        """Test visualizing world music scales."""
+        from cancrizans.microtonal import create_world_music_scale, ScaleType
+        from cancrizans.viz import visualize_microtonal_scale
+
+        scale = create_world_music_scale(ScaleType.MAQAM_RAST, tonic_midi=60)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'maqam.png'
+            result = visualize_microtonal_scale(scale, output)
+
+            assert result.exists()
+
+    def test_visualize_microtonal_scale_no_cents(self):
+        """Test visualization without cent labels."""
+        from cancrizans.microtonal import create_tuning_system_scale, TuningSystem
+        from cancrizans.viz import visualize_microtonal_scale
+
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'scale.png'
+            result = visualize_microtonal_scale(scale, output, show_cents=False)
+
+            assert result.exists()
+
+    def test_visualize_microtonal_scale_no_tension(self):
+        """Test visualization without tension display."""
+        from cancrizans.microtonal import create_tuning_system_scale, TuningSystem
+        from cancrizans.viz import visualize_microtonal_scale
+
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'scale.png'
+            result = visualize_microtonal_scale(scale, output, show_tension=False)
+
+            assert result.exists()
+
+    def test_visualize_microtonal_scale_high_dpi(self):
+        """Test visualization with high DPI."""
+        from cancrizans.microtonal import create_tuning_system_scale, TuningSystem
+        from cancrizans.viz import visualize_microtonal_scale
+
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'scale_hires.png'
+            result = visualize_microtonal_scale(scale, output, dpi=300)
+
+            assert result.exists()
+
+    def test_visualize_microtonal_scale_creates_dir(self):
+        """Test that visualization creates output directory."""
+        from cancrizans.microtonal import create_tuning_system_scale, TuningSystem
+        from cancrizans.viz import visualize_microtonal_scale
+
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'subdir' / 'nested' / 'scale.png'
+            result = visualize_microtonal_scale(scale, output)
+
+            assert result.exists()
+            assert result.parent.exists()
+
+    def test_compare_microtonal_scales_basic(self):
+        """Test basic scale comparison visualization."""
+        from cancrizans.microtonal import create_tuning_system_scale, TuningSystem
+        from cancrizans.viz import compare_microtonal_scales
+
+        scales = [
+            create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60),
+            create_tuning_system_scale(TuningSystem.EQUAL_19, tonic_midi=60)
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'comparison.png'
+            result = compare_microtonal_scales(scales, output)
+
+            assert result.exists()
+            assert result == output
+
+            # Check it's a valid image
+            img = Image.open(result)
+            assert img.format == 'PNG'
+            assert img.size[0] > 0
+            assert img.size[1] > 0
+
+    def test_compare_microtonal_scales_three_scales(self):
+        """Test comparing three scales."""
+        from cancrizans.microtonal import create_tuning_system_scale, TuningSystem
+        from cancrizans.viz import compare_microtonal_scales
+
+        scales = [
+            create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60),
+            create_tuning_system_scale(TuningSystem.EQUAL_19, tonic_midi=60),
+            create_tuning_system_scale(TuningSystem.WERCKMEISTER_III, tonic_midi=60)
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'comparison3.png'
+            result = compare_microtonal_scales(scales, output)
+
+            assert result.exists()
+
+    def test_compare_microtonal_scales_single_scale(self):
+        """Test comparison with single scale."""
+        from cancrizans.microtonal import create_tuning_system_scale, TuningSystem
+        from cancrizans.viz import compare_microtonal_scales
+
+        scales = [create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'single.png'
+            result = compare_microtonal_scales(scales, output)
+
+            assert result.exists()
+
+    def test_compare_microtonal_scales_world_music(self):
+        """Test comparing world music scales."""
+        from cancrizans.microtonal import create_world_music_scale, ScaleType
+        from cancrizans.viz import compare_microtonal_scales
+
+        scales = [
+            create_world_music_scale(ScaleType.MAQAM_RAST, tonic_midi=60),
+            create_world_music_scale(ScaleType.RAGA_BHAIRAV, tonic_midi=60),
+            create_world_music_scale(ScaleType.PELOG, tonic_midi=60)
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'world_comparison.png'
+            result = compare_microtonal_scales(scales, output)
+
+            assert result.exists()
+
+    def test_compare_microtonal_scales_mixed_types(self):
+        """Test comparing different scale types."""
+        from cancrizans.microtonal import (
+            create_tuning_system_scale,
+            create_world_music_scale,
+            TuningSystem,
+            ScaleType
+        )
+        from cancrizans.viz import compare_microtonal_scales
+
+        scales = [
+            create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60),
+            create_world_music_scale(ScaleType.MAQAM_RAST, tonic_midi=60),
+            create_tuning_system_scale(TuningSystem.BOHLEN_PIERCE, tonic_midi=60)
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'mixed.png'
+            result = compare_microtonal_scales(scales, output)
+
+            assert result.exists()
+
+    def test_compare_microtonal_scales_high_dpi(self):
+        """Test comparison with high DPI."""
+        from cancrizans.microtonal import create_tuning_system_scale, TuningSystem
+        from cancrizans.viz import compare_microtonal_scales
+
+        scales = [
+            create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60),
+            create_tuning_system_scale(TuningSystem.EQUAL_19, tonic_midi=60)
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'comparison_hires.png'
+            result = compare_microtonal_scales(scales, output, dpi=300)
+
+            assert result.exists()
+
+    def test_compare_microtonal_scales_creates_dir(self):
+        """Test that comparison creates output directory."""
+        from cancrizans.microtonal import create_tuning_system_scale, TuningSystem
+        from cancrizans.viz import compare_microtonal_scales
+
+        scales = [
+            create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60),
+            create_tuning_system_scale(TuningSystem.EQUAL_19, tonic_midi=60)
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'nested' / 'comparison.png'
+            result = compare_microtonal_scales(scales, output)
+
+            assert result.exists()
+            assert result.parent.exists()
+
+    def test_compare_microtonal_scales_many_degrees(self):
+        """Test comparing scales with many degrees."""
+        from cancrizans.microtonal import create_tuning_system_scale, TuningSystem
+        from cancrizans.viz import compare_microtonal_scales
+
+        scales = [
+            create_tuning_system_scale(TuningSystem.EQUAL_24, tonic_midi=60),
+            create_tuning_system_scale(TuningSystem.EQUAL_31, tonic_midi=60),
+            create_tuning_system_scale(TuningSystem.EQUAL_53, tonic_midi=60)
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / 'many_degrees.png'
+            result = compare_microtonal_scales(scales, output)
+
+            assert result.exists()
