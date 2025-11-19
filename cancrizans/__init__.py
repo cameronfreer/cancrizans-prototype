@@ -6,7 +6,7 @@ palindromic musical structures, with a focus on Bach's Canon Cancrizans
 from The Musical Offering (BWV 1079).
 """
 
-__version__ = "0.39.0"
+__version__ = "0.40.0"
 
 from cancrizans.canon import (
     # Basic transformations
@@ -149,6 +149,18 @@ from cancrizans.microtonal_utils import (
     # Phase 18.6: Scala File Format Support
     export_scala_file,
     import_scala_file,
+    # Phase 18.7: Microtonal Chord Theory
+    MicrotonalChord,
+    build_microtonal_chord,
+    analyze_chord_consonance,
+    generate_microtonal_chord_progression,
+    # Phase 18.8: Advanced Microtonal Transformations
+    morph_scales,
+    stretch_scale,
+    extract_scale_subset,
+    create_equal_division_scale,
+    rotate_scale_intervals,
+    merge_scales,
 )
 
 __all__ = [
@@ -282,4 +294,16 @@ __all__ = [
     # Phase 18.6: Scala File Format Support
     "export_scala_file",
     "import_scala_file",
+    # Phase 18.7: Microtonal Chord Theory
+    "MicrotonalChord",
+    "build_microtonal_chord",
+    "analyze_chord_consonance",
+    "generate_microtonal_chord_progression",
+    # Phase 18.8: Advanced Microtonal Transformations
+    "morph_scales",
+    "stretch_scale",
+    "extract_scale_subset",
+    "create_equal_division_scale",
+    "rotate_scale_intervals",
+    "merge_scales",
 ]

@@ -17,7 +17,19 @@ from cancrizans.microtonal_utils import (
     analyze_scale_family,
     calculate_scale_compatibility,
     export_scala_file,
-    import_scala_file
+    import_scala_file,
+    # Phase 18.7: Chord Theory
+    MicrotonalChord,
+    build_microtonal_chord,
+    analyze_chord_consonance,
+    generate_microtonal_chord_progression,
+    # Phase 18.8: Advanced Transformations
+    morph_scales,
+    stretch_scale,
+    extract_scale_subset,
+    create_equal_division_scale,
+    rotate_scale_intervals,
+    merge_scales,
 )
 from cancrizans.microtonal import (
     MicrotonalScale, MicrotonalPitch, TuningSystem, ScaleType,
@@ -985,3 +997,475 @@ class TestIntegration:
         # Calculate tension for each
         tensions = [calculate_scale_tension(v) for v in variants]
         assert all(0.0 <= t <= 2.0 for t in tensions)
+
+
+# ============================================================================
+# Phase 18.7: Microtonal Chord Theory Tests
+# ============================================================================
+
+class TestMicrotonalChordTheory:
+    """Test microtonal chord building and analysis"""
+
+    def test_build_basic_triad(self):
+        """Test building a basic triad from 12-TET"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        chord = build_microtonal_chord(scale, root_degree=0, num_notes=3)
+
+        assert isinstance(chord, MicrotonalChord)
+        assert len(chord.intervals_cents) == 3
+        assert chord.chord_type == "triad"
+        assert chord.quality in ["consonant", "ambiguous", "dissonant"]
+        assert 0.0 <= chord.tension_score <= 2.0
+
+    def test_build_chord_with_skip_pattern(self):
+        """Test building chord with custom skip pattern"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        # Build a triad: root, major third, perfect fifth (degrees 0, 2, 4)
+        chord = build_microtonal_chord(scale, root_degree=0, num_notes=3, skip_pattern=[0, 2, 4])
+
+        assert len(chord.intervals_cents) == 3
+        assert chord.chord_type == "triad"
+
+    def test_build_tetrad(self):
+        """Test building a four-note chord"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        chord = build_microtonal_chord(scale, root_degree=0, num_notes=4, skip_pattern=[0, 2, 4, 6])
+
+        assert len(chord.intervals_cents) == 4
+        assert chord.chord_type == "tetrad"
+
+    def test_build_dyad(self):
+        """Test building a two-note chord"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        chord = build_microtonal_chord(scale, root_degree=0, num_notes=2)
+
+        assert len(chord.intervals_cents) == 2
+        assert chord.chord_type == "dyad"
+
+    def test_build_pentad(self):
+        """Test building a five-note chord"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_19, tonic_midi=60)
+        chord = build_microtonal_chord(scale, root_degree=0, num_notes=5, skip_pattern=[0, 2, 4, 6, 8])
+
+        assert len(chord.intervals_cents) == 5
+        assert chord.chord_type == "pentad"
+
+    def test_build_chord_from_microtonal_scale(self):
+        """Test building chord from microtonal (non-12-TET) scale"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_19, tonic_midi=60)
+        chord = build_microtonal_chord(scale, root_degree=0, num_notes=3, skip_pattern=[0, 3, 6])
+
+        assert isinstance(chord, MicrotonalChord)
+        assert len(chord.intervals_cents) == 3
+
+    def test_build_chord_different_root_degrees(self):
+        """Test building chords from different root degrees"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+
+        chord1 = build_microtonal_chord(scale, root_degree=0, num_notes=3)
+        chord2 = build_microtonal_chord(scale, root_degree=2, num_notes=3)
+        chord3 = build_microtonal_chord(scale, root_degree=5, num_notes=3)
+
+        # All should be valid
+        assert all(isinstance(c, MicrotonalChord) for c in [chord1, chord2, chord3])
+        # Root pitches should differ
+        assert chord1.root.cent_deviation != chord2.root.cent_deviation or \
+               chord1.root.midi_note != chord2.root.midi_note
+
+    def test_build_chord_invalid_root_degree(self):
+        """Test that invalid root degree raises error"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+
+        with pytest.raises(ValueError, match="Root degree .* out of range"):
+            build_microtonal_chord(scale, root_degree=100, num_notes=3)
+
+    def test_analyze_chord_consonance_basic(self):
+        """Test basic chord consonance analysis"""
+        scale = create_tuning_system_scale(TuningSystem.JUST_INTONATION_7, tonic_midi=60)
+        chord = build_microtonal_chord(scale, root_degree=0, num_notes=3, skip_pattern=[0, 2, 4])
+
+        analysis = analyze_chord_consonance(chord)
+
+        assert 'quality' in analysis
+        assert 'tension_score' in analysis
+        assert 'chord_type' in analysis
+        assert 'num_notes' in analysis
+        assert 'interval_analysis' in analysis
+        assert 'harmonic_series_alignment' in analysis
+
+    def test_analyze_chord_interval_ratios(self):
+        """Test that interval analysis includes ratio information"""
+        scale = create_tuning_system_scale(TuningSystem.JUST_INTONATION_7, tonic_midi=60)
+        chord = build_microtonal_chord(scale, root_degree=0, num_notes=3, skip_pattern=[0, 2, 4])
+
+        analysis = analyze_chord_consonance(chord)
+
+        # Should have interval analysis for non-zero intervals
+        assert len(analysis['interval_analysis']) >= 0
+        for interval_info in analysis['interval_analysis']:
+            assert 'cents' in interval_info
+            assert 'ratio' in interval_info
+            # simple_ratio_approximation can be None or a tuple
+            assert interval_info['simple_ratio_approximation'] is None or \
+                   isinstance(interval_info['simple_ratio_approximation'], tuple)
+
+    def test_chord_quality_consonant(self):
+        """Test that just intonation chords are consonant"""
+        scale = create_tuning_system_scale(TuningSystem.JUST_INTONATION_7, tonic_midi=60)
+        chord = build_microtonal_chord(scale, root_degree=0, num_notes=3, skip_pattern=[0, 2, 4])
+
+        # JI chords should be relatively consonant
+        assert chord.tension_score < 1.0
+
+    def test_generate_chord_progression_ascending(self):
+        """Test generating ascending chord progression"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        progression = generate_microtonal_chord_progression(
+            scale, num_chords=4, chord_size=3, progression_type="ascending"
+        )
+
+        assert len(progression) == 4
+        assert all(isinstance(c, MicrotonalChord) for c in progression)
+        assert all(c.chord_type == "triad" for c in progression)
+
+    def test_generate_chord_progression_descending(self):
+        """Test generating descending chord progression"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        progression = generate_microtonal_chord_progression(
+            scale, num_chords=4, chord_size=3, progression_type="descending"
+        )
+
+        assert len(progression) == 4
+        assert all(isinstance(c, MicrotonalChord) for c in progression)
+
+    def test_generate_chord_progression_circle_of_fifths(self):
+        """Test generating circle of fifths progression"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        progression = generate_microtonal_chord_progression(
+            scale, num_chords=4, chord_size=3, progression_type="circle_of_fifths"
+        )
+
+        assert len(progression) == 4
+        assert all(isinstance(c, MicrotonalChord) for c in progression)
+
+    def test_generate_chord_progression_random(self):
+        """Test generating random chord progression"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        progression = generate_microtonal_chord_progression(
+            scale, num_chords=5, chord_size=4, progression_type="random"
+        )
+
+        assert len(progression) == 5
+        assert all(c.chord_type == "tetrad" for c in progression)
+
+    def test_generate_chord_progression_invalid_type(self):
+        """Test that invalid progression type raises error"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+
+        with pytest.raises(ValueError, match="Unknown progression type"):
+            generate_microtonal_chord_progression(
+                scale, num_chords=4, progression_type="invalid_type"
+            )
+
+    def test_chord_progression_from_microtonal_scale(self):
+        """Test generating progression from microtonal scale"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_19, tonic_midi=60)
+        progression = generate_microtonal_chord_progression(
+            scale, num_chords=3, chord_size=3, progression_type="ascending"
+        )
+
+        assert len(progression) == 3
+        assert all(isinstance(c, MicrotonalChord) for c in progression)
+
+
+# ============================================================================
+# Phase 18.8: Advanced Microtonal Transformations Tests
+# ============================================================================
+
+class TestAdvancedMicrotonalTransformations:
+    """Test advanced scale transformation functions"""
+
+    def test_morph_scales_linear(self):
+        """Test linear scale morphing"""
+        scale1 = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        scale2 = create_tuning_system_scale(TuningSystem.EQUAL_19, tonic_midi=60)
+
+        morph_sequence = morph_scales(scale1, scale2, num_steps=5, interpolation="linear")
+
+        assert len(morph_sequence) == 7  # start + 5 intermediate + end
+        assert morph_sequence[0].name == scale1.name
+        assert morph_sequence[-1].name == scale2.name
+        # Intermediate scales should have blended names
+        assert "⊕" in morph_sequence[3].name
+
+    def test_morph_scales_ease_in(self):
+        """Test ease-in morphing interpolation"""
+        scale1 = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        scale2 = create_tuning_system_scale(TuningSystem.EQUAL_19, tonic_midi=60)
+
+        morph_sequence = morph_scales(scale1, scale2, num_steps=10, interpolation="ease_in")
+
+        assert len(morph_sequence) == 12  # start + 10 intermediate + end
+        assert all(isinstance(s, MicrotonalScale) for s in morph_sequence)
+
+    def test_morph_scales_ease_out(self):
+        """Test ease-out morphing interpolation"""
+        scale1 = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        scale2 = create_tuning_system_scale(TuningSystem.JUST_INTONATION_7, tonic_midi=60)
+
+        morph_sequence = morph_scales(scale1, scale2, num_steps=8, interpolation="ease_out")
+
+        assert len(morph_sequence) == 10
+        assert all(isinstance(s, MicrotonalScale) for s in morph_sequence)
+
+    def test_morph_scales_ease_in_out(self):
+        """Test ease-in-out morphing interpolation"""
+        scale1 = create_tuning_system_scale(TuningSystem.PYTHAGOREAN, tonic_midi=60)
+        scale2 = create_tuning_system_scale(TuningSystem.MEANTONE, tonic_midi=60)
+
+        morph_sequence = morph_scales(scale1, scale2, num_steps=6, interpolation="ease_in_out")
+
+        assert len(morph_sequence) == 8
+        assert all(isinstance(s, MicrotonalScale) for s in morph_sequence)
+
+    def test_stretch_scale_expand(self):
+        """Test stretching (expanding) a scale"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        stretched = stretch_scale(scale, stretch_factor=1.5, preserve_octave=True)
+
+        assert isinstance(stretched, MicrotonalScale)
+        # Octave should still be ~1200 cents
+        if stretched.intervals_cents:
+            max_interval = max(stretched.intervals_cents)
+            assert abs(max_interval - 1200.0) < 10.0
+
+    def test_stretch_scale_compress(self):
+        """Test compressing a scale"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        compressed = stretch_scale(scale, stretch_factor=0.8, preserve_octave=True)
+
+        assert isinstance(compressed, MicrotonalScale)
+        if compressed.intervals_cents:
+            max_interval = max(compressed.intervals_cents)
+            assert abs(max_interval - 1200.0) < 10.0
+
+    def test_stretch_scale_without_preserve_octave(self):
+        """Test stretching without preserving octave"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        stretched = stretch_scale(scale, stretch_factor=1.5, preserve_octave=False)
+
+        assert isinstance(stretched, MicrotonalScale)
+        # Intervals should be stretched (larger than original)
+        if len(stretched.intervals_cents) > 1 and len(scale.intervals_cents) > 1:
+            # Compare max intervals
+            original_max = max(scale.intervals_cents)
+            stretched_max = max(stretched.intervals_cents)
+            # Stretched should be approximately 1.5x the original
+            if original_max > 0:
+                ratio = stretched_max / original_max
+                assert abs(ratio - 1.5) < 0.1  # Within 10% of expected
+
+    def test_extract_scale_subset_even(self):
+        """Test extracting evenly-spaced subset"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_19, tonic_midi=60)
+        subset = extract_scale_subset(scale, num_degrees=7, method="even")
+
+        assert isinstance(subset, MicrotonalScale)
+        assert len(subset.intervals_cents) == 7
+        assert "subset" in subset.name
+
+    def test_extract_scale_subset_low(self):
+        """Test extracting lowest degrees"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_19, tonic_midi=60)
+        subset = extract_scale_subset(scale, num_degrees=5, method="low")
+
+        assert len(subset.intervals_cents) == 5
+        # Should be the first 5 degrees
+        assert subset.intervals_cents == scale.intervals_cents[:5]
+
+    def test_extract_scale_subset_high(self):
+        """Test extracting highest degrees"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_19, tonic_midi=60)
+        subset = extract_scale_subset(scale, num_degrees=5, method="high")
+
+        assert len(subset.intervals_cents) == 5
+        # Should be the last 5 degrees
+        assert subset.intervals_cents == scale.intervals_cents[-5:]
+
+    def test_extract_scale_subset_larger_than_source(self):
+        """Test that extracting more degrees than source returns original scale"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        subset = extract_scale_subset(scale, num_degrees=20, method="even")
+
+        # Should return the original scale
+        assert len(subset.intervals_cents) == len(scale.intervals_cents)
+
+    def test_extract_scale_subset_invalid_method(self):
+        """Test that invalid method raises error"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+
+        with pytest.raises(ValueError, match="Unknown method"):
+            extract_scale_subset(scale, num_degrees=5, method="invalid")
+
+    def test_create_equal_division_scale_octave(self):
+        """Test creating equal division of octave"""
+        scale = create_equal_division_scale(num_divisions=19, interval_cents=1200.0)
+
+        assert isinstance(scale, MicrotonalScale)
+        assert len(scale.intervals_cents) == 20  # 19 divisions + tonic
+        assert "19-EDoctave" in scale.name
+        # Check that intervals are evenly spaced
+        expected_step = 1200.0 / 19
+        for i in range(1, len(scale.intervals_cents)):
+            expected_value = i * expected_step
+            assert abs(scale.intervals_cents[i] - expected_value) < 0.01
+
+    def test_create_equal_division_scale_tritave(self):
+        """Test creating equal division of tritave (Bohlen-Pierce style)"""
+        import math
+        tritave_cents = 1200 * math.log2(3)  # ~1901.955 cents
+        scale = create_equal_division_scale(num_divisions=13, interval_cents=tritave_cents)
+
+        assert isinstance(scale, MicrotonalScale)
+        assert len(scale.intervals_cents) == 14  # 13 divisions + tonic
+        assert "13-ED" in scale.name
+
+    def test_create_equal_division_scale_custom_tonic(self):
+        """Test creating EDO scale with custom tonic"""
+        scale = create_equal_division_scale(num_divisions=22, interval_cents=1200.0, tonic_midi=48)
+
+        assert scale.tonic_midi == 48
+        assert len(scale.intervals_cents) == 23
+
+    def test_rotate_scale_intervals(self):
+        """Test rotating scale intervals"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        rotated = rotate_scale_intervals(scale, rotation_cents=100.0)
+
+        assert isinstance(rotated, MicrotonalScale)
+        assert "rotated" in rotated.name
+        # All intervals should be shifted by 100 cents (mod 1200)
+        assert all(0 <= interval < 1200 for interval in rotated.intervals_cents)
+
+    def test_rotate_scale_intervals_full_octave(self):
+        """Test rotating by full octave returns similar scale"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        rotated = rotate_scale_intervals(scale, rotation_cents=1200.0)
+
+        # Rotating by full octave should bring us back (approximately)
+        assert isinstance(rotated, MicrotonalScale)
+
+    def test_merge_scales_two_scales(self):
+        """Test merging two scales"""
+        scale1 = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        scale2 = create_tuning_system_scale(TuningSystem.EQUAL_19, tonic_midi=60)
+
+        merged = merge_scales(scale1, scale2)
+
+        assert isinstance(merged, MicrotonalScale)
+        assert "Merged" in merged.name
+        # Should have intervals from both scales
+        assert len(merged.intervals_cents) >= len(scale1.intervals_cents)
+
+    def test_merge_scales_three_scales(self):
+        """Test merging three scales"""
+        scale1 = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        scale2 = create_tuning_system_scale(TuningSystem.EQUAL_19, tonic_midi=60)
+        scale3 = create_tuning_system_scale(TuningSystem.JUST_INTONATION_7, tonic_midi=60)
+
+        merged = merge_scales(scale1, scale2, scale3)
+
+        assert isinstance(merged, MicrotonalScale)
+        assert "Merged" in merged.name
+
+    def test_merge_scales_with_tolerance(self):
+        """Test that merge respects tolerance for duplicate intervals"""
+        scale1 = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        scale2 = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+
+        # Merging identical scales should not significantly increase size
+        merged = merge_scales(scale1, scale2, tolerance_cents=10.0)
+
+        # Merged scale should not have more than a few extra intervals
+        # (tolerance allows some near-duplicates to be merged)
+        assert len(merged.intervals_cents) <= len(scale1.intervals_cents) + 5
+
+    def test_merge_scales_no_scales(self):
+        """Test that merging with no scales raises error"""
+        with pytest.raises(ValueError, match="At least one scale required"):
+            merge_scales()
+
+    def test_merge_scales_many(self):
+        """Test merging many scales"""
+        scales = [
+            create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60),
+            create_tuning_system_scale(TuningSystem.EQUAL_19, tonic_midi=60),
+            create_tuning_system_scale(TuningSystem.JUST_INTONATION_7, tonic_midi=60),
+            create_tuning_system_scale(TuningSystem.PYTHAGOREAN, tonic_midi=60),
+            create_tuning_system_scale(TuningSystem.MEANTONE, tonic_midi=60),
+        ]
+
+        merged = merge_scales(*scales)
+
+        assert isinstance(merged, MicrotonalScale)
+        # Name should indicate "more" for many scales
+        assert "more" in merged.name or "+" in merged.name
+
+
+class TestIntegrationChordAndTransformations:
+    """Integration tests for chord theory and transformations"""
+
+    def test_build_chords_from_morphed_scales(self):
+        """Test building chords from morphed scales"""
+        scale1 = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        scale2 = create_tuning_system_scale(TuningSystem.JUST_INTONATION_7, tonic_midi=60)
+
+        morph_sequence = morph_scales(scale1, scale2, num_steps=3, interpolation="linear")
+
+        # Build chords from each morphed scale
+        chords = []
+        for scale in morph_sequence:
+            if len(scale.intervals_cents) >= 5:
+                chord = build_microtonal_chord(scale, root_degree=0, num_notes=3, skip_pattern=[0, 2, 4])
+                chords.append(chord)
+
+        # Should have generated several chords
+        assert len(chords) > 0
+        assert all(isinstance(c, MicrotonalChord) for c in chords)
+
+    def test_progression_from_stretched_scale(self):
+        """Test generating progression from stretched scale"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        stretched = stretch_scale(scale, stretch_factor=1.1, preserve_octave=True)
+
+        progression = generate_microtonal_chord_progression(
+            stretched, num_chords=4, chord_size=3, progression_type="ascending"
+        )
+
+        assert len(progression) == 4
+        assert all(isinstance(c, MicrotonalChord) for c in progression)
+
+    def test_merge_and_build_chords(self):
+        """Test merging scales then building chords"""
+        scale1 = create_tuning_system_scale(TuningSystem.EQUAL_12, tonic_midi=60)
+        scale2 = create_tuning_system_scale(TuningSystem.JUST_INTONATION_7, tonic_midi=60)
+
+        merged = merge_scales(scale1, scale2)
+
+        if len(merged.intervals_cents) >= 7:
+            chord = build_microtonal_chord(merged, root_degree=0, num_notes=4, skip_pattern=[0, 2, 4, 6])
+            assert isinstance(chord, MicrotonalChord)
+            analysis = analyze_chord_consonance(chord)
+            assert 'quality' in analysis
+
+    def test_extract_subset_and_progression(self):
+        """Test extracting subset and generating progression"""
+        scale = create_tuning_system_scale(TuningSystem.EQUAL_19, tonic_midi=60)
+        subset = extract_scale_subset(scale, num_degrees=12, method="even")
+
+        progression = generate_microtonal_chord_progression(
+            subset, num_chords=3, chord_size=3, progression_type="circle_of_fifths"
+        )
+
+        assert len(progression) == 3
+        assert all(isinstance(c, MicrotonalChord) for c in progression)

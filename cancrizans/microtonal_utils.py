@@ -727,3 +727,515 @@ def import_scala_file(
         intervals_cents=sorted(set(intervals_cents)),
         tonic_midi=tonic_midi
     )
+
+
+# ============================================================================
+# Microtonal Chord Theory
+# ============================================================================
+
+@dataclass
+class MicrotonalChord:
+    """Represents a chord built from microtonal intervals"""
+    root: MicrotonalPitch
+    intervals_cents: List[float]
+    quality: str  # "consonant", "dissonant", "ambiguous"
+    tension_score: float  # 0.0 = consonant, 1.0+ = dissonant
+    chord_type: Optional[str] = None  # "triad", "tetrad", "cluster", etc.
+
+
+def build_microtonal_chord(
+    scale: MicrotonalScale,
+    root_degree: int,
+    num_notes: int = 3,
+    skip_pattern: Optional[List[int]] = None
+) -> MicrotonalChord:
+    """
+    Build a chord from a microtonal scale
+
+    Args:
+        scale: Source scale
+        root_degree: Scale degree for chord root (0 = tonic)
+        num_notes: Number of notes in chord
+        skip_pattern: Pattern of scale degrees to skip (e.g., [0, 2, 4] for triad)
+                     If None, uses consecutive scale degrees
+
+    Returns:
+        MicrotonalChord object
+    """
+    if root_degree >= len(scale.intervals_cents):
+        raise ValueError(f"Root degree {root_degree} out of range")
+
+    # Determine chord intervals
+    if skip_pattern is None:
+        # Use consecutive scale degrees
+        skip_pattern = list(range(num_notes))
+
+    chord_intervals = []
+    for skip in skip_pattern[:num_notes]:
+        degree = (root_degree + skip) % len(scale.intervals_cents)
+        interval = scale.intervals_cents[degree]
+
+        # Adjust for octave wrapping
+        while interval < scale.intervals_cents[root_degree]:
+            interval += 1200.0
+
+        chord_intervals.append(interval - scale.intervals_cents[root_degree])
+
+    # Calculate root pitch
+    root_pitch = MicrotonalPitch(
+        midi_note=scale.tonic_midi,
+        cent_deviation=scale.intervals_cents[root_degree]
+    )
+
+    # Analyze chord quality
+    tension = _calculate_chord_tension(chord_intervals)
+    quality = _determine_chord_quality(tension)
+    chord_type = _classify_chord_type(chord_intervals, num_notes)
+
+    return MicrotonalChord(
+        root=root_pitch,
+        intervals_cents=chord_intervals,
+        quality=quality,
+        tension_score=tension,
+        chord_type=chord_type
+    )
+
+
+def _calculate_chord_tension(intervals: List[float]) -> float:
+    """Calculate tension/dissonance of chord intervals"""
+    if len(intervals) < 2:
+        return 0.0
+
+    # Check for consonant intervals (octaves, fifths, fourths, thirds)
+    consonant_ratios = {
+        (2, 1): 0.0,   # Octave
+        (3, 2): 0.1,   # Perfect fifth
+        (4, 3): 0.15,  # Perfect fourth
+        (5, 4): 0.2,   # Major third
+        (6, 5): 0.25,  # Minor third
+        (5, 3): 0.3,   # Major sixth
+    }
+
+    tension = 0.0
+    num_intervals = 0
+
+    for interval in intervals:
+        if interval == 0.0:
+            continue
+
+        # Convert to ratio
+        ratio = 2 ** (interval / 1200.0)
+
+        # Find nearest simple ratio
+        min_tension = 1.0
+        for (num, den), base_tension in consonant_ratios.items():
+            simple_ratio = num / den
+            if abs(ratio - simple_ratio) < 0.05:  # Within 5%
+                min_tension = min(min_tension, base_tension)
+
+        # Penalize small intervals (semitones and smaller)
+        if interval < 100:
+            min_tension += 0.5
+
+        tension += min_tension
+        num_intervals += 1
+
+    return tension / num_intervals if num_intervals > 0 else 0.0
+
+
+def _determine_chord_quality(tension: float) -> str:
+    """Determine chord quality from tension score"""
+    if tension < 0.3:
+        return "consonant"
+    elif tension < 0.6:
+        return "ambiguous"
+    else:
+        return "dissonant"
+
+
+def _classify_chord_type(intervals: List[float], num_notes: int) -> str:
+    """Classify chord type based on structure"""
+    if num_notes == 2:
+        return "dyad"
+    elif num_notes == 3:
+        return "triad"
+    elif num_notes == 4:
+        return "tetrad"
+    elif num_notes == 5:
+        return "pentad"
+    elif num_notes >= 6:
+        # Check if it's a cluster (all intervals < 200 cents)
+        max_interval = max(intervals) if intervals else 0
+        if max_interval < 200:
+            return "cluster"
+        return "polychord"
+
+    return "chord"
+
+
+def analyze_chord_consonance(chord: MicrotonalChord) -> Dict[str, any]:
+    """
+    Analyze the consonance properties of a microtonal chord
+
+    Args:
+        chord: Chord to analyze
+
+    Returns:
+        Dictionary with analysis results
+    """
+    analysis = {
+        'quality': chord.quality,
+        'tension_score': chord.tension_score,
+        'chord_type': chord.chord_type,
+        'num_notes': len(chord.intervals_cents),
+        'interval_analysis': [],
+        'harmonic_series_alignment': 0.0
+    }
+
+    # Analyze each interval
+    for i, interval in enumerate(chord.intervals_cents):
+        if interval == 0.0:
+            continue
+
+        ratio = 2 ** (interval / 1200.0)
+        interval_info = {
+            'cents': interval,
+            'ratio': ratio,
+            'simple_ratio_approximation': _find_simple_ratio(ratio)
+        }
+        analysis['interval_analysis'].append(interval_info)
+
+    # Check alignment with harmonic series
+    if len(chord.intervals_cents) > 1:
+        alignment = _check_harmonic_series_alignment(chord.intervals_cents)
+        analysis['harmonic_series_alignment'] = alignment
+
+    return analysis
+
+
+def _find_simple_ratio(ratio: float, max_denominator: int = 16) -> Optional[Tuple[int, int]]:
+    """Find simple ratio approximation"""
+    best_error = float('inf')
+    best_ratio = None
+
+    for den in range(1, max_denominator + 1):
+        num = round(ratio * den)
+        if num == 0:
+            continue
+
+        test_ratio = num / den
+        error = abs(ratio - test_ratio)
+
+        if error < best_error:
+            best_error = error
+            best_ratio = (num, den)
+
+    if best_error < 0.01:  # Within 1%
+        return best_ratio
+    return None
+
+
+def _check_harmonic_series_alignment(intervals: List[float]) -> float:
+    """Check how well intervals align with harmonic series"""
+    if not intervals:
+        return 0.0
+
+    # Harmonic series ratios: 1:2:3:4:5:6:7:8...
+    harmonic_ratios = [i for i in range(1, 17)]
+
+    alignment_score = 0.0
+    for interval in intervals:
+        if interval == 0.0:
+            continue
+
+        ratio = 2 ** (interval / 1200.0)
+
+        # Find nearest harmonic
+        min_distance = float('inf')
+        for h in harmonic_ratios:
+            distance = abs(ratio - h)
+            min_distance = min(min_distance, distance)
+
+        # Convert to score (closer = higher score)
+        if min_distance < 0.1:
+            alignment_score += 1.0 - min_distance
+
+    return alignment_score / len([i for i in intervals if i != 0.0])
+
+
+def generate_microtonal_chord_progression(
+    scale: MicrotonalScale,
+    num_chords: int = 4,
+    chord_size: int = 3,
+    progression_type: str = "ascending"
+) -> List[MicrotonalChord]:
+    """
+    Generate a chord progression from a microtonal scale
+
+    Args:
+        scale: Source scale
+        num_chords: Number of chords in progression
+        chord_size: Notes per chord
+        progression_type: "ascending", "descending", "circle_of_fifths", "random"
+
+    Returns:
+        List of microtonal chords
+    """
+    import random
+
+    progression = []
+    num_degrees = len(scale.intervals_cents)
+
+    if progression_type == "ascending":
+        root_degrees = [i % num_degrees for i in range(0, num_chords * 2, 2)]
+    elif progression_type == "descending":
+        root_degrees = [i % num_degrees for i in range(num_degrees - 1, num_degrees - 1 - num_chords * 2, -2)]
+    elif progression_type == "circle_of_fifths":
+        # Find interval closest to perfect fifth (700 cents)
+        fifth_degree = min(range(num_degrees),
+                          key=lambda d: abs(scale.intervals_cents[d] - 700))
+        root_degrees = [(i * fifth_degree) % num_degrees for i in range(num_chords)]
+    elif progression_type == "random":
+        root_degrees = [random.randint(0, num_degrees - 1) for _ in range(num_chords)]
+    else:
+        raise ValueError(f"Unknown progression type: {progression_type}")
+
+    for root_degree in root_degrees[:num_chords]:
+        # Build tertian harmony (skip every other scale degree)
+        skip_pattern = [i * 2 for i in range(chord_size)]
+        chord = build_microtonal_chord(scale, root_degree, chord_size, skip_pattern)
+        progression.append(chord)
+
+    return progression
+
+
+# ============================================================================
+# Advanced Microtonal Transformations
+# ============================================================================
+
+def morph_scales(
+    scale1: MicrotonalScale,
+    scale2: MicrotonalScale,
+    num_steps: int = 10,
+    interpolation: str = "linear"
+) -> List[MicrotonalScale]:
+    """
+    Create a smooth morphing sequence between two scales
+
+    Args:
+        scale1: Starting scale
+        scale2: Ending scale
+        num_steps: Number of intermediate steps
+        interpolation: "linear", "ease_in", "ease_out", "ease_in_out"
+
+    Returns:
+        List of scales forming a morph sequence
+    """
+    morph_sequence = [scale1]
+
+    for step in range(1, num_steps + 1):
+        # Calculate interpolation weight
+        t = step / (num_steps + 1)
+
+        # Apply easing function
+        if interpolation == "ease_in":
+            t = t * t
+        elif interpolation == "ease_out":
+            t = 1 - (1 - t) * (1 - t)
+        elif interpolation == "ease_in_out":
+            t = 3 * t * t - 2 * t * t * t
+        # else: linear (no change to t)
+
+        # Blend scales with interpolated weight
+        morphed = blend_scales(scale1, scale2, t)
+        morph_sequence.append(morphed)
+
+    morph_sequence.append(scale2)
+
+    return morph_sequence
+
+
+def stretch_scale(
+    scale: MicrotonalScale,
+    stretch_factor: float,
+    preserve_octave: bool = True
+) -> MicrotonalScale:
+    """
+    Stretch or compress all intervals in a scale
+
+    Args:
+        scale: Source scale
+        stretch_factor: Multiplier for intervals (>1 = stretch, <1 = compress)
+        preserve_octave: If True, scale octave back to 1200 cents
+
+    Returns:
+        Transformed scale
+    """
+    stretched_intervals = [0.0]
+
+    for interval in scale.intervals_cents[1:]:  # Skip tonic
+        stretched = interval * stretch_factor
+        stretched_intervals.append(stretched)
+
+    # Normalize to preserve octave if requested
+    if preserve_octave and stretched_intervals:
+        max_interval = max(stretched_intervals)
+        if max_interval > 0:
+            octave_ratio = 1200.0 / max_interval
+            stretched_intervals = [i * octave_ratio for i in stretched_intervals]
+
+    return MicrotonalScale(
+        name=f"{scale.name} (stretch {stretch_factor:.2f}x)",
+        intervals_cents=stretched_intervals,
+        tonic_midi=scale.tonic_midi
+    )
+
+
+def extract_scale_subset(
+    scale: MicrotonalScale,
+    num_degrees: int,
+    method: str = "even"
+) -> MicrotonalScale:
+    """
+    Extract a subset of scale degrees
+
+    Args:
+        scale: Source scale
+        num_degrees: Number of degrees to extract
+        method: "even" (evenly spaced), "low" (lowest degrees), "high" (highest degrees)
+
+    Returns:
+        New scale with subset of degrees
+    """
+    total_degrees = len(scale.intervals_cents)
+
+    if num_degrees >= total_degrees:
+        return scale
+
+    if method == "even":
+        # Evenly spaced degrees
+        step = total_degrees / num_degrees
+        indices = [int(i * step) for i in range(num_degrees)]
+    elif method == "low":
+        indices = list(range(num_degrees))
+    elif method == "high":
+        indices = list(range(total_degrees - num_degrees, total_degrees))
+    else:
+        raise ValueError(f"Unknown method: {method}")
+
+    subset_intervals = [scale.intervals_cents[i] for i in indices]
+
+    return MicrotonalScale(
+        name=f"{scale.name} ({num_degrees}-subset)",
+        intervals_cents=subset_intervals,
+        tonic_midi=scale.tonic_midi
+    )
+
+
+def create_equal_division_scale(
+    num_divisions: int,
+    interval_cents: float = 1200.0,
+    tonic_midi: int = 60
+) -> MicrotonalScale:
+    """
+    Create a scale with equal divisions of an interval
+
+    Args:
+        num_divisions: Number of equal divisions
+        interval_cents: Interval to divide (default: 1200 = octave)
+        tonic_midi: MIDI note for tonic
+
+    Returns:
+        Equal division scale
+
+    Example:
+        >>> # 19-TET (19 equal divisions of octave)
+        >>> scale = create_equal_division_scale(19)
+        >>> # Bohlen-Pierce (13 equal divisions of 3:1 tritave)
+        >>> bp_scale = create_equal_division_scale(13, 1901.955)  # 1200 * log2(3)
+    """
+    step_size = interval_cents / num_divisions
+    intervals = [i * step_size for i in range(num_divisions + 1)]
+
+    interval_name = "octave" if abs(interval_cents - 1200.0) < 1 else f"{interval_cents:.0f}c"
+
+    return MicrotonalScale(
+        name=f"{num_divisions}-ED{interval_name}",
+        intervals_cents=intervals,
+        tonic_midi=tonic_midi
+    )
+
+
+def rotate_scale_intervals(
+    scale: MicrotonalScale,
+    rotation_cents: float
+) -> MicrotonalScale:
+    """
+    Rotate all intervals by a fixed amount
+
+    Args:
+        scale: Source scale
+        rotation_cents: Amount to rotate (in cents)
+
+    Returns:
+        Rotated scale
+    """
+    rotated_intervals = []
+
+    for interval in scale.intervals_cents:
+        rotated = (interval + rotation_cents) % 1200.0
+        rotated_intervals.append(rotated)
+
+    return MicrotonalScale(
+        name=f"{scale.name} (rotated {rotation_cents:.0f}c)",
+        intervals_cents=sorted(set(rotated_intervals)),
+        tonic_midi=scale.tonic_midi
+    )
+
+
+def merge_scales(
+    *scales: MicrotonalScale,
+    tolerance_cents: float = 5.0
+) -> MicrotonalScale:
+    """
+    Merge multiple scales into one, combining all unique intervals
+
+    Args:
+        *scales: Scales to merge
+        tolerance_cents: Intervals within this tolerance are considered identical
+
+    Returns:
+        Merged scale containing all unique intervals
+    """
+    if not scales:
+        raise ValueError("At least one scale required")
+
+    all_intervals = []
+    for scale in scales:
+        all_intervals.extend(scale.intervals_cents)
+
+    # Remove duplicates within tolerance
+    unique_intervals = [0.0]
+    for interval in sorted(set(all_intervals)):
+        if interval == 0.0:
+            continue
+
+        # Check if this interval is close to any existing one
+        is_duplicate = False
+        for existing in unique_intervals:
+            if abs(interval - existing) < tolerance_cents:
+                is_duplicate = True
+                break
+
+        if not is_duplicate:
+            unique_intervals.append(interval)
+
+    scale_names = " + ".join(s.name for s in scales[:3])
+    if len(scales) > 3:
+        scale_names += f" + {len(scales) - 3} more"
+
+    return MicrotonalScale(
+        name=f"Merged: {scale_names}",
+        intervals_cents=sorted(unique_intervals),
+        tonic_midi=scales[0].tonic_midi
+    )
