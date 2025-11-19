@@ -6,7 +6,7 @@ palindromic musical structures, with a focus on Bach's Canon Cancrizans
 from The Musical Offering (BWV 1079).
 """
 
-__version__ = "0.38.0"
+__version__ = "0.39.0"
 
 from cancrizans.canon import (
     # Basic transformations

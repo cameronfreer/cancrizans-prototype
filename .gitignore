@@ -46,9 +46,11 @@ venv.bak/
 
 # Output files
 out/
+output/
 *.mid
 *.wav
 *.png
+*.scl
 
 # Benchmark results
 benchmarks/results/
